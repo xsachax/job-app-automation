@@ -1,0 +1,25 @@
+Jordan Rivera
+jordan.rivera@example.com
++1 415 555 0142
+San Francisco, CA
+https://linkedin.com/in/jordanrivera
+https://github.com/jordanrivera
+https://jordanrivera.dev
+
+SUMMARY
+Full-stack software engineer with 4 years building web applications in TypeScript,
+React, and Node.js. Enjoys shipping clean, well-tested product features end to end.
+
+SKILLS
+TypeScript, JavaScript, React, Next.js, Node.js, PostgreSQL, Prisma, Playwright, Docker, AWS
+
+EXPERIENCE
+Software Engineer, Example Corp (2022 - Present)
+- Built and maintained customer-facing dashboards used by 20k+ users.
+- Led migration to a typed API layer, cutting runtime errors by 40%.
+
+Software Engineer, Startup Inc (2020 - 2022)
+- Shipped the core billing flow and internal admin tooling.
+
+EDUCATION
+B.S. Computer Science, State University (2020)
