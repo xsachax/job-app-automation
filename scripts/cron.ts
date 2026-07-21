@@ -19,7 +19,7 @@ async function scanOnce(reason: string) {
     console.log(
       `[${new Date().toISOString()}] scan done: +${summary.totals.created} new, ` +
         `${summary.totals.updated} deduped, ${summary.totals.workday} workday, ` +
-        `${summary.totals.errors} errors (${summary.durationMs}ms)`,
+        `${summary.totals.resumeScored} fit-scored, ${summary.totals.errors} errors (${summary.durationMs}ms)`,
     );
   } catch (e) {
     console.error("scan failed:", e);

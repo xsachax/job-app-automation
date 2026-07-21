@@ -47,6 +47,36 @@ export function ScoreBadge({ score }: { score: number }) {
   );
 }
 
+// Tier-2 resume-fit badge. `provider` distinguishes the deterministic baseline
+// ("auto") from a Copilot agent judgement ("agent").
+export function FitBadge({
+  score,
+  provider,
+}: {
+  score: number | null | undefined;
+  provider?: string | null;
+}) {
+  if (score == null) return null;
+  const color =
+    score >= 70
+      ? "bg-indigo-100 text-indigo-700"
+      : score >= 40
+        ? "bg-indigo-50 text-indigo-600"
+        : "bg-gray-100 text-gray-500";
+  const tag = provider === "agent" ? "agent" : "auto";
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs font-semibold ${color}`}
+      title={provider === "agent" ? "Scored by Copilot agent" : "Deterministic baseline score"}
+    >
+      fit {score}
+      <span className="rounded bg-white/60 px-1 text-[10px] font-medium uppercase tracking-wide">
+        {tag}
+      </span>
+    </span>
+  );
+}
+
 export function PageHeader({ title, subtitle, children }: { title: string; subtitle?: string; children?: ReactNode }) {
   return (
     <div className="mb-6 flex flex-wrap items-end justify-between gap-3">

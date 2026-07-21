@@ -21,6 +21,9 @@ separately so you can handle them by hand.
   and "Run now" from the dashboard.
 - **Three-layer dedup so you never apply twice** (see [below](#dedup--never-apply-twice)).
 - **Rule-based fit scoring** against your criteria — deterministic, no API key needed.
+- **Two-tier resume matching** — a deterministic skills/resume baseline on every scan,
+  plus an optional **agent-in-the-loop** pass where Copilot judges fit against your
+  resume and writes richer scores back (no API key; see [below](#matching--scoring)).
 - **Human approval gate** — every application parks at `pending_approval`; you review
   the exact fields that will be sent, then confirm.
 - **Refresh Profile** — re-reads your latest resume, parses it, and fills any blank
@@ -124,9 +127,45 @@ Three independent guards:
 
 ## Matching / scoring
 
-`lib/matching/score.ts` scores each job 0–100 against your criteria: title match,
-boost keywords, location/remote fit, seniority — with hard exclusions via
-`excludeKeywords`. It's deterministic and needs no LLM.
+Matching is **two-tier** so cheap, universal scoring happens on every scan and the
+expensive, judgement-based scoring is targeted and re-runnable.
+
+**Tier 1 — rule score (always, over everything).** `lib/matching/score.ts` scores
+each job 0–100 against your *criteria*: title match, boost keywords, location/remote
+fit, seniority — with hard exclusions via `excludeKeywords`. Deterministic, no LLM.
+Stored on `Match.score`.
+
+**Tier 2 — resume fit (skills + experience).** `lib/matching/resume.ts` scores each
+job 0–100 against your *resume* (parsed skills, prior roles, summary, full text):
+skill coverage, title alignment, keyword resonance, and notable posting requirements
+missing from your resume. This deterministic **baseline** runs at the end of every
+scan and after **Refresh Profile**, stored on `Match.resumeScore`
+(`matchProvider = "deterministic"`).
+
+**Tier 2, agent-in-the-loop (optional, powered by Copilot — no API key).** For nuanced
+judgement (transferable experience, seniority, hard-requirement gaps) the Copilot agent
+itself scores the shortlist during a session:
+
+```bash
+npm run match:export              # writes .match/review.json: top jobs + your resume
+                                  #   flags: -- --limit 25 --min 40 --all --out <file>
+# → the agent reads that file, scores each job's resume fit, and writes
+#   {"scores":[{jobId,score,reasons,summary,recommend}]} to a file
+npm run match:apply -- --in <file>   # persists agent scores (matchProvider = "agent")
+
+npm run match:rescore             # recompute the deterministic baseline on demand
+                                  #   (agent scores at the current resume version are kept)
+```
+
+Agent scores override the baseline and show as an **`agent`** fit badge in the Jobs
+page (deterministic ones show **`auto`**). Because each score is stamped with the
+resume version used, a new resume (via Refresh Profile) marks scores stale and
+re-queues those jobs for review. The dashboard's **Re-score fit** button and
+`POST /api/match/rescore` run the baseline pass; `GET /api/match/review` returns the
+current shortlist.
+
+> **Scrape everything, then match** — jobs are always stored and deduped first, so
+> changing your criteria or resume re-scores instantly with no re-scraping.
 
 ## Refresh Profile & resume parsing
 
@@ -164,7 +203,7 @@ to each form before trusting them.
 ## Testing
 
 ```bash
-npm test          # vitest: dedup, scoring, adapters, resume parser, full pipeline
+npm test          # vitest: dedup, scoring, resume matching, adapters, resume parser, full pipeline
 npm run typecheck # tsc --noEmit
 npm run lint      # eslint
 npm run build     # production build
@@ -179,13 +218,13 @@ network calls, so the suite is offline and deterministic.
 app/                 Next.js dashboard (pages) + API routes under app/api
 lib/
   sources/           adapters, dedup/normalize, run engine, registry
-  matching/          rule-based scoring
+  matching/          score.ts (rule/criteria), resume.ts (resume fit), agent.ts (agent-in-the-loop)
   applications/      draft, human-gate service, dry-run/live submit
   profile/           resume extraction + Refresh Profile
   llm/               resume parsing (OpenAI + deterministic fallback)
   settings.ts        Profile & Criteria singletons
 prisma/              schema, migrations, seed
-scripts/             scan (one-off) + cron (scheduled)
+scripts/             scan (one-off) + cron (scheduled) + match (agent resume review)
 test/                vitest suite
 sample-data/         a sample resume for the demo profile
 ```

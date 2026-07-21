@@ -11,6 +11,7 @@ async function main() {
   console.log(`  updated : ${summary.totals.updated} (deduped)`);
   console.log(`  workday : ${summary.totals.workday} (flagged)`);
   console.log(`  skipped : ${summary.totals.skipped}`);
+  console.log(`  fit     : ${summary.totals.resumeScored} resume-scored`);
   console.log(`  errors  : ${summary.totals.errors}`);
   for (const r of summary.sources) {
     const tag = r.error ? `ERROR: ${r.error}` : `+${r.created} new, ${r.updated} dedup`;

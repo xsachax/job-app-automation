@@ -1,0 +1,65 @@
+import { describe, it, expect } from "vitest";
+import { scoreResumeFit, type ResumeContext } from "../lib/matching/resume";
+
+const resume: ResumeContext = {
+  skills: ["TypeScript", "React", "Node.js", "PostgreSQL", "GraphQL", "AWS"],
+  titles: ["Senior Software Engineer", "Full-stack Engineer"],
+  summary: "Full-stack engineer building product features end to end.",
+  text: "Full-stack engineer with TypeScript, React and Node.js experience shipping product.",
+};
+
+describe("scoreResumeFit", () => {
+  it("scores a strongly-overlapping posting highly", () => {
+    const r = scoreResumeFit(
+      {
+        title: "Senior Software Engineer",
+        description: "Build features with TypeScript, React, Node.js and PostgreSQL on AWS.",
+      },
+      resume,
+    );
+    expect(r.score).toBeGreaterThanOrEqual(60);
+    expect(r.matchedSkills).toEqual(
+      expect.arrayContaining(["TypeScript", "React", "Node.js", "PostgreSQL", "AWS"]),
+    );
+  });
+
+  it("scores an unrelated posting low", () => {
+    const r = scoreResumeFit(
+      { title: "Warehouse Associate", description: "Operate a forklift and manage inventory." },
+      resume,
+    );
+    expect(r.score).toBeLessThan(25);
+  });
+
+  it("matches multi-word skills as phrases", () => {
+    const ml: ResumeContext = { skills: ["machine learning", "python"] };
+    const hit = scoreResumeFit(
+      { title: "ML Engineer", description: "Deep machine learning in python." },
+      ml,
+    );
+    const miss = scoreResumeFit(
+      { title: "ML Engineer", description: "A machine that is learning to walk." },
+      ml,
+    );
+    expect(hit.matchedSkills).toContain("machine learning");
+    expect(miss.matchedSkills).not.toContain("machine learning");
+  });
+
+  it("surfaces prominent posting keywords absent from the resume", () => {
+    const r = scoreResumeFit(
+      {
+        title: "Backend Engineer",
+        description: "Kubernetes kubernetes kubernetes and Rust rust rust required.",
+      },
+      resume,
+    );
+    expect(r.missingSignals).toEqual(expect.arrayContaining(["kubernetes"]));
+  });
+
+  it("clamps into 0..100 and handles an empty resume", () => {
+    const r = scoreResumeFit({ title: "Software Engineer" }, {});
+    expect(r.score).toBeGreaterThanOrEqual(0);
+    expect(r.score).toBeLessThanOrEqual(100);
+    expect(r.reasons.join(" ")).toMatch(/title-based/i);
+  });
+});

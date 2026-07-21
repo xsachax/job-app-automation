@@ -4,7 +4,7 @@ import { json } from "@/lib/http";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const [sources, enabledSources, totalJobs, workdayJobs, matchGroups, submitted, pending] =
+  const [sources, enabledSources, totalJobs, workdayJobs, matchGroups, submitted, pending, agentReviewed] =
     await Promise.all([
       prisma.source.count(),
       prisma.source.count({ where: { enabled: true } }),
@@ -13,6 +13,7 @@ export async function GET() {
       prisma.match.groupBy({ by: ["status"], _count: { _all: true } }),
       prisma.application.count({ where: { status: "submitted" } }),
       prisma.application.count({ where: { status: "pending_approval" } }),
+      prisma.match.count({ where: { matchProvider: "agent" } }),
     ]);
 
   const matchesByStatus: Record<string, number> = {};
@@ -26,5 +27,6 @@ export async function GET() {
     matchesByStatus,
     submitted,
     pending,
+    agentReviewed,
   });
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "../components/api";
-import { cls, PageHeader, ScoreBadge, StatusBadge } from "../components/ui";
+import { cls, PageHeader, ScoreBadge, FitBadge, StatusBadge } from "../components/ui";
 
 interface Sighting {
   source: { id: string; name: string; kind: string };
@@ -17,6 +17,10 @@ interface Match {
   score: number;
   reasons: string | null;
   status: string;
+  resumeScore: number | null;
+  resumeReasons: string | null;
+  resumeSummary: string | null;
+  matchProvider: string | null;
 }
 interface Job {
   id: string;
@@ -50,6 +54,7 @@ export default function JobsPage() {
   const [status, setStatus] = useState("all");
   const [q, setQ] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [rescoring, setRescoring] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -89,6 +94,19 @@ export default function JobsPage() {
     }
   }
 
+  async function rescoreFit() {
+    setRescoring(true);
+    setError(null);
+    try {
+      await api("/api/match/rescore", { method: "POST" });
+      setRefreshKey((k) => k + 1);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setRescoring(false);
+    }
+  }
+
   return (
     <div>
       <PageHeader title="Jobs" subtitle="Matched postings, scored against your criteria. Apply behind the human gate." />
@@ -107,6 +125,9 @@ export default function JobsPage() {
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search title or company…"
         />
+        <button onClick={rescoreFit} disabled={rescoring} className={cls.btn} title="Recompute resume-fit baseline for all jobs">
+          {rescoring ? "Re-scoring…" : "Re-score fit"}
+        </button>
       </div>
 
       {error && (
@@ -126,6 +147,7 @@ export default function JobsPage() {
           {jobs.map((job) => {
             const app = job.application;
             const reasons = parse<string[]>(job.match?.reasons ?? null, []);
+            const resumeReasons = parse<string[]>(job.match?.resumeReasons ?? null, []);
             const fields = parse<Record<string, unknown>>(app?.fields ?? null, {});
             const missing = REQUIRED.filter((k) => {
               const v = fields[k];
@@ -156,7 +178,20 @@ export default function JobsPage() {
                         <span className="ml-1 rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-500">
                           {job.atsType}
                         </span>
+                        <span className="ml-2 align-middle">
+                          <FitBadge score={job.match?.resumeScore} provider={job.match?.matchProvider} />
+                        </span>
                       </div>
+                      {job.match?.resumeSummary && (
+                        <div className="mt-1 text-xs font-medium text-indigo-700">
+                          {job.match.resumeSummary}
+                        </div>
+                      )}
+                      {resumeReasons.length > 0 && (
+                        <div className="mt-1 text-xs text-indigo-500/80">
+                          fit: {resumeReasons.join(" · ")}
+                        </div>
+                      )}
                       {reasons.length > 0 && (
                         <div className="mt-1 text-xs text-gray-400">{reasons.join(" · ")}</div>
                       )}

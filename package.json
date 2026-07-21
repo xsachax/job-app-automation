@@ -15,7 +15,10 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:reset": "prisma migrate reset --force",
     "scan": "tsx scripts/scan.ts",
-    "cron": "tsx scripts/cron.ts"
+    "cron": "tsx scripts/cron.ts",
+    "match:export": "tsx scripts/match.ts export",
+    "match:apply": "tsx scripts/match.ts apply",
+    "match:rescore": "tsx scripts/match.ts rescore"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

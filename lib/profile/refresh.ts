@@ -3,6 +3,7 @@ import { getProfile, saveProfile, type ProfileData } from "../settings";
 import { extractResumeText } from "./resume";
 import { parseResume } from "../llm";
 import type { ParsedResume } from "../llm/types";
+import { rescoreResumeFit } from "../matching/agent";
 
 export interface RefreshResult {
   provider: string;
@@ -11,6 +12,7 @@ export interface RefreshResult {
   updatedFields: string[];
   profile: ProfileData;
   resumeVersionId: string;
+  resumeScored: number;
 }
 
 function isBlank(v: unknown): boolean {
@@ -56,6 +58,16 @@ export async function refreshProfile(sourceOverride?: string): Promise<RefreshRe
 
   const updatedProfile = await saveProfile(updates);
 
+  // A new resume means every job's fit is now stale — refresh the deterministic
+  // baseline immediately. This also re-queues jobs for agent review (their
+  // scoredResumeVersion no longer matches the latest version).
+  let resumeScored = 0;
+  try {
+    resumeScored = (await rescoreResumeFit()).scored;
+  } catch {
+    // best-effort
+  }
+
   return {
     provider,
     source,
@@ -63,5 +75,6 @@ export async function refreshProfile(sourceOverride?: string): Promise<RefreshRe
     updatedFields,
     profile: updatedProfile,
     resumeVersionId: version.id,
+    resumeScored,
   };
 }

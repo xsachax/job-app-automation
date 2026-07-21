@@ -1,6 +1,7 @@
 import { prisma } from "../db";
 import { runSource, type RunResult } from "../sources/run";
 import { getCriteria } from "../settings";
+import { rescoreResumeFit } from "../matching/agent";
 
 export interface ScanSummary {
   startedAt: string;
@@ -15,6 +16,7 @@ export interface ScanSummary {
     workday: number;
     skipped: number;
     errors: number;
+    resumeScored: number;
   };
 }
 
@@ -43,8 +45,17 @@ export async function runScan(): Promise<ScanSummary> {
       if (r.error) acc.errors += 1;
       return acc;
     },
-    { sources: results.length, fetched: 0, created: 0, updated: 0, workday: 0, skipped: 0, errors: 0 },
+    { sources: results.length, fetched: 0, created: 0, updated: 0, workday: 0, skipped: 0, errors: 0, resumeScored: 0 },
   );
+
+  // Tier-2 baseline: give every active match a resume-aware fit score. Agent
+  // scores at the current resume version are preserved by this pass.
+  try {
+    const rescore = await rescoreResumeFit();
+    totals.resumeScored = rescore.scored;
+  } catch {
+    // resume scoring is best-effort; never fail a scan over it
+  }
 
   const finished = Date.now();
   return {

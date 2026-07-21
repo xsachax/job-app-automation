@@ -16,7 +16,7 @@ function Stat({ label, value, hint }: { label: string; value: number | string; h
 }
 
 export default async function OverviewPage() {
-  const [sources, enabledSources, totalJobs, workdayJobs, groups, submitted, pending, recent] =
+  const [sources, enabledSources, totalJobs, workdayJobs, groups, submitted, pending, agentReviewed, recent] =
     await Promise.all([
       prisma.source.count(),
       prisma.source.count({ where: { enabled: true } }),
@@ -25,6 +25,7 @@ export default async function OverviewPage() {
       prisma.match.groupBy({ by: ["status"], _count: { _all: true } }),
       prisma.application.count({ where: { status: "submitted" } }),
       prisma.application.count({ where: { status: "pending_approval" } }),
+      prisma.match.count({ where: { matchProvider: "agent" } }),
       prisma.source.findMany({ orderBy: { updatedAt: "desc" }, take: 8 }),
     ]);
 
@@ -62,6 +63,7 @@ export default async function OverviewPage() {
         <Stat label="Sources" value={sources} hint={`${enabledSources} enabled`} />
         <Stat label="Jobs tracked" value={totalJobs} hint="deduped across sources" />
         <Stat label="New matches" value={byStatus["new"] ?? 0} />
+        <Stat label="Agent-reviewed" value={agentReviewed} hint="resume fit by Copilot" />
         <Stat label="Pending approval" value={pending} hint="awaiting your gate" />
         <Stat label="Submitted" value={submitted} />
         <Stat label="Workday flagged" value={workdayJobs} hint="never auto-applied" />
