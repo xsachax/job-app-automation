@@ -1,0 +1,116 @@
+// Job Application Pipeline — data model
+// SQLite for local-first dev; swap datasource to Postgres later without code changes.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// A configurable job board source (Greenhouse, Lever, Ashby, GitHub repo, RSS, JSON...).
+model Source {
+  id           String        @id @default(cuid())
+  name         String
+  kind         String // greenhouse | lever | ashby | workable | github-repo | rss | json
+  config       String        @default("{}") // JSON blob of adapter-specific config
+  enabled      Boolean       @default(true)
+  lastRunAt    DateTime?
+  lastStatus   String? // ok | error
+  lastMessage  String?
+  lastJobCount Int           @default(0) // new jobs created on last run
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  sightings    JobSighting[]
+}
+
+// A canonical, deduplicated job posting. One row per real-world job across all sources.
+model Job {
+  id          String        @id @default(cuid())
+  dedupeKey   String        @unique // atsType:externalId, or fp:<hash>
+  atsType     String        @default("unknown") // greenhouse | lever | ashby | workday | workable | unknown
+  externalId  String?
+  title       String
+  company     String
+  location    String?
+  remote      Boolean       @default(false)
+  applyUrl    String
+  description String?
+  postedAt    DateTime?
+  isWorkday   Boolean       @default(false) // flagged, never auto-applied
+  fingerprint String? // company|title|location hash for repost/fuzzy dedup guard
+  firstSeenAt DateTime      @default(now())
+  lastSeenAt  DateTime      @default(now())
+  raw         String? // raw source payload as JSON
+  sightings   JobSighting[]
+  match       Match?
+  application Application?
+
+  @@index([isWorkday])
+  @@index([company])
+}
+
+// Records that a given source saw a given job (one job, many source sightings).
+model JobSighting {
+  id       String   @id @default(cuid())
+  jobId    String
+  sourceId String
+  seenAt   DateTime @default(now())
+  job      Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  source   Source   @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, sourceId])
+}
+
+// Fit assessment + pipeline status for a job we might apply to.
+model Match {
+  id        String   @id @default(cuid())
+  jobId     String   @unique
+  score     Int      @default(0)
+  reasons   String? // JSON array of human-readable reasons
+  // new | drafted | pending_approval | submitted | rejected | skipped | workday_flagged
+  status    String   @default("new")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+}
+
+// A prepared application. UNIQUE on jobId is the hard "never apply twice" guard.
+model Application {
+  id          String    @id @default(cuid())
+  jobId       String    @unique
+  status      String    @default("drafted") // drafted | pending_approval | submitted | failed
+  fields      String? // JSON snapshot of exactly what will be / was submitted
+  submittedAt DateTime?
+  result      String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  job         Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+}
+
+// Singleton canonical profile (answers to typical application questions).
+model Profile {
+  id        String   @id @default("me")
+  data      String   @default("{}") // JSON of all canonical answers
+  updatedAt DateTime @updatedAt
+}
+
+// Singleton search criteria used for matching.
+model Criteria {
+  id        String   @id @default("default")
+  data      String   @default("{}") // JSON: titles[], locations[], keywords[], excludeKeywords[], remoteOnly, seniority[]
+  updatedAt DateTime @updatedAt
+}
+
+// A parsed snapshot of the user's resume; drives "Refresh Profile".
+model ResumeVersion {
+  id        String   @id @default(cuid())
+  source    String // local path or URL the resume was read from
+  text      String // extracted plain text
+  parsed    String   @default("{}") // structured fields JSON
+  createdAt DateTime @default(now())
+}
