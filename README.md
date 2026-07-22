@@ -1,42 +1,73 @@
 # Job Application Pipeline
 
-A local-first, semi-automated **A→Z job application pipeline**. You give it search
-criteria and your resume; it scrapes fresh postings from job boards on a schedule,
-scores them against your criteria, and prepares complete applications for the easy
-ATSes (**Greenhouse, Lever, Ashby**). Nothing is ever submitted without you clicking
-**Confirm & send** — a mandatory human approval gate.
+A local-first pipeline that **discovers currently-open entry-level software roles**
+(SWE, DevOps, ML, and related) at ~40 big-tech / well-known / VC-backed companies and
+surfaces them in a dashboard as two separate queues — **United States** and **Canada** —
+sorted newest-first with date filters. Each card links straight to the real posting; you
+apply yourself. Nothing is auto-filled or submitted.
 
-Workday postings are **detected and flagged only** — never auto-applied — and listed
-separately so you can handle them by hand.
+The queue targets roles that are **entry-level or ask for ≤ 2 years of experience**, at
+**bachelor's-degree-or-below** level (Masters/PhD-required roles are filtered out).
 
-> **Safety first:** submission runs in **DRY-RUN by default**. Applications are fully
-> prepared and recorded, but nothing is sent until you explicitly switch to live mode.
+> **Focus:** the project is currently **discovery-only**. Auto-apply and resume matching
+> are **paused** — the code is retained (see [Paused features](#paused-features)) but the
+> dashboard just finds jobs and links out. Workday postings are flagged in a separate list.
+
+---
+
+## Discovery pipeline
+
+Postings are pulled directly from each company's careers backend. 34 companies expose a
+usable public JSON API (Greenhouse, Ashby, Amazon, Uber, Netflix, Snap, Phenom, Spotify,
+Workday CXS) and are fetched server-side; the rest are client-rendered or bot-gated and
+are either scraped with Playwright (Apple) or surfaced via a pinned search URL.
+
+```bash
+# Fetch fresh US/CA entry-level roles from every API company (deduped upsert)
+npm run discover
+
+# Only specific companies
+npm run discover -- Amazon Stripe OpenAI
+
+# Keep every software role, skip the ≤2-YoE gate
+npm run discover -- --all-levels
+
+# Playwright-scrape the client-rendered sites (Apple supported; rest reported)
+npm run discover:browser
+
+# Live confirmation table of every company's endpoint + US/CA entry counts
+npm run discovery:verify
+```
+
+Roles are filtered to US/Canada and classified as entry-level up front, then upserted into
+the `Job` table deduped by `system:externalId` (or a content fingerprint). Browse them on
+the **Jobs** page (US / CA tabs) and see coverage on the **Companies** page.
 
 ---
 
 ## Features
 
-- **Pluggable sources** — Greenhouse, Lever, Ashby, GitHub repos (structured
-  `listings.json`), RSS/Atom, and generic JSON endpoints. Add/remove/enable/disable
-  and "Run now" from the dashboard.
-- **Three-layer dedup so you never apply twice** (see [below](#dedup--never-apply-twice)).
-- **Rule-based fit scoring** against your criteria — deterministic, no API key needed.
-- **Two-tier resume matching** — a deterministic skills/resume baseline on every scan,
-  plus an optional **agent-in-the-loop** pass where Copilot judges fit against your
-  resume and writes richer scores back (no API key; see [below](#matching--scoring)).
-- **Human approval gate** — every application parks at `pending_approval`; you review
-  the exact fields that will be sent, then confirm.
-- **Refresh Profile** — re-reads your latest resume, parses it, and fills any blank
-  application fields (OpenAI if a key is set, otherwise a deterministic fallback parser).
-- **Workday flagging** — surfaced in a separate list, never auto-applied.
-- **Scheduled scans** via cron.
-- **Clean dashboard** — Overview, Jobs, Sources, Workday, Profile, Criteria.
+- **Company-site discovery** — 33 public-API companies + Playwright scraping for Apple,
+  classified to US/Canada entry-level roles. See [Discovery pipeline](#discovery-pipeline).
+- **Two separate queues** — US and Canada, newest-first, with last-24h / 7d / 30d filters.
+- **Dedup so nothing is listed twice** (see [below](#dedup--never-apply-twice)).
+- **Entry-level gate** — software role, not senior, ≤ 2 years experience, no advanced
+  degree required. "No experience specified" passes.
+- **Link-out only** — every card opens the real posting; you fill the application.
+- **Workday flagging** — surfaced in a separate list.
+- **Clean dashboard** — Overview, Jobs (US/CA), Companies, Workday.
+
+### Paused features
+
+Auto-apply (human approval gate, DRY-RUN submission, live Playwright fillers) and two-tier
+resume matching remain in the codebase (`lib/applications/**`, `lib/matching/**`, their API
+routes and the Profile/Criteria/Sources pages) but are **unlinked from the nav** and not
+part of the discovery flow. They can be re-enabled later.
 
 ## Tech stack
 
 Next.js 16 (App Router) · React 19 · Prisma 6 + SQLite · TypeScript · Tailwind v4 ·
-node-cron · Vitest. Playwright is used only for optional live submission (not installed
-by default).
+Playwright (discovery browser scraper + optional live submission) · Vitest.
 
 ---
 
@@ -53,20 +84,16 @@ cp .env.example .env
 npm run db:migrate
 npm run db:generate
 
-# 4. Seed example sources + a demo profile/criteria
-npm run db:seed
+# 4. Discover fresh US/CA entry-level roles (hits live public career APIs)
+npm run discover
 
-# 5. Pull fresh jobs once (hits live public ATS APIs)
-npm run scan
+# 5. (optional) Playwright-scrape Apple
+npm run discover:browser -- Apple
 
 # 6. Launch the dashboard
 npm run dev
 # open http://localhost:3000
 ```
-
-The seed adds example sources (Figma, GitLab, Palantir, Ramp, and the SimplifyJobs
-new-grad GitHub feed) plus a **placeholder** demo identity so the flow works out of the
-box. Replace it with your own details on the **Profile** page.
 
 ---
 
@@ -242,11 +269,14 @@ network calls, so the suite is offline and deterministic.
 ### End-to-end (Playwright)
 
 `npm run e2e` boots the real production dashboard against a throwaway SQLite database
-seeded by `scripts/e2e-seed.ts` (fixed jobs/matches, a full profile, `APPLY_MODE=dry_run`).
-It exercises the human approval gate (draft → review → confirm → submitted), rejecting a
-job, the two-tier resume-fit badges (auto vs. agent), and the Workday flag-only list — with
-no live ATS network calls. First run needs the browser: `npx playwright install chromium`.
-Open the last HTML report with `npm run e2e:report`.
+seeded by `scripts/e2e-seed.ts` (US + CA entry-level discovery fixtures plus one Workday
+flag). It exercises the US/CA queue tabs, newest-first ordering, the date-posted filter,
+the queue count, the Companies page, and the Workday flag-only list — with no live network
+calls. First run needs the browser: `npx playwright install chromium`. Open the last HTML
+report with `npm run e2e:report`.
+
+The discovery **runtime** browser scraper (`npm run discover:browser`) is separate and
+intentionally kept **out of CI** — it needs a real browser and live network.
 
 ### Continuous integration
 
@@ -256,25 +286,28 @@ Open the last HTML report with `npm run e2e:report`.
 - **e2e** — `npm ci` → `prisma generate` → install Chromium → build → `npm run e2e`
   (uploads the Playwright HTML report as an artifact on failure).
 
-Both run on Node 22 / Ubuntu with no secrets — everything is offline and dry-run.
+Both run on Node 22 / Ubuntu with no secrets — everything is offline.
 
 ## Project structure
 
 ```
 app/                 Next.js dashboard (pages) + API routes under app/api
+  page.tsx           Overview (discovery stats)
+  jobs/              US/CA discovery queue (link-out cards)
+  companies/         coverage table (API + browser sources)
+  workday/           Workday flag-only list
 lib/
-  sources/           adapters, dedup/normalize, run engine, registry, catalog (curated companies)
-  matching/          score.ts (rule/criteria), resume.ts (resume fit), agent.ts (agent-in-the-loop)
-  applications/      draft, human-gate service, dry-run/live submit
-  profile/           resume extraction + Refresh Profile
-  llm/               resume parsing (OpenAI + deterministic fallback)
-  settings.ts        Profile & Criteria singletons
+  discovery/         companies.ts (catalog), adapters.ts (API fetchers),
+                     browser.ts (Playwright scraper), entryLevel.ts (classifiers), run.ts
+  sources/           legacy pluggable-source engine (dedup/normalize reused by discovery)
+  matching/          score/resume/agent — PAUSED (retained, unlinked)
+  applications/      draft, human-gate, dry-run/live submit — PAUSED (retained, unlinked)
 prisma/              schema, migrations, seed
-scripts/             scan (one-off) + cron (scheduled) + match (agent resume review) + e2e-seed + probe-sources
+scripts/             discover (API), discover --browser, verify-queries, e2e-seed
 test/                vitest suite
-e2e/                 Playwright specs (smoke, apply-flow, resume-match)
-sample-data/         a sample resume for the demo profile
+e2e/                 Playwright specs (smoke, queue, discovery)
 ```
+
 
 ---
 

@@ -76,34 +76,50 @@ async function persist(
   return "created";
 }
 
+export interface IngestCounts {
+  usTotal: number;
+  caTotal: number;
+  usEntry: number;
+  caEntry: number;
+  created: number;
+  updated: number;
+}
+
+function zeroCounts(): IngestCounts {
+  return { usTotal: 0, caTotal: 0, usEntry: 0, caEntry: 0, created: 0, updated: 0 };
+}
+
+// Classify a batch of postings (any source) and persist the US/CA entry-level
+// ones. Mutates and returns a running counter. Shared by the API runner and the
+// Playwright browser runner.
+export async function ingestPostings(
+  postings: DiscoveryPosting[],
+  onlyEntryLevel: boolean,
+  res: IngestCounts = zeroCounts(),
+): Promise<IngestCounts> {
+  for (const p of postings) {
+    if (p.country === "OTHER") continue;
+    if (!p.title || !p.applyUrl) continue;
+    if (p.country === "US") res.usTotal++;
+    else res.caTotal++;
+
+    const verdict = classifyEntryLevel({ title: p.title, description: p.description });
+    if (onlyEntryLevel && !verdict.isEntryLevel) continue;
+    if (p.country === "US") res.usEntry++;
+    else res.caEntry++;
+
+    const outcome = await persist(p, verdict.minYearsExperience);
+    if (outcome === "created") res.created++;
+    else res.updated++;
+  }
+  return res;
+}
+
 async function runCompany(c: ApiCompany, onlyEntryLevel: boolean): Promise<CompanyRunResult> {
-  const res: CompanyRunResult = {
-    company: c.name,
-    system: c.system,
-    usTotal: 0,
-    caTotal: 0,
-    usEntry: 0,
-    caEntry: 0,
-    created: 0,
-    updated: 0,
-  };
+  const res: CompanyRunResult = { company: c.name, system: c.system, ...zeroCounts() };
   try {
     const postings = await fetchCompanyPostings(c);
-    for (const p of postings) {
-      if (p.country === "OTHER") continue;
-      if (!p.title || !p.applyUrl) continue;
-      if (p.country === "US") res.usTotal++;
-      else res.caTotal++;
-
-      const verdict = classifyEntryLevel({ title: p.title, description: p.description });
-      if (onlyEntryLevel && !verdict.isEntryLevel) continue;
-      if (p.country === "US") res.usEntry++;
-      else res.caEntry++;
-
-      const outcome = await persist(p, verdict.minYearsExperience);
-      if (outcome === "created") res.created++;
-      else res.updated++;
-    }
+    await ingestPostings(postings, onlyEntryLevel, res);
   } catch (e) {
     res.error = e instanceof Error ? e.message : String(e);
   }

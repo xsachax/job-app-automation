@@ -36,6 +36,7 @@ export type DiscoverySystem =
   | "netflix"
   | "snap"
   | "phenom"
+  | "spotify"
   | "workday";
 
 export type BrowserSystem =
@@ -44,11 +45,17 @@ export type BrowserSystem =
   | "tesla"
   | "google"
   | "deepmind"
-  | "spotify"
   | "shopify"
   | "meta"
   | "linkedin"
   | "mistral";
+
+// Browser systems that currently have a verified, clean Playwright extractor
+// (lib/discovery/browser.ts). The rest render an entire card inside one anchor,
+// ignore their own location filter, or hard-block headless clients (Akamai /
+// PerimeterX), so we surface their pinned human search URL instead of scraping
+// unreliable data. Keep this in sync with RULES in browser.ts.
+export const SCRAPABLE_BROWSER_SYSTEMS: BrowserSystem[] = ["apple"];
 
 export interface ApiCompany {
   name: string;
@@ -119,6 +126,7 @@ export const API_COMPANIES: ApiCompany[] = [
   { name: "Netflix", method: "api", system: "netflix", countryFilter: "native", queryTerms: SWE },
   { name: "Snap", method: "api", system: "snap", countryFilter: "post", queryTerms: SWE },
   { name: "GitHub", method: "api", system: "phenom", token: "github.careers", countryFilter: "post", queryTerms: SWE },
+  { name: "Spotify", method: "api", system: "spotify", countryFilter: "post", queryTerms: SWE },
 
   // ---- Workday CXS: POST https://<host>/wday/cxs/<tenant>/<site>/jobs
   { name: "Nvidia", method: "api", system: "workday", countryFilter: "post", queryTerms: SWE, workday: { host: "nvidia.wd5.myworkdayjobs.com", tenant: "nvidia", site: "NVIDIAExternalCareerSite" } },
@@ -161,12 +169,6 @@ export const BROWSER_COMPANIES: BrowserCompany[] = [
     searchUrlUS: "https://deepmind.google/about/careers/#/?location=United%20States&search=software%20engineer",
     searchUrlCA: "https://deepmind.google/about/careers/#/?location=Canada&search=software%20engineer",
     reason: "careers board is a client-rendered SPA sharing Google's non-public backend.",
-  },
-  {
-    name: "Spotify", method: "browser", system: "spotify",
-    searchUrlUS: "https://www.lifeatspotify.com/jobs?c=engineering&l=new-york-new-york-united-states&l=los-angeles-california-united-states",
-    searchUrlCA: "https://www.lifeatspotify.com/jobs?c=engineering&l=toronto-ontario-canada",
-    reason: "Next.js SPA; jobs render client-side, no stable public JSON endpoint.",
   },
   {
     name: "Shopify", method: "browser", system: "shopify",

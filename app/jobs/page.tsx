@@ -190,7 +190,7 @@ export default function JobsPage() {
                     rel="noreferrer"
                     className={cls.btnPrimary + " shrink-0"}
                   >
-                    View & apply ↗
+                    Open posting ↗
                   </a>
                 </div>
               </div>

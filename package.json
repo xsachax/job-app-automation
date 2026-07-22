@@ -24,7 +24,8 @@
     "e2e:report": "playwright show-report",
     "sources:probe": "tsx scripts/probe-sources.ts",
     "discovery:verify": "tsx scripts/verify-queries.ts",
-    "discover": "tsx scripts/discover.ts"
+    "discover": "tsx scripts/discover.ts",
+    "discover:browser": "tsx scripts/discover.ts --browser"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

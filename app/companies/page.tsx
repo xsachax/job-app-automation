@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { API_COMPANIES, BROWSER_COMPANIES } from "@/lib/discovery/companies";
+import { API_COMPANIES, BROWSER_COMPANIES, SCRAPABLE_BROWSER_SYSTEMS } from "@/lib/discovery/companies";
 import { cls, PageHeader } from "../components/ui";
 
 export const dynamic = "force-dynamic";
@@ -59,33 +59,48 @@ export default async function CompaniesPage() {
       <h2 className="mb-3 text-lg font-semibold">Browser-scraped sources</h2>
       <p className="mb-3 text-xs text-gray-400">
         These sites render postings client-side. Run <code className="rounded bg-gray-100 px-1">npm run discover:browser</code>{" "}
-        (Playwright) to scrape them.
+        (Playwright) to scrape the supported ones; the rest are bot-gated, so their pinned search URL is
+        surfaced instead.
       </p>
       <div className={cls.card + " overflow-x-auto p-0"}>
         <table className="w-full text-sm">
           <thead className="border-b border-gray-200 text-left text-gray-500">
             <tr>
               <th className="px-4 py-2 font-medium">Company</th>
+              <th className="px-4 py-2 font-medium">Scraper</th>
               <th className="px-4 py-2 font-medium">Why browser</th>
               <th className="px-4 py-2 font-medium">Search</th>
             </tr>
           </thead>
           <tbody>
-            {BROWSER_COMPANIES.map((b) => (
-              <tr key={b.name} className="border-b border-gray-100 last:border-0">
-                <td className="px-4 py-2 font-medium">{b.name}</td>
-                <td className="px-4 py-2 text-gray-500">{b.reason}</td>
-                <td className="px-4 py-2">
-                  <a href={b.searchUrlUS} target="_blank" rel="noreferrer" className="text-indigo-600 hover:underline">
-                    US
-                  </a>
-                  {" · "}
-                  <a href={b.searchUrlCA} target="_blank" rel="noreferrer" className="text-indigo-600 hover:underline">
-                    CA
-                  </a>
-                </td>
-              </tr>
-            ))}
+            {BROWSER_COMPANIES.map((b) => {
+              const scrapable = SCRAPABLE_BROWSER_SYSTEMS.includes(b.system);
+              return (
+                <tr key={b.name} className="border-b border-gray-100 last:border-0">
+                  <td className="px-4 py-2 font-medium">{b.name}</td>
+                  <td className="px-4 py-2">
+                    <span
+                      className={
+                        "rounded-full px-2 py-0.5 text-xs font-medium " +
+                        (scrapable ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500")
+                      }
+                    >
+                      {scrapable ? "supported" : "manual"}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2 text-gray-500">{b.reason}</td>
+                  <td className="px-4 py-2">
+                    <a href={b.searchUrlUS} target="_blank" rel="noreferrer" className="text-indigo-600 hover:underline">
+                      US
+                    </a>
+                    {" · "}
+                    <a href={b.searchUrlCA} target="_blank" rel="noreferrer" className="text-indigo-600 hover:underline">
+                      CA
+                    </a>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

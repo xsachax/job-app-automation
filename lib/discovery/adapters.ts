@@ -8,7 +8,7 @@
 // are handled by lib/discovery/browser.ts (Playwright).
 
 import { classifyCountry, type Country } from "./entryLevel";
-import type { ApiCompany, DiscoverySystem } from "./companies";
+import type { ApiCompany, DiscoverySystem, BrowserSystem } from "./companies";
 
 export interface DiscoveryPosting {
   company: string;
@@ -19,7 +19,7 @@ export interface DiscoveryPosting {
   externalId: string;
   description: string;
   postedAt: Date | null;
-  system: DiscoverySystem;
+  system: DiscoverySystem | BrowserSystem;
 }
 
 const UA =
@@ -352,6 +352,44 @@ async function workday(c: ApiCompany): Promise<DiscoveryPosting[]> {
   return out;
 }
 
+// ----------------------------------- Spotify ----------------------------------
+// lifeatspotify.com exposes a public WordPress-backed search API. No posted
+// date or description in the listing; country is classified from the joined
+// office locations. Apply URL: lifeatspotify.com/jobs/<id>.
+
+async function spotify(c: ApiCompany): Promise<DiscoveryPosting[]> {
+  const out: DiscoveryPosting[] = [];
+  const seen = new Set<string>();
+  for (const term of c.queryTerms) {
+    const data = (await fetchJson(
+      `https://api.lifeatspotify.com/wp-json/animal/v1/job/search?query=${encodeURIComponent(term)}`,
+    )) as {
+      result?: {
+        id?: string;
+        text?: string;
+        locations?: { location?: string }[];
+      }[];
+    };
+    for (const j of data.result ?? []) {
+      const id = j.id ?? "";
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      const location = (j.locations ?? []).map((l) => l.location).filter(Boolean).join(" | ");
+      out.push(
+        mk("spotify", c.name, {
+          title: j.text ?? "",
+          location,
+          applyUrl: `https://www.lifeatspotify.com/jobs/${id}`,
+          externalId: id,
+          description: "",
+          postedAt: null,
+        }),
+      );
+    }
+  }
+  return out;
+}
+
 const FETCHERS: Record<DiscoverySystem, (c: ApiCompany) => Promise<DiscoveryPosting[]>> = {
   greenhouse,
   ashby,
@@ -361,6 +399,7 @@ const FETCHERS: Record<DiscoverySystem, (c: ApiCompany) => Promise<DiscoveryPost
   netflix,
   snap,
   phenom,
+  spotify,
   workday,
 };
 
