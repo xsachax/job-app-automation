@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../components/api";
 import { cls, PageHeader } from "../components/ui";
 
@@ -16,12 +16,10 @@ interface Profile {
   portfolio?: string;
   summary?: string;
   skills?: string[];
-  workAuthorized?: boolean;
-  requiresSponsorship?: boolean;
-  gender?: string;
-  raceEthnicity?: string;
-  veteranStatus?: string;
-  disabilityStatus?: string;
+  resumeUrl?: string;
+  resumeText?: string;
+  targetRoles?: string[];
+  qualifications?: string;
   resumeSource?: string;
   resumePath?: string;
   coverLetterTemplate?: string;
@@ -32,32 +30,64 @@ interface RefreshResult {
   provider: string;
   source: string;
   updatedFields: string[];
+  resumeScored?: number;
+  jobFitScored?: number;
 }
 
-const TEXT_FIELDS: { name: keyof Profile; label: string; placeholder?: string }[] = [
-  { name: "firstName", label: "First name" },
-  { name: "lastName", label: "Last name" },
-  { name: "email", label: "Email" },
-  { name: "phone", label: "Phone" },
-  { name: "location", label: "Location", placeholder: "City, Country" },
-  { name: "linkedin", label: "LinkedIn URL" },
-  { name: "github", label: "GitHub URL" },
-  { name: "website", label: "Website" },
-  { name: "portfolio", label: "Portfolio URL" },
-];
-
-const EEO_FIELDS: { name: keyof Profile; label: string }[] = [
-  { name: "gender", label: "Gender" },
-  { name: "raceEthnicity", label: "Race / ethnicity" },
-  { name: "veteranStatus", label: "Veteran status" },
-  { name: "disabilityStatus", label: "Disability status" },
-];
-
-function triToStr(v: boolean | undefined): string {
-  return v === true ? "yes" : v === false ? "no" : "";
+interface JudgeResult {
+  scanned: number;
+  scored: number;
+  preservedAgent: number;
+  skipped: number;
 }
-function strToTri(s: string): boolean | undefined {
-  return s === "yes" ? true : s === "no" ? false : undefined;
+
+const CONTACT_FIELDS: { name: keyof Profile; label: string; placeholder?: string; type?: string }[] = [
+  { name: "firstName", label: "First name", placeholder: "Sacha" },
+  { name: "lastName", label: "Last name", placeholder: "Lee" },
+  { name: "email", label: "Email", placeholder: "you@example.com", type: "email" },
+  { name: "phone", label: "Phone", placeholder: "+1 555 0100", type: "tel" },
+  { name: "location", label: "Location", placeholder: "City, country" },
+  { name: "linkedin", label: "LinkedIn", placeholder: "https://linkedin.com/in/..." },
+  { name: "github", label: "GitHub", placeholder: "https://github.com/..." },
+  { name: "portfolio", label: "Portfolio", placeholder: "https://..." },
+];
+
+function splitCsv(value: string): string[] {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function joinCsv(value: string[] | undefined): string {
+  return (value ?? []).join(", ");
+}
+
+function FieldShell({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
+  return (
+    <div>
+      <label className={cls.label}>{label}</label>
+      <div className="mt-1">{children}</div>
+      {hint && <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">{hint}</p>}
+    </div>
+  );
+}
+
+function Chips({ items, empty }: { items: string[] | undefined; empty: string }) {
+  const list = items ?? [];
+  if (!list.length) return <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">{empty}</p>;
+  return (
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {list.map((item) => (
+        <span
+          key={item}
+          className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-800 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-200"
+        >
+          {item}
+        </span>
+      ))}
+    </div>
+  );
 }
 
 export default function ProfilePage() {
@@ -65,18 +95,9 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [judging, setJudging] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  async function load() {
-    try {
-      setProfile(await api<Profile>("/api/profile"));
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }
 
   useEffect(() => {
     let active = true;
@@ -95,21 +116,31 @@ export default function ProfilePage() {
     };
   }, []);
 
-  function set<K extends keyof Profile>(k: K, v: Profile[K]) {
-    setProfile((p) => ({ ...p, [k]: v }));
+  const resumeTextCount = useMemo(() => (profile.resumeText ?? "").trim().length, [profile.resumeText]);
+
+  function setField<K extends keyof Profile>(key: K, value: Profile[K]) {
+    setProfile((current) => ({ ...current, [key]: value }));
   }
 
-  async function save() {
+  async function reloadProfile() {
+    setProfile(await api<Profile>("/api/profile"));
+  }
+
+  async function persistProfile(): Promise<Profile> {
+    return api<Profile>("/api/profile", {
+      method: "PUT",
+      body: JSON.stringify(profile),
+    });
+  }
+
+  async function saveProfile() {
     setSaving(true);
     setError(null);
-    setMsg(null);
+    setMessage(null);
     try {
-      const saved = await api<Profile>("/api/profile", {
-        method: "PUT",
-        body: JSON.stringify(profile),
-      });
+      const saved = await persistProfile();
       setProfile(saved);
-      setMsg("Profile saved.");
+      setMessage("Profile saved. The judge will use these details on the next run.");
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -117,21 +148,19 @@ export default function ProfilePage() {
     }
   }
 
-  async function refresh() {
+  async function refreshResume() {
     setRefreshing(true);
     setError(null);
-    setMsg(null);
+    setMessage(null);
     try {
-      const r = await api<RefreshResult>("/api/profile/refresh", {
+      const result = await api<RefreshResult>("/api/profile/refresh", {
         method: "POST",
-        body: JSON.stringify({}),
+        body: JSON.stringify({ source: profile.resumeUrl || profile.resumeSource || undefined }),
       });
-      await load();
-      setMsg(
-        r.updatedFields.length
-          ? `Refreshed via ${r.provider}. Filled: ${r.updatedFields.join(", ")}.`
-          : `Refreshed via ${r.provider}. No blank fields to fill.`,
-      );
+      await reloadProfile();
+      const filled = result.updatedFields.length ? ` Updated: ${result.updatedFields.join(", ")}.` : "";
+      const scored = result.jobFitScored ?? result.resumeScored ?? 0;
+      setMessage(`Resume refreshed via ${result.provider}.${filled} Re-scored ${scored} jobs.`);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -139,151 +168,204 @@ export default function ProfilePage() {
     }
   }
 
-  if (loading) return <p className="text-sm text-gray-500">Loading…</p>;
+  async function runJudge() {
+    setJudging(true);
+    setSaving(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const saved = await persistProfile();
+      setProfile(saved);
+      const result = await api<JudgeResult>("/api/judge/score", {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      setMessage(
+        `Judge complete: ${result.scored} scored, ${result.preservedAgent} agent scores preserved, ${result.scanned} scanned.`,
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+      setJudging(false);
+    }
+  }
+
+  if (loading) {
+    return <p className="text-sm text-gray-600 dark:text-gray-400">Loading profile…</p>;
+  }
 
   return (
-    <div>
+    <div className="max-w-5xl">
       <PageHeader
-        title="Profile"
-        subtitle="Canonical answers used to pre-fill applications. Refresh pulls your latest resume."
+        title="Import your info"
+        subtitle="Add the resume and qualification signals the post-scrape judge should use to rank discovered roles."
       >
-        <button onClick={refresh} disabled={refreshing} className={cls.btnPrimary}>
-          {refreshing ? "Refreshing…" : "Refresh profile"}
+        <button
+          onClick={runJudge}
+          disabled={saving || judging}
+          className={`${cls.btnPrimary} dark:bg-indigo-500 dark:text-white dark:hover:bg-indigo-400`}
+        >
+          {judging ? "Judging…" : "Re-run judge"}
         </button>
       </PageHeader>
 
-      {msg && (
-        <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-700">
-          {msg}
+      {message && (
+        <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
+          {message}
         </div>
       )}
       {error && (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
           {error}
         </div>
       )}
 
-      <div className="space-y-6">
-        <section className={cls.card}>
-          <h2 className="mb-4 text-lg font-semibold">Personal & links</h2>
-          <div className="grid gap-4 md:grid-cols-2">
-            {TEXT_FIELDS.map((f) => (
-              <div key={String(f.name)}>
-                <label className={cls.label}>{f.label}</label>
-                <input
-                  className={cls.input + " mt-1"}
-                  value={(profile[f.name] as string) ?? ""}
-                  placeholder={f.placeholder}
-                  onChange={(e) => set(f.name, e.target.value as never)}
-                />
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="space-y-6">
+          <section className={cls.card}>
+            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-950 dark:text-gray-50">Contact details</h2>
+                <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                  These fields identify you in exports and keep the resume parser from guessing.
+                </p>
               </div>
-            ))}
-          </div>
-          <div className="mt-4">
-            <label className={cls.label}>Skills (comma-separated)</label>
-            <input
-              className={cls.input + " mt-1"}
-              value={(profile.skills ?? []).join(", ")}
-              onChange={(e) =>
-                set(
-                  "skills",
-                  e.target.value
-                    .split(",")
-                    .map((s) => s.trim())
-                    .filter(Boolean),
-                )
-              }
-            />
-          </div>
-          <div className="mt-4">
-            <label className={cls.label}>Summary</label>
-            <textarea
-              className={cls.input + " mt-1 min-h-24"}
-              value={profile.summary ?? ""}
-              onChange={(e) => set("summary", e.target.value)}
-            />
-          </div>
-        </section>
+              <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+                Saved locally
+              </span>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              {CONTACT_FIELDS.map((field) => (
+                <FieldShell key={String(field.name)} label={field.label}>
+                  <input
+                    className={`${cls.input} placeholder:text-gray-500 dark:placeholder:text-gray-400`}
+                    type={field.type ?? "text"}
+                    value={(profile[field.name] as string) ?? ""}
+                    placeholder={field.placeholder}
+                    onChange={(e) => setField(field.name, e.target.value as never)}
+                  />
+                </FieldShell>
+              ))}
+            </div>
+          </section>
 
-        <section className={cls.card}>
-          <h2 className="mb-4 text-lg font-semibold">Resume</h2>
-          <div className="grid gap-4 md:grid-cols-2">
-            <div>
-              <label className={cls.label}>Resume source (path or URL)</label>
-              <input
-                className={cls.input + " mt-1"}
-                value={profile.resumeSource ?? ""}
-                placeholder="/Users/you/resume.txt or https://…"
-                onChange={(e) => set("resumeSource", e.target.value)}
-              />
-              <p className="mt-1 text-xs text-gray-400">Refresh reads this to update fields.</p>
-            </div>
-            <div>
-              <label className={cls.label}>Resume file to attach</label>
-              <input
-                className={cls.input + " mt-1"}
-                value={profile.resumePath ?? ""}
-                placeholder="/Users/you/resume.pdf"
-                onChange={(e) => set("resumePath", e.target.value)}
-              />
-            </div>
-          </div>
-          <div className="mt-4">
-            <label className={cls.label}>Cover letter template</label>
-            <textarea
-              className={cls.input + " mt-1 min-h-24"}
-              value={profile.coverLetterTemplate ?? ""}
-              placeholder="Dear {company} team, …"
-              onChange={(e) => set("coverLetterTemplate", e.target.value)}
-            />
-          </div>
-        </section>
-
-        <section className={cls.card}>
-          <h2 className="mb-4 text-lg font-semibold">Eligibility & EEO (optional)</h2>
-          <div className="grid gap-4 md:grid-cols-2">
-            <div>
-              <label className={cls.label}>Authorized to work?</label>
-              <select
-                className={cls.input + " mt-1"}
-                value={triToStr(profile.workAuthorized)}
-                onChange={(e) => set("workAuthorized", strToTri(e.target.value) as never)}
-              >
-                <option value="">Prefer not to say</option>
-                <option value="yes">Yes</option>
-                <option value="no">No</option>
-              </select>
-            </div>
-            <div>
-              <label className={cls.label}>Requires sponsorship?</label>
-              <select
-                className={cls.input + " mt-1"}
-                value={triToStr(profile.requiresSponsorship)}
-                onChange={(e) => set("requiresSponsorship", strToTri(e.target.value) as never)}
-              >
-                <option value="">Prefer not to say</option>
-                <option value="yes">Yes</option>
-                <option value="no">No</option>
-              </select>
-            </div>
-            {EEO_FIELDS.map((f) => (
-              <div key={String(f.name)}>
-                <label className={cls.label}>{f.label}</label>
+          <section className={cls.card}>
+            <h2 className="text-lg font-semibold text-gray-950 dark:text-gray-50">Resume source</h2>
+            <p className="mt-1 max-w-2xl text-sm text-gray-600 dark:text-gray-400">
+              Paste a direct PDF link when you have one. If parsing is unavailable, paste the resume text below and the judge will use that instead.
+            </p>
+            <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,1fr)_auto]">
+              <FieldShell label="Resume PDF URL" hint="Use a stable sharing URL that the server can fetch.">
                 <input
-                  className={cls.input + " mt-1"}
-                  value={(profile[f.name] as string) ?? ""}
-                  onChange={(e) => set(f.name, e.target.value as never)}
+                  className={`${cls.input} placeholder:text-gray-500 dark:placeholder:text-gray-400`}
+                  value={profile.resumeUrl ?? ""}
+                  placeholder="https://example.com/resume.pdf"
+                  onChange={(e) => setField("resumeUrl", e.target.value)}
                 />
+              </FieldShell>
+              <div className="flex items-end">
+                <button
+                  onClick={refreshResume}
+                  disabled={refreshing}
+                  className={`${cls.btn} h-10 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700`}
+                >
+                  {refreshing ? "Refreshing…" : "Fetch text"}
+                </button>
               </div>
-            ))}
-          </div>
-        </section>
+            </div>
+            <div className="mt-4">
+              <FieldShell label="Pasted or parsed resume text" hint={`${resumeTextCount.toLocaleString()} characters available to the judge.`}>
+                <textarea
+                  className={`${cls.input} min-h-48 placeholder:text-gray-500 dark:placeholder:text-gray-400`}
+                  value={profile.resumeText ?? ""}
+                  placeholder="Paste plain text from your resume if the PDF URL cannot be parsed."
+                  onChange={(e) => setField("resumeText", e.target.value)}
+                />
+              </FieldShell>
+            </div>
+          </section>
 
-        <div className="flex gap-2">
-          <button onClick={save} disabled={saving} className={cls.btnGreen}>
-            {saving ? "Saving…" : "Save profile"}
-          </button>
+          <section className={cls.card}>
+            <h2 className="text-lg font-semibold text-gray-950 dark:text-gray-50">Judge signals</h2>
+            <p className="mt-1 max-w-2xl text-sm text-gray-600 dark:text-gray-400">
+              Keep these concise. They become the deterministic baseline and the context exported to the Copilot agent.
+            </p>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <FieldShell label="Target roles" hint="Comma-separated roles the judge should prefer.">
+                <input
+                  className={`${cls.input} placeholder:text-gray-500 dark:placeholder:text-gray-400`}
+                  value={joinCsv(profile.targetRoles)}
+                  placeholder="Software Engineer, Full-stack Developer"
+                  onChange={(e) => setField("targetRoles", splitCsv(e.target.value))}
+                />
+                <Chips items={profile.targetRoles} empty="No target roles yet." />
+              </FieldShell>
+              <FieldShell label="Skills" hint="Comma-separated technologies, tools, and domains.">
+                <input
+                  className={`${cls.input} placeholder:text-gray-500 dark:placeholder:text-gray-400`}
+                  value={joinCsv(profile.skills)}
+                  placeholder="TypeScript, React, Python, SQL"
+                  onChange={(e) => setField("skills", splitCsv(e.target.value))}
+                />
+                <Chips items={profile.skills} empty="No skills yet." />
+              </FieldShell>
+            </div>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <FieldShell label="Short summary">
+                <textarea
+                  className={`${cls.input} min-h-28 placeholder:text-gray-500 dark:placeholder:text-gray-400`}
+                  value={profile.summary ?? ""}
+                  placeholder="Entry-level software engineer focused on product engineering and reliable systems."
+                  onChange={(e) => setField("summary", e.target.value)}
+                />
+              </FieldShell>
+              <FieldShell label="Qualifications" hint="Degree, graduation date, internships, projects, authorization, or location constraints.">
+                <textarea
+                  className={`${cls.input} min-h-28 placeholder:text-gray-500 dark:placeholder:text-gray-400`}
+                  value={profile.qualifications ?? ""}
+                  placeholder="B.S. Computer Science, May 2026. Built ..."
+                  onChange={(e) => setField("qualifications", e.target.value)}
+                />
+              </FieldShell>
+            </div>
+          </section>
         </div>
+
+        <aside className="space-y-4">
+          <section className={cls.card}>
+            <h2 className="text-lg font-semibold text-gray-950 dark:text-gray-50">Next step</h2>
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+              Save first, then run the judge. Deterministic scores fill every eligible discovery job without overwriting agent-reviewed fits.
+            </p>
+            <div className="mt-4 flex flex-col gap-2">
+              <button
+                onClick={saveProfile}
+                disabled={saving}
+                className={`${cls.btnPrimary} dark:bg-indigo-500 dark:text-white dark:hover:bg-indigo-400`}
+              >
+                {saving ? "Saving…" : "Save profile"}
+              </button>
+              <button
+                onClick={runJudge}
+                disabled={saving || judging}
+                className="rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm font-medium text-indigo-700 transition-colors hover:bg-indigo-50 disabled:opacity-50 dark:border-indigo-800 dark:bg-gray-900 dark:text-indigo-200 dark:hover:bg-indigo-950"
+              >
+                {judging ? "Running judge…" : "Save and re-run judge"}
+              </button>
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-gray-200 bg-gray-50 p-5 dark:border-gray-800 dark:bg-gray-950">
+            <h2 className="text-sm font-semibold text-gray-950 dark:text-gray-50">What the judge reads</h2>
+            <ul className="mt-3 space-y-2 text-sm text-gray-700 dark:text-gray-300">
+              <li>• target roles for title alignment</li>
+              <li>• skills for exact posting overlap</li>
+              <li>• summary, qualifications, and resume text for broader context</li>
+              <li>• agent review exports for the strongest deterministic matches</li>
+            </ul>
+          </section>
+        </aside>
       </div>
     </div>
   );

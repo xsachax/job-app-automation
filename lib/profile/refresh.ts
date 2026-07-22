@@ -1,9 +1,10 @@
 import { prisma } from "../db";
 import { getProfile, saveProfile, type ProfileData } from "../settings";
 import { extractResumeText } from "./resume";
+import { fetchResumeText } from "./pdf";
 import { parseResume } from "../llm";
 import type { ParsedResume } from "../llm/types";
-import { rescoreResumeFit } from "../matching/agent";
+import { scoreAllJobs } from "../judge/judge";
 
 export interface RefreshResult {
   provider: string;
@@ -13,6 +14,7 @@ export interface RefreshResult {
   profile: ProfileData;
   resumeVersionId: string;
   resumeScored: number;
+  jobFitScored: number;
 }
 
 function isBlank(v: unknown): boolean {
@@ -22,26 +24,47 @@ function isBlank(v: unknown): boolean {
   return false;
 }
 
+async function readResumeSource(source: string): Promise<string> {
+  if (!source) return "";
+  if (/^https?:\/\//i.test(source)) return fetchResumeText(source);
+  try {
+    return (await extractResumeText(source)).text;
+  } catch {
+    return "";
+  }
+}
+
+function remember(updates: ProfileData, updatedFields: string[], key: keyof ProfileData, value: unknown) {
+  updates[key] = value as never;
+  updatedFields.push(String(key));
+}
+
 /**
- * "Refresh Profile": read the latest resume, parse it into structured fields, save
- * a ResumeVersion, and non-destructively fill any blank profile fields. Existing
- * non-empty answers the user set by hand are preserved.
+ * "Refresh Profile": read the resume URL/source when available, parse it into
+ * structured fields, save a ResumeVersion, and non-destructively fill blank
+ * profile fields. Existing non-empty answers the user set by hand are preserved.
  */
 export async function refreshProfile(sourceOverride?: string): Promise<RefreshResult> {
   const profile = await getProfile();
-  const source = (sourceOverride || profile.resumeSource || "").trim();
-  if (!source) {
-    throw new Error("No resume source set. Add a resumeSource path/URL to your profile first.");
+  const configuredSource = (sourceOverride || profile.resumeUrl || profile.resumeSource || "").trim();
+  let source = configuredSource;
+  let text = await readResumeSource(source);
+
+  if (!text && profile.resumeText?.trim()) {
+    text = profile.resumeText.trim();
+    source = source || "profile.resumeText";
   }
 
-  const { text } = await extractResumeText(source);
+  if (!source && !text) {
+    throw new Error("Add a resume PDF URL or paste resume text before refreshing your profile.");
+  }
+
   const { parsed, provider } = await parseResume(text);
 
   const version = await prisma.resumeVersion.create({
-    data: { source, text, parsed: JSON.stringify(parsed) },
+    data: { source: source || "profile.resumeText", text, parsed: JSON.stringify(parsed) },
   });
 
-  // Merge: only fill fields that are currently blank.
   const updates: ProfileData = {};
   const updatedFields: string[] = [];
   const candidate: Record<string, unknown> = { ...parsed };
@@ -52,29 +75,37 @@ export async function refreshProfile(sourceOverride?: string): Promise<RefreshRe
       updatedFields.push(key);
     }
   }
-  // Remember where the resume came from + attach it by default if unset.
-  if (isBlank(profile.resumeSource)) updates.resumeSource = source;
-  if (isBlank(profile.resumePath) && !/^https?:\/\//i.test(source)) updates.resumePath = source;
+
+  if (text && (profile.resumeText !== text || isBlank(profile.resumeText))) {
+    remember(updates, updatedFields, "resumeText", text);
+  }
+  if (/^https?:\/\//i.test(source) && isBlank(profile.resumeUrl)) {
+    remember(updates, updatedFields, "resumeUrl", source);
+  }
+  if (isBlank(profile.resumeSource) && source && source !== "profile.resumeText") {
+    remember(updates, updatedFields, "resumeSource", source);
+  }
+  if (isBlank(profile.resumePath) && source && !/^https?:\/\//i.test(source) && source !== "profile.resumeText") {
+    remember(updates, updatedFields, "resumePath", source);
+  }
 
   const updatedProfile = await saveProfile(updates);
 
-  // A new resume means every job's fit is now stale — refresh the deterministic
-  // baseline immediately. This also re-queues jobs for agent review (their
-  // scoredResumeVersion no longer matches the latest version).
   let resumeScored = 0;
   try {
-    resumeScored = (await rescoreResumeFit()).scored;
+    resumeScored = (await scoreAllJobs()).scored;
   } catch {
-    // best-effort
+    // best-effort: profile refresh should still succeed if the judge has no jobs yet
   }
 
   return {
     provider,
-    source,
+    source: source || "profile.resumeText",
     parsed,
     updatedFields,
     profile: updatedProfile,
     resumeVersionId: version.id,
     resumeScored,
+    jobFitScored: resumeScored,
   };
 }
