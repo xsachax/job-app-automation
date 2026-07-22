@@ -48,6 +48,7 @@ export async function PATCH(
   const job = await prisma.job.update({
     where: { id },
     data: { applicationStatus: status, appliedAt },
+    include: { sightings: { include: { source: { select: { id: true, name: true, kind: true } } } } },
   });
   return json(shapeJob(job));
 }
