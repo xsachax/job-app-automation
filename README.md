@@ -9,9 +9,12 @@ apply yourself. Nothing is auto-filled or submitted.
 The queue targets roles that are **entry-level or ask for ≤ 2 years of experience**, at
 **bachelor's-degree-or-below** level (Masters/PhD-required roles are filtered out).
 
-> **Focus:** the project is currently **discovery-only**. Auto-apply and resume matching
-> are **paused** — the code is retained (see [Paused features](#paused-features)) but the
-> dashboard just finds jobs and links out. Workday postings are flagged in a separate list.
+> **Focus:** the project is **discovery-only** — it finds jobs and links out; nothing is
+> ever auto-filled or submitted. On top of discovery it now adds a **configurable pipeline**
+> (Settings), **enriched, filterable job cards**, **applied-status tracking**, **dark mode**,
+> **personal-info import**, and a **post-scrape fit judge** that ranks discovered roles
+> against your résumé. Legacy auto-apply fillers are retained but unused (see
+> [Paused features](#paused-features)). Workday postings are flagged in a separate list.
 
 ---
 
@@ -51,13 +54,30 @@ the **Jobs** page (US / CA tabs) and see coverage on the **Companies** page.
   plus community GitHub job boards (SimplifyJobs, vanshb03) for the long tail of employers,
   classified to US/Canada entry-level roles. See [Discovery pipeline](#discovery-pipeline).
 - **Two separate queues** — US and Canada, newest-first, with last-24h / 7d / 30d filters.
+- **Configurable, nothing hardcoded** — countries, max years of experience, degree/
+  internship gates, extra role/exclude keywords, scraper query terms and per-source
+  enable/disable all live in the **Settings** page (backed by a `DiscoveryConfig` record).
+  Come back in two years, retune, re-scrape. See [Configuration & the fit judge](#configuration--the-fit-judge).
+- **Enriched job cards** — each posting carries a filterable data shape: normalized
+  **salary range**, **required skills**, **visa-sponsorship** signal, and **employment
+  type**, extracted deterministically at ingest (no API key).
+- **Strong filtering** — filter the queue by skills (match-all), sponsorship, employment
+  type, source, minimum salary, minimum fit, remote, applied status, plus text search;
+  sort by newest / company / best fit / salary.
+- **Applied tracking** — mark a job `saved` / `applied` / `dismissed` (etc.) right on the
+  card; **new** (< 48h) and **stale** (> 30d) postings are styled distinctly.
+- **Post-scrape fit judge** — rank every discovered role against your résumé/skills with a
+  deterministic baseline, optionally upgraded by the Copilot agent. See below.
+- **Import your info** — the **Profile** page imports contact details, a résumé PDF URL (or
+  pasted text), target roles, skills and qualifications the judge scores against.
+- **Dark mode + dense layout** — full light/dark theming with a no-FOUC init.
 - **Dedup so nothing is listed twice** — including cross-source (a role found on both a
   company site and an aggregator board collapses into one card). See [below](#dedup--never-apply-twice).
 - **Entry-level gate** — software role, not senior, ≤ 2 years experience, no advanced
-  degree required. "No experience specified" passes.
+  degree required. "No experience specified" passes. (Tunable in Settings.)
 - **Link-out only** — every card opens the real posting; you fill the application.
 - **Workday flagging** — surfaced in a separate list.
-- **Clean dashboard** — Overview, Jobs (US/CA), Companies, Workday.
+- **Clean dashboard** — Overview, Jobs (US/CA), Companies, Settings, Profile, Workday.
 
 ### Paused features
 
@@ -86,15 +106,22 @@ cp .env.example .env
 npm run db:migrate
 npm run db:generate
 
-# 4. Discover fresh US/CA entry-level roles (hits live public career APIs)
+# 4. (optional) Seed the source catalog + a demo profile/criteria
+npm run db:seed
+
+# 5. Discover fresh US/CA entry-level roles (hits live public career APIs)
 npm run discover
 
-# 5. (optional) Playwright-scrape Apple
+# 6. (optional) Playwright-scrape Apple
 npm run discover:browser -- Apple
 
-# 6. Launch the dashboard
+# 7. (optional) Score discovered roles against your résumé
+npm run judge
+
+# 8. Launch the dashboard
 npm run dev
-# open http://localhost:3000
+# open http://localhost:3000 — then tune Settings, import your info on Profile,
+# and hit "Re-run judge"
 ```
 
 ---
@@ -103,23 +130,12 @@ npm run dev
 
 | Page | What you do there |
 | --- | --- |
-| **Overview** | Pipeline stats, current apply mode, recent source runs. |
-| **Jobs** | Time-sorted queue of matched postings. Filter by date posted (24h / 7d / 30d / all), sort by **Newest first** or **Best match**, filter by status / search. Draft → review the exact fields → **Confirm & send**, or Reject. |
-| **Sources** | Add / remove / enable / disable job boards and run them on demand. |
+| **Overview** | Discovery stats, US/CA entry-level counts, companies covered, by-company breakdown. |
+| **Jobs** | Time-sorted US / CA queues of discovered postings. Filter by date, skills, sponsorship, employment type, source, min salary, min fit, remote and applied status; sort by newest / company / best fit / salary. Each card links out and lets you mark status. |
+| **Companies** | Coverage of every API and browser-scraped source. |
+| **Settings** | Edit the discovery configuration — countries, max YoE, degree/internship gates, keywords, scraper query terms, per-source enable/disable. |
+| **Profile** | Import your contact details, résumé PDF URL (or pasted text), target roles, skills and qualifications, then run the fit judge. |
 | **Workday** | Read-only list of flagged Workday jobs with apply links. |
-| **Profile** | Edit every field applications ask for, and **Refresh Profile** from your resume. |
-| **Criteria** | Target titles, locations, boost/exclude keywords, remote-only, seniority. |
-
-### The apply flow (human gate)
-
-```
-scan → job matched → Draft → pending_approval → [you review] → Confirm & send → submitted
-                                                              ↘ Reject → rejected
-```
-
-`Confirm & send` calls the submitter, which is **DRY-RUN unless `APPLY_MODE=live`**. In
-dry-run the intended submission is recorded (so dedup/history is accurate) but nothing
-leaves your machine.
 
 ---
 
@@ -158,13 +174,21 @@ npm run sources:probe   # probes candidate Greenhouse/Lever/Ashby boards, prints
 ## The queue (Jobs page)
 
 The Jobs page is a **queue ordered by time posted** (`postedAt`, falling back to when we
-first saw the job). Controls:
+first saw the job), split into **United States** and **Canada** tabs. Controls:
 
 - **Date posted** — `Last 24 hours`, `Last 7 days`, `Last 30 days`, `All time`.
-- **Sort** — `Newest first` (default) or `Best match first` (rule score).
-- **Status** filter + free-text search on title/company.
+- **Sort** — `Newest` (default), `Company`, `Best fit`, or `Salary`.
+- **Facets** — skills (match-all), sponsorship, employment type, source, applied status —
+  each showing live counts — plus **min salary**, **min fit**, **remote only** and
+  free-text search on title/company.
+- **Card actions** — `Open posting ↗` (link-out) and status buttons (`Save`,
+  `Mark applied`, `Dismiss`, `Clear`). **New** (< 48h) cards and **stale** (> 30d) cards
+  are styled distinctly.
 
-The API backs this at `GET /api/jobs?sort=posted|score&since=24h|7d|30d|all`.
+The API backs this at `GET /api/jobs?view=discovery&country=US|CA&sort=posted|company|fit|salary`
+`&since=24h|7d|30d|all&skills=…&sponsorship=…&status=…&employmentType=…&source=…`
+`&salaryMin=…&fitMin=…&remote=1&q=…`. Available filter values come from
+`GET /api/jobs/facets`; `PATCH /api/jobs/:id` records applied status.
 
 ## Dedup — never apply twice
 
@@ -180,55 +204,61 @@ Three independent guards:
    seniority markers stripped) blocks applying to a re-posted job that already has an
    in-flight or submitted application under a different id.
 
-## Matching / scoring
+## Configuration & the fit judge
 
-Matching is **two-tier** so cheap, universal scoring happens on every scan and the
-expensive, judgement-based scoring is targeted and re-runnable.
+### Configurable discovery (Settings)
 
-**Tier 1 — rule score (always, over everything).** `lib/matching/score.ts` scores
-each job 0–100 against your *criteria*: title match, boost keywords, location/remote
-fit, seniority — with hard exclusions via `excludeKeywords`. Deterministic, no LLM.
-Stored on `Match.score`.
+Nothing about *what* to scrape is hardcoded. A single `DiscoveryConfig` record (edited on
+the **Settings** page, read by the runner) drives every run:
 
-**Tier 2 — resume fit (skills + experience).** `lib/matching/resume.ts` scores each
-job 0–100 against your *resume* (parsed skills, prior roles, summary, full text):
-skill coverage, title alignment, keyword resonance, and notable posting requirements
-missing from your resume. This deterministic **baseline** runs at the end of every
-scan and after **Refresh Profile**, stored on `Match.resumeScore`
-(`matchProvider = "deterministic"`).
+- **Countries** to bucket postings into (US and CA out of the box).
+- **Maximum required years of experience**, **exclude advanced-degree** and **include
+  internships** gates — the entry-level classifier reads these instead of fixed constants.
+- **Role keywords / excluded title keywords** to widen or narrow what counts.
+- **Scraper query terms** handed to each source, and **per-source enable/disable**.
 
-**Tier 2, agent-in-the-loop (optional, powered by Copilot — no API key).** For nuanced
-judgement (transferable experience, seniority, hard-requirement gaps) the Copilot agent
-itself scores the shortlist during a session:
+`lib/discovery/config.ts` (`getDiscoveryConfig` / `saveDiscoveryConfig` /
+`toEntryLevelOptions`) is the backbone; `GET|PUT /api/config` is the editor API. Defaults
+preserve the original behavior, so an empty config scrapes exactly as before.
+
+### Enrichment (at ingest, no API key)
+
+`lib/discovery/enrich.ts` deterministically extracts, for every posting: **skills** (from a
+curated vocabulary), a normalized **salary** range (`salaryMin/Max/Currency` + the raw
+string), a **visa-sponsorship** signal (`offers` / `none` / `citizenship`), and
+**employment type**. These populate the filterable card shape and the Jobs facets.
+
+### Fit judge (post-scrape, powered by Copilot — no API key)
+
+The judge ranks **already-discovered** jobs against your imported résumé/skills and writes
+`fitScore` / `fitReasons` / `fitSummary` / `fitProvider` straight onto each `Job`.
 
 ```bash
-npm run match:export              # writes .match/review.json: top jobs + your resume
-                                  #   flags: -- --limit 25 --min 40 --all --out <file>
-# → the agent reads that file, scores each job's resume fit, and writes
-#   {"scores":[{jobId,score,reasons,summary,recommend}]} to a file
-npm run match:apply -- --in <file>   # persists agent scores (matchProvider = "agent")
-
-npm run match:rescore             # recompute the deterministic baseline on demand
-                                  #   (agent scores at the current resume version are kept)
+npm run judge                     # deterministic pass over every eligible job
+                                  #   flags: -- --country US --limit N --only-unscored --force
+npm run judge:export              # writes .match/judge-review.json: top jobs + your résumé
+                                  #   flags: -- --country US --topN 25 --out <file>
+# → the Copilot agent scores each item and writes {"scores":[{id,score,summary,reasons}]}
+npm run judge:apply -- <scores.json>   # persists agent scores (fitProvider = "agent")
 ```
 
-Agent scores override the baseline and show as an **`agent`** fit badge in the Jobs
-page (deterministic ones show **`auto`**). Because each score is stamped with the
-resume version used, a new resume (via Refresh Profile) marks scores stale and
-re-queues those jobs for review. The dashboard's **Re-score fit** button and
-`POST /api/match/rescore` run the baseline pass; `GET /api/match/review` returns the
-current shortlist.
+Deterministic scores show an **`auto`** fit badge; agent scores show **`agent`** and win
+over the baseline. `POST /api/judge/score` and `GET /api/judge/review` back the Profile
+page's **Re-run judge** button. Sort/filter the queue by **Best fit** / **min fit** to
+surface the strongest matches first.
 
-> **Scrape everything, then match** — jobs are always stored and deduped first, so
-> changing your criteria or resume re-scores instantly with no re-scraping.
+> **Scrape everything, then judge** — jobs are always stored and deduped first, so
+> retuning Settings or importing a new résumé re-scores instantly with no re-scraping.
 
-## Refresh Profile & resume parsing
+## Import your info (Profile)
 
-**Refresh Profile** reads `resumeSource` (a local `.txt`/`.md`/`.json`/`.html` path or a
-URL), parses it, saves a `ResumeVersion`, and **non-destructively** fills only the
-profile fields you've left blank. Parsing uses OpenAI when `OPENAI_API_KEY` is set,
-otherwise a dependency-free regex parser. (PDF/DOCX aren't parsed directly — convert to
-text first.)
+The **Profile** page ("Import your info") stores the signals the judge reads: contact
+details, a **résumé PDF URL** (fetched + parsed server-side, with a graceful fallback to
+**pasted résumé text** when parsing isn't available), plus **target roles**, **skills**,
+a **summary** and **qualifications**. **Fetch text** pulls a résumé URL into a
+`ResumeVersion` and non-destructively fills blank fields; **Save and re-run judge**
+persists your profile and re-scores the queue in one click. PDF parsing uses the optional
+`pdf-parse` package when installed, otherwise paste text directly.
 
 ---
 
@@ -266,16 +296,18 @@ npm run e2e       # Playwright: dashboard flows against an isolated seeded DB
 ```
 
 Unit tests run against an isolated `prisma/test.db` (migrated fresh each run) and mock all
-network calls, so the suite is offline and deterministic.
+network calls, so the suite is offline and deterministic (96 tests, incl. the fit judge,
+enrichment, and configurable-classifier coverage).
 
 ### End-to-end (Playwright)
 
 `npm run e2e` boots the real production dashboard against a throwaway SQLite database
-seeded by `scripts/e2e-seed.ts` (US + CA entry-level discovery fixtures plus one Workday
-flag). It exercises the US/CA queue tabs, newest-first ordering, the date-posted filter,
-the queue count, the Companies page, and the Workday flag-only list — with no live network
-calls. First run needs the browser: `npx playwright install chromium`. Open the last HTML
-report with `npm run e2e:report`.
+seeded by `scripts/e2e-seed.ts` (US + CA entry-level discovery fixtures — enriched with
+skills/salary/sponsorship/fit — plus one Workday flag). It exercises the US/CA queue tabs,
+newest-first ordering, the date-posted and **min-fit** filters, the queue count, enriched
+card display, the **applied-status** flow, the Companies page, and the Workday flag-only
+list — with no live network calls. First run needs the browser:
+`npx playwright install chromium`. Open the last HTML report with `npm run e2e:report`.
 
 The discovery **runtime** browser scraper (`npm run discover:browser`) is separate and
 intentionally kept **out of CI** — it needs a real browser and live network.
@@ -295,19 +327,25 @@ Both run on Node 22 / Ubuntu with no secrets — everything is offline.
 ```
 app/                 Next.js dashboard (pages) + API routes under app/api
   page.tsx           Overview (discovery stats)
-  jobs/              US/CA discovery queue (link-out cards)
+  jobs/              US/CA discovery queue (link-out cards) + components/jobs/*
   companies/         coverage table (API + browser sources)
+  settings/          configurable discovery pipeline editor
+  profile/           "Import your info" — résumé + judge signals
   workday/           Workday flag-only list
+  api/               jobs (+ facets, [id]), config, judge (score/review), profile, …
 lib/
-  discovery/         companies.ts (catalog), adapters.ts (API fetchers),
-                     browser.ts (Playwright scraper), entryLevel.ts (classifiers), run.ts
+  discovery/         catalog, adapters.ts (API fetchers), browser.ts (Playwright),
+                     entryLevel.ts (config-driven classifiers), enrich.ts, config.ts, run.ts
+  judge/             judge.ts (deterministic Job fit), agent.ts (export/apply)
+  profile/           resume.ts, pdf.ts (résumé fetch/parse), refresh.ts
+  jobs/              shape.ts (API row shaping)
   sources/           legacy pluggable-source engine (dedup/normalize reused by discovery)
-  matching/          score/resume/agent — PAUSED (retained, unlinked)
+  matching/          score/resume/agent — reused by the judge; auto-apply tiers PAUSED
   applications/      draft, human-gate, dry-run/live submit — PAUSED (retained, unlinked)
 prisma/              schema, migrations, seed
-scripts/             discover (API), discover --browser, verify-queries, e2e-seed
+scripts/             discover (API / --browser), judge, verify-queries, e2e-seed
 test/                vitest suite
-e2e/                 Playwright specs (smoke, queue, discovery)
+e2e/                 Playwright specs (smoke, queue, discovery, jobs-actions)
 ```
 
 
