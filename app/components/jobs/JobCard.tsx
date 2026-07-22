@@ -123,6 +123,7 @@ export function JobCard({ job, updating, onStatusChange }: JobCardProps) {
             href={job.applyUrl}
             target="_blank"
             rel="noreferrer"
+            data-testid="job-title"
             className="mt-1 block text-sm font-semibold leading-5 text-gray-950 hover:text-indigo-600 hover:underline dark:text-gray-100 dark:hover:text-indigo-300"
           >
             {job.title}

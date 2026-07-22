@@ -28,6 +28,15 @@ interface Fixture {
   isWorkday?: boolean;
   entryLevel?: boolean; // defaults true for non-workday fixtures
   ageDays?: number; // how long ago the job was posted (drives the date filter)
+  skills?: string[];
+  salaryMin?: number;
+  salaryMax?: number;
+  salaryRaw?: string;
+  sponsorship?: string;
+  employmentType?: string;
+  fitScore?: number;
+  fitProvider?: string;
+  fitSummary?: string;
 }
 
 const JOBS: Fixture[] = [
@@ -40,6 +49,15 @@ const JOBS: Fixture[] = [
     minYoE: 0,
     system: "greenhouse",
     ageDays: 0,
+    skills: ["TypeScript", "React", "Node.js"],
+    salaryMin: 120000,
+    salaryMax: 150000,
+    salaryRaw: "$120,000 - $150,000",
+    sponsorship: "offers",
+    employmentType: "fulltime",
+    fitScore: 88,
+    fitProvider: "deterministic",
+    fitSummary: "Strong fit: overlaps on TypeScript, React.",
   },
   {
     key: "apply",
@@ -50,6 +68,9 @@ const JOBS: Fixture[] = [
     minYoE: 1,
     system: "ashby",
     ageDays: 0,
+    skills: ["TypeScript", "PostgreSQL"],
+    fitScore: 64,
+    fitProvider: "deterministic",
   },
   {
     key: "reject",
@@ -60,6 +81,10 @@ const JOBS: Fixture[] = [
     minYoE: 2,
     system: "greenhouse",
     ageDays: 2,
+    skills: ["Node.js", "Go"],
+    sponsorship: "none",
+    fitScore: 41,
+    fitProvider: "deterministic",
   },
   {
     key: "staff",
@@ -80,6 +105,13 @@ const JOBS: Fixture[] = [
     minYoE: 0,
     system: "greenhouse",
     ageDays: 1,
+    skills: ["Python", "AWS"],
+    salaryMin: 90000,
+    salaryMax: 110000,
+    salaryRaw: "CA$90,000 - CA$110,000",
+    fitScore: 72,
+    fitProvider: "agent",
+    fitSummary: "Possible fit: Python overlap, cloud exposure.",
   },
   {
     key: "workday",
@@ -120,6 +152,18 @@ async function main() {
         discoverySystem: f.system,
         fingerprint: `fp-e2e-${f.key}`,
         postedAt: f.ageDays != null ? new Date(Date.now() - f.ageDays * 864e5) : null,
+        skills: f.skills ? JSON.stringify(f.skills) : null,
+        salaryMin: f.salaryMin ?? null,
+        salaryMax: f.salaryMax ?? null,
+        salaryCurrency: f.salaryMin != null ? (f.country === "CA" ? "CAD" : "USD") : null,
+        salaryRaw: f.salaryRaw ?? null,
+        sponsorship: f.sponsorship ?? null,
+        employmentType: f.employmentType ?? null,
+        fitScore: f.fitScore ?? null,
+        fitProvider: f.fitProvider ?? null,
+        fitSummary: f.fitSummary ?? null,
+        fitReasons: f.fitScore != null ? JSON.stringify(["seed reason"]) : null,
+        fitScoredAt: f.fitScore != null ? new Date() : null,
       },
     });
     await prisma.jobSighting.create({ data: { jobId: job.id, sourceId: source.id } });
