@@ -53,3 +53,6 @@ next-env.d.ts
 
 # agent resume-match scratch files
 /.match/
+
+# discovery verification artifacts
+.discovery/
