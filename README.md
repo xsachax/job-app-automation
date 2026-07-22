@@ -47,7 +47,7 @@ the **Jobs** page (US / CA tabs) and see coverage on the **Companies** page.
 
 ## Features
 
-- **Company-site discovery** — 33 public-API companies + Playwright scraping for Apple,
+- **Company-site discovery** — 41 public-API companies + Playwright scraping for Apple,
   classified to US/Canada entry-level roles. See [Discovery pipeline](#discovery-pipeline).
 - **Two separate queues** — US and Canada, newest-first, with last-24h / 7d / 30d filters.
 - **Dedup so nothing is listed twice** (see [below](#dedup--never-apply-twice)).

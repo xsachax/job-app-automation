@@ -37,10 +37,11 @@ export type DiscoverySystem =
   | "snap"
   | "phenom"
   | "spotify"
+  | "talentbrew"
+  | "microsoft"
   | "workday";
 
 export type BrowserSystem =
-  | "microsoft"
   | "apple"
   | "tesla"
   | "google"
@@ -65,6 +66,8 @@ export interface ApiCompany {
   token?: string;
   // Workday-specific host + site path.
   workday?: { host: string; tenant: string; site: string };
+  // TalentBrew (Radancy) host, e.g. "jobs.intuit.com".
+  talentbrew?: { host: string };
   // Does the endpoint filter US/CA server-side, or must we post-filter?
   countryFilter: "native" | "post";
   // Software keywords used to scope the query.
@@ -88,7 +91,7 @@ const SWE = ["software engineer", "software developer"];
 const SWE_BROAD = ["software engineer", "software developer", "machine learning", "devops"];
 
 // ---------------------------------------------------------------------------
-// API companies (33) — direct public JSON endpoints, verified live
+// API companies (41) — direct public JSON endpoints, verified live
 // ---------------------------------------------------------------------------
 
 export const API_COMPANIES: ApiCompany[] = [
@@ -112,6 +115,10 @@ export const API_COMPANIES: ApiCompany[] = [
   { name: "xAI", method: "api", system: "greenhouse", token: "xai", countryFilter: "post", queryTerms: SWE_BROAD },
   { name: "SpaceX", method: "api", system: "greenhouse", token: "spacex", countryFilter: "post", queryTerms: SWE_BROAD },
   { name: "Thinking Machines", method: "api", system: "greenhouse", token: "thinkingmachines", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Nuro", method: "api", system: "greenhouse", token: "nuro", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "DRW", method: "api", system: "greenhouse", token: "drweng", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Jane Street", method: "api", system: "greenhouse", token: "janestreet", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Hudson River Trading", method: "api", system: "greenhouse", token: "wehrtyou", countryFilter: "post", queryTerms: SWE_BROAD },
 
   // ---- Ashby: https://api.ashbyhq.com/posting-api/job-board/<token>
   { name: "OpenAI", method: "api", system: "ashby", token: "openai", countryFilter: "post", queryTerms: SWE_BROAD },
@@ -119,33 +126,31 @@ export const API_COMPANIES: ApiCompany[] = [
   { name: "Ramp", method: "api", system: "ashby", token: "ramp", countryFilter: "post", queryTerms: SWE_BROAD },
   { name: "Cohere", method: "api", system: "ashby", token: "cohere", countryFilter: "post", queryTerms: SWE_BROAD },
   { name: "ElevenLabs", method: "api", system: "ashby", token: "elevenlabs", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Baseten", method: "api", system: "ashby", token: "baseten", countryFilter: "post", queryTerms: SWE_BROAD },
 
   // ---- Bespoke public JSON endpoints
   { name: "Amazon", method: "api", system: "amazon", countryFilter: "native", queryTerms: SWE },
+  { name: "Microsoft", method: "api", system: "microsoft", countryFilter: "native", queryTerms: SWE },
   { name: "Uber", method: "api", system: "uber", countryFilter: "native", queryTerms: SWE },
   { name: "Netflix", method: "api", system: "netflix", countryFilter: "native", queryTerms: SWE },
   { name: "Snap", method: "api", system: "snap", countryFilter: "post", queryTerms: SWE },
   { name: "GitHub", method: "api", system: "phenom", token: "github.careers", countryFilter: "post", queryTerms: SWE },
   { name: "Spotify", method: "api", system: "spotify", countryFilter: "post", queryTerms: SWE },
+  { name: "Intuit", method: "api", system: "talentbrew", countryFilter: "post", queryTerms: SWE, talentbrew: { host: "jobs.intuit.com" } },
 
   // ---- Workday CXS: POST https://<host>/wday/cxs/<tenant>/<site>/jobs
   { name: "Nvidia", method: "api", system: "workday", countryFilter: "post", queryTerms: SWE, workday: { host: "nvidia.wd5.myworkdayjobs.com", tenant: "nvidia", site: "NVIDIAExternalCareerSite" } },
   { name: "Adobe", method: "api", system: "workday", countryFilter: "post", queryTerms: SWE, workday: { host: "adobe.wd5.myworkdayjobs.com", tenant: "adobe", site: "external_experienced" } },
   { name: "Salesforce", method: "api", system: "workday", countryFilter: "post", queryTerms: SWE, workday: { host: "salesforce.wd12.myworkdayjobs.com", tenant: "salesforce", site: "External_Career_Site" } },
+  { name: "Zoom", method: "api", system: "workday", countryFilter: "post", queryTerms: SWE, workday: { host: "zoom.wd5.myworkdayjobs.com", tenant: "zoom", site: "Zoom" } },
 ];
 
 // ---------------------------------------------------------------------------
-// Browser companies (9) — no usable public JSON API, need Playwright at scrape
+// Browser companies (8) — no usable public JSON API, need Playwright at scrape
 // time. URLs are pinned & confirmable in a browser.
 // ---------------------------------------------------------------------------
 
 export const BROWSER_COMPANIES: BrowserCompany[] = [
-  {
-    name: "Microsoft", method: "browser", system: "microsoft",
-    searchUrlUS: "https://jobs.careers.microsoft.com/global/en/search?q=software%20engineer&lc=United%20States&exp=Students%20and%20graduates",
-    searchUrlCA: "https://jobs.careers.microsoft.com/global/en/search?q=software%20engineer&lc=Canada&exp=Students%20and%20graduates",
-    reason: "gcsservices search API is bot-gated (unreachable via server fetch); page is client-rendered.",
-  },
   {
     name: "Apple", method: "browser", system: "apple",
     searchUrlUS: "https://jobs.apple.com/en-us/search?location=united-states-USA&team=apps-and-frameworks-SFTWR-AF,cloud-and-infrastructure-SFTWR-CLD,core-operating-systems-SFTWR-COS",

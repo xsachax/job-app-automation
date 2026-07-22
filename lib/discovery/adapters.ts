@@ -46,6 +46,22 @@ function stripHtml(s: string | undefined | null): string {
   return s.replace(/<[^>]+>/g, " ").replace(/&[a-z]+;/g, " ").replace(/\s+/g, " ").trim().slice(0, 8000);
 }
 
+// Decode the handful of HTML entities that show up in scraped title/location
+// strings (TalentBrew returns server-rendered HTML fragments).
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&#0?39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&#x2f;/gi, "/")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function toDate(v: string | number | null | undefined): Date | null {
   if (v == null) return null;
   if (typeof v === "number") {
@@ -390,6 +406,114 @@ async function spotify(c: ApiCompany): Promise<DiscoveryPosting[]> {
   return out;
 }
 
+// ---------------------------------- Microsoft ----------------------------------
+// apply.careers.microsoft.com exposes a public JSON search API (pcsx) that is
+// directly fetchable server-side. It filters by country natively via the
+// `location` param (verified US/CA-clean), paginates by `start` in steps of 10,
+// and returns a real apply URL + posted timestamp.
+
+async function microsoft(c: ApiCompany): Promise<DiscoveryPosting[]> {
+  const base = "https://apply.careers.microsoft.com";
+  const q = c.queryTerms[0];
+  const out: DiscoveryPosting[] = [];
+  const seen = new Set<string>();
+  for (const location of ["United States", "Canada"] as const) {
+    for (let start = 0; start < 400; start += 10) {
+      const url =
+        `${base}/api/pcsx/search?domain=microsoft.com` +
+        `&query=${encodeURIComponent(q)}&location=${encodeURIComponent(location)}` +
+        `&start=${start}&sort_by=relevance`;
+      const data = (await fetchJson(url)) as {
+        data?: {
+          count?: number;
+          positions?: {
+            id?: string | number;
+            displayJobId?: string;
+            name?: string;
+            locations?: string[];
+            positionUrl?: string;
+            postedTs?: number;
+          }[];
+        };
+      };
+      const positions = data.data?.positions ?? [];
+      for (const p of positions) {
+        const id = String(p.id ?? p.displayJobId ?? "");
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        out.push(
+          mk("microsoft", c.name, {
+            title: p.name ?? "",
+            location: (p.locations ?? []).join(" | "),
+            applyUrl: p.positionUrl ? `${base}${p.positionUrl}` : "",
+            externalId: id,
+            description: "",
+            postedAt: toDate(p.postedTs),
+          }),
+        );
+      }
+      const total = Number(data.data?.count ?? 0);
+      if (positions.length < 10 || start + 10 >= total) break;
+    }
+  }
+  return out;
+}
+
+// ---------------------------------- TalentBrew ----------------------------------
+// Radancy TalentBrew (e.g. jobs.intuit.com) renders results into HTML fragments
+// returned from a JSON endpoint. We parse each job tile for title, location and
+// id, and build the apply URL from its /job/... path. Paginated via CurrentPage;
+// the seen-set + per-page "added" guard stops us if pagination ever loops.
+
+async function talentbrew(c: ApiCompany): Promise<DiscoveryPosting[]> {
+  const host = c.talentbrew!.host;
+  const q = c.queryTerms[0];
+  const out: DiscoveryPosting[] = [];
+  const seen = new Set<string>();
+  for (let page = 1; page <= 12; page++) {
+    const url =
+      `https://${host}/search-jobs/results?ActiveFacetID=0&CurrentPage=${page}` +
+      `&RecordsPerPage=100&Distance=50&RadiusUnitType=0` +
+      `&Keyword=${encodeURIComponent(q)}&Location=&ShowRadius=False&IsPagination=True` +
+      `&SearchResultsModuleName=Search+Results&SearchFiltersModuleName=Search+Filters` +
+      `&SortCriteria=0&SortDirection=0&SearchType=1&KeywordType=Any`;
+    const data = (await fetchJson(url, { headers: { "X-Requested-With": "XMLHttpRequest" } })) as {
+      results?: string;
+    };
+    const html = data.results ?? "";
+    if (!html) break;
+    let added = 0;
+    for (const chunk of html.split(/<li\b/i).slice(1)) {
+      const href = chunk.match(/href="(\/job\/[^"]+)"/i)?.[1];
+      const rawTitle = chunk.match(/data-title="([^"]*)"/i)?.[1];
+      if (!href || !rawTitle) continue;
+      const id =
+        chunk.match(/data-job-id="([^"]*)"/i)?.[1] ??
+        chunk.match(/data-(?:[a-z]+-)?jobid="([^"]*)"/i)?.[1] ??
+        href;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const rawLoc =
+        chunk.match(/class="job-location[^"]*"[^>]*>([^<]+)</i)?.[1] ??
+        chunk.match(/data-orig-location="([^"]*)"/i)?.[1] ??
+        "";
+      out.push(
+        mk("talentbrew", c.name, {
+          title: decodeEntities(rawTitle),
+          location: decodeEntities(rawLoc),
+          applyUrl: `https://${host}${href}`,
+          externalId: id,
+          description: "",
+          postedAt: null,
+        }),
+      );
+      added++;
+    }
+    if (added < 1) break;
+  }
+  return out;
+}
+
 const FETCHERS: Record<DiscoverySystem, (c: ApiCompany) => Promise<DiscoveryPosting[]>> = {
   greenhouse,
   ashby,
@@ -400,6 +524,8 @@ const FETCHERS: Record<DiscoverySystem, (c: ApiCompany) => Promise<DiscoveryPost
   snap,
   phenom,
   spotify,
+  talentbrew,
+  microsoft,
   workday,
 };
 
