@@ -17,3 +17,7 @@ export async function PUT(req: NextRequest) {
     return errorResponse(e);
   }
 }
+
+export async function POST(req: NextRequest) {
+  return PUT(req);
+}

@@ -43,6 +43,10 @@ export interface ProfileData {
   portfolio?: string;
   summary?: string;
   skills?: string[];
+  resumeUrl?: string; // public/direct URL to the user's PDF resume
+  resumeText?: string; // pasted or parsed plain-text resume content
+  targetRoles?: string[]; // roles the user wants the discovery judge to favor
+  qualifications?: string; // degree, graduation date, projects, constraints
   // Common compliance / eligibility questions.
   workAuthorized?: boolean;
   requiresSponsorship?: boolean;
@@ -69,6 +73,10 @@ export const DEFAULT_PROFILE: ProfileData = {
   portfolio: "",
   summary: "",
   skills: [],
+  resumeUrl: "",
+  resumeText: "",
+  targetRoles: [],
+  qualifications: "",
   workAuthorized: undefined,
   requiresSponsorship: undefined,
   gender: "",
