@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { fetchCompanyPostings } from "../lib/discovery/adapters";
-import { API_COMPANIES, type ApiCompany } from "../lib/discovery/companies";
+import { API_COMPANIES, BOARD_SOURCES, DISCOVERY_SOURCES, type ApiCompany } from "../lib/discovery/companies";
 import { jsonResponse } from "./helpers";
 
 afterEach(() => {
@@ -94,6 +94,53 @@ describe("talentbrew adapter (Radancy HTML fragments)", () => {
   });
 });
 
+describe("github board adapter (aggregator listings.json)", () => {
+  it("maps rows to postings, sets company per-row, and drops inactive/hidden", async () => {
+    const listings = [
+      {
+        company_name: "Acme",
+        title: "Software Engineer, New Grad",
+        url: "https://job-boards.greenhouse.io/acme/jobs/123",
+        locations: ["San Jose, CA"],
+        active: true,
+        is_visible: true,
+        date_posted: 1_700_000_000,
+        id: "row-1",
+      },
+      {
+        company_name: "Beta Labs",
+        title: "Backend Engineer",
+        url: "https://jobs.lever.co/beta/456",
+        locations: ["Toronto, ON, Canada"],
+        active: true,
+        id: "row-2",
+      },
+      // Inactive → dropped.
+      { company_name: "Gamma", title: "SWE", url: "https://x/1", locations: ["Austin, TX"], active: false, id: "row-3" },
+      // Hidden → dropped.
+      { company_name: "Delta", title: "SWE", url: "https://x/2", locations: ["Austin, TX"], active: true, is_visible: false, id: "row-4" },
+      // Missing url → dropped.
+      { company_name: "Epsilon", title: "SWE", url: "", locations: ["Austin, TX"], active: true, id: "row-5" },
+    ];
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(listings)));
+
+    const board = BOARD_SOURCES[0];
+    const posts = await fetchCompanyPostings(board);
+    expect(posts).toHaveLength(2);
+
+    const acme = posts.find((p) => p.externalId === "row-1")!;
+    expect(acme.company).toBe("Acme"); // company comes from the row, not the board name
+    expect(acme.system).toBe("githubboard");
+    expect(acme.country).toBe("US"); // ", CA" now resolves to California
+    expect(acme.applyUrl).toBe("https://job-boards.greenhouse.io/acme/jobs/123");
+    expect(acme.postedAt).toBeInstanceOf(Date);
+
+    const beta = posts.find((p) => p.externalId === "row-2")!;
+    expect(beta.company).toBe("Beta Labs");
+    expect(beta.country).toBe("CA");
+  });
+});
+
 describe("discovery catalog", () => {
   it("registers the newly added companies with the expected system", () => {
     const bySystem = (name: string) => API_COMPANIES.find((c) => c.name === name)?.system;
@@ -107,10 +154,20 @@ describe("discovery catalog", () => {
     expect(bySystem("Zoom")).toBe("workday");
   });
 
-  it("gives every API company a fetchable system (no missing fetcher)", async () => {
+  it("registers the GitHub board sources with a repo config", () => {
+    expect(BOARD_SOURCES.length).toBeGreaterThanOrEqual(2);
+    for (const b of BOARD_SOURCES) {
+      expect(b.system).toBe("githubboard");
+      expect(b.board?.owner).toBeTruthy();
+      expect(b.board?.repo).toBeTruthy();
+      expect(b.board?.path).toBeTruthy();
+    }
+  });
+
+  it("gives every discovery source a fetchable system (no missing fetcher)", async () => {
     // fetchCompanyPostings throws synchronously for an unregistered system.
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({})));
-    for (const c of API_COMPANIES) {
+    for (const c of DISCOVERY_SOURCES) {
       await expect(fetchCompanyPostings(c)).resolves.toBeDefined();
     }
   });

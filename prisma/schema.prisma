@@ -45,7 +45,7 @@ model Job {
   isEntryLevel    Boolean @default(false) // passed the entry-level/degree/YoE filter
   minYoE          Int? // smallest years-of-experience the posting requires, if any
   discoverySystem String? // greenhouse | ashby | amazon | uber | ... provenance
-  fingerprint String? // company|title|location hash for repost/fuzzy dedup guard
+  fingerprint String? // sha1(company|title|country) — cross-source dedup key
   firstSeenAt DateTime      @default(now())
   lastSeenAt  DateTime      @default(now())
   raw         String? // raw source payload as JSON
@@ -57,6 +57,7 @@ model Job {
   @@index([company])
   @@index([country])
   @@index([isEntryLevel])
+  @@index([fingerprint])
 }
 
 // Records that a given source saw a given job (one job, many source sightings).

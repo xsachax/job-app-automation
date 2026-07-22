@@ -514,6 +514,63 @@ async function talentbrew(c: ApiCompany): Promise<DiscoveryPosting[]> {
   return out;
 }
 
+// --------------------------------- GitHub board ---------------------------------
+// Community-maintained new-grad aggregators publish a raw listings.json. Each
+// row is a real posting at a real employer, so we set the posting's company from
+// the row (not c.name) and keep only currently-active + visible entries. The
+// apply URL is the row's direct link; dates are unix seconds. Country is
+// classified from the joined locations, so US/CA separation is automatic.
+
+interface BoardListing {
+  company_name?: string;
+  title?: string;
+  url?: string;
+  locations?: string[] | string;
+  active?: boolean;
+  is_visible?: boolean;
+  visible?: boolean;
+  date_posted?: number | string;
+  date_updated?: number | string;
+  id?: string;
+  sponsorship?: string;
+}
+
+async function githubBoard(c: ApiCompany): Promise<DiscoveryPosting[]> {
+  const b = c.board!;
+  const url = `https://raw.githubusercontent.com/${b.owner}/${b.repo}/${b.ref}/${b.path}`;
+  const data = (await fetchJson(url, { headers: { Accept: "application/json" } }, 30000)) as
+    | BoardListing[]
+    | { data?: BoardListing[]; listings?: BoardListing[] };
+  const rows: BoardListing[] = Array.isArray(data) ? data : (data.listings ?? data.data ?? []);
+  const out: DiscoveryPosting[] = [];
+  const seen = new Set<string>();
+  for (const r of rows) {
+    if (r.active === false) continue;
+    if (r.is_visible === false || r.visible === false) continue;
+    const applyUrl = (r.url ?? "").trim();
+    const title = (r.title ?? "").trim();
+    const company = (r.company_name ?? "").trim();
+    if (!applyUrl || !title || !company) continue;
+    const id = String(r.id ?? applyUrl);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const location = Array.isArray(r.locations)
+      ? r.locations.filter(Boolean).join(" | ")
+      : String(r.locations ?? "");
+    out.push(
+      mk("githubboard", company, {
+        title,
+        location,
+        applyUrl,
+        externalId: id,
+        description: "",
+        postedAt: toDate(r.date_posted ?? r.date_updated),
+      }),
+    );
+  }
+  return out;
+}
+
 const FETCHERS: Record<DiscoverySystem, (c: ApiCompany) => Promise<DiscoveryPosting[]>> = {
   greenhouse,
   ashby,
@@ -526,6 +583,7 @@ const FETCHERS: Record<DiscoverySystem, (c: ApiCompany) => Promise<DiscoveryPost
   spotify,
   talentbrew,
   microsoft,
+  githubboard: githubBoard,
   workday,
 };
 

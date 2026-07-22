@@ -39,6 +39,7 @@ export type DiscoverySystem =
   | "spotify"
   | "talentbrew"
   | "microsoft"
+  | "githubboard"
   | "workday";
 
 export type BrowserSystem =
@@ -68,6 +69,10 @@ export interface ApiCompany {
   workday?: { host: string; tenant: string; site: string };
   // TalentBrew (Radancy) host, e.g. "jobs.intuit.com".
   talentbrew?: { host: string };
+  // GitHub-hosted aggregator board: a raw listings.json in a repo. The fetcher
+  // sets each posting's company from the feed row (not `name`), so one board
+  // entry contributes roles across many employers.
+  board?: { owner: string; repo: string; ref: string; path: string };
   // Does the endpoint filter US/CA server-side, or must we post-filter?
   countryFilter: "native" | "post";
   // Software keywords used to scope the query.
@@ -202,3 +207,44 @@ export const BROWSER_COMPANIES: BrowserCompany[] = [
 ];
 
 export const ALL_COMPANIES: DiscoveryCompany[] = [...API_COMPANIES, ...BROWSER_COMPANIES];
+
+// ---------------------------------------------------------------------------
+// GitHub aggregator boards — community-maintained new-grad job feeds published
+// as a raw listings.json. Each row carries its own employer, so one board
+// covers hundreds of companies (a long tail beyond our named list). They run
+// AFTER the company sites so cross-source dedup keeps the richer native listing
+// when the same role appears in both. All are verified live.
+// ---------------------------------------------------------------------------
+
+export const BOARD_SOURCES: ApiCompany[] = [
+  {
+    name: "SimplifyJobs New-Grad",
+    method: "api",
+    system: "githubboard",
+    countryFilter: "post",
+    queryTerms: SWE,
+    board: {
+      owner: "SimplifyJobs",
+      repo: "New-Grad-Positions",
+      ref: "dev",
+      path: ".github/scripts/listings.json",
+    },
+  },
+  {
+    name: "vanshb03 New-Grad-2026",
+    method: "api",
+    system: "githubboard",
+    countryFilter: "post",
+    queryTerms: SWE,
+    board: {
+      owner: "vanshb03",
+      repo: "New-Grad-2026",
+      ref: "main",
+      path: ".github/scripts/listings.json",
+    },
+  },
+];
+
+// The full set the discovery runner iterates: named company APIs first, then the
+// aggregator boards (so board dupes of already-covered roles are suppressed).
+export const DISCOVERY_SOURCES: ApiCompany[] = [...API_COMPANIES, ...BOARD_SOURCES];

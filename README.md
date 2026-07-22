@@ -48,9 +48,11 @@ the **Jobs** page (US / CA tabs) and see coverage on the **Companies** page.
 ## Features
 
 - **Company-site discovery** — 41 public-API companies + Playwright scraping for Apple,
+  plus community GitHub job boards (SimplifyJobs, vanshb03) for the long tail of employers,
   classified to US/Canada entry-level roles. See [Discovery pipeline](#discovery-pipeline).
 - **Two separate queues** — US and Canada, newest-first, with last-24h / 7d / 30d filters.
-- **Dedup so nothing is listed twice** (see [below](#dedup--never-apply-twice)).
+- **Dedup so nothing is listed twice** — including cross-source (a role found on both a
+  company site and an aggregator board collapses into one card). See [below](#dedup--never-apply-twice).
 - **Entry-level gate** — software role, not senior, ≤ 2 years experience, no advanced
   degree required. "No experience specified" passes.
 - **Link-out only** — every card opens the real posting; you fill the application.

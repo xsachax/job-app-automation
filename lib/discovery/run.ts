@@ -2,7 +2,7 @@ import { prisma } from "../db";
 import { createHash } from "node:crypto";
 import { fetchCompanyPostings, type DiscoveryPosting } from "./adapters";
 import { classifyEntryLevel } from "./entryLevel";
-import { API_COMPANIES, type ApiCompany } from "./companies";
+import { DISCOVERY_SOURCES, type ApiCompany } from "./companies";
 import { detectAts, normalizeUrl } from "../sources/normalize";
 
 // The discovery runner: fetch each API company's public endpoint, keep only
@@ -39,14 +39,26 @@ function dedupeKeyFor(p: DiscoveryPosting): string {
   return `fp:${h}`;
 }
 
+// Cross-source fingerprint: the same open role often appears on both a company's
+// own career site AND on an aggregator board. This coarse key (company + title +
+// country, ignoring location formatting) lets us recognize that pair and keep a
+// single card. It is deliberately NOT unique — one employer legitimately posts
+// the same title in several cities (distinct reqs, same system), so we only ever
+// dedupe on it ACROSS different discovery systems.
+function fingerprintFor(p: DiscoveryPosting): string {
+  return createHash("sha1")
+    .update([p.company, p.title, p.country].join("|").toLowerCase().replace(/\s+/g, " ").trim())
+    .digest("hex");
+}
+
 async function persist(
   p: DiscoveryPosting,
   minYoE: number | null,
 ): Promise<"created" | "updated"> {
   const dedupeKey = dedupeKeyFor(p);
+  const fingerprint = fingerprintFor(p);
   const applyUrl = normalizeUrl(p.applyUrl);
   const atsType = detectAts(applyUrl);
-  const existing = await prisma.job.findUnique({ where: { dedupeKey }, select: { id: true } });
 
   const data = {
     atsType,
@@ -63,16 +75,34 @@ async function persist(
     isEntryLevel: true,
     minYoE,
     discoverySystem: p.system,
+    fingerprint,
     lastSeenAt: new Date(),
   };
 
+  // 1. Same posting from the same source (stable external id) → update in place.
+  const existing = await prisma.job.findUnique({ where: { dedupeKey }, select: { id: true } });
   if (existing) {
     await prisma.job.update({ where: { id: existing.id }, data });
     return "updated";
   }
-  await prisma.job.create({
-    data: { dedupeKey, fingerprint: dedupeKey.startsWith("fp:") ? dedupeKey : null, ...data },
+
+  // 2. Same role already found via a DIFFERENT source. A GitHub aggregator board
+  //    re-lists roles that also live on a company's own site (and across boards).
+  //    Board postings therefore dedupe against ANY existing card with the same
+  //    fingerprint; native company postings only dedupe across a *different*
+  //    system, so an employer's distinct same-title reqs (same system) are kept.
+  //    Company sites run before boards, so the richer native card always wins.
+  const isBoard = p.system === "githubboard";
+  const crossSource = await prisma.job.findFirst({
+    where: isBoard ? { fingerprint } : { fingerprint, discoverySystem: { not: p.system } },
+    select: { id: true },
   });
+  if (crossSource) {
+    await prisma.job.update({ where: { id: crossSource.id }, data: { lastSeenAt: new Date() } });
+    return "updated";
+  }
+
+  await prisma.job.create({ data: { dedupeKey, ...data } });
   return "created";
 }
 
@@ -137,17 +167,30 @@ export async function runDiscovery(opts?: {
   const concurrency = opts?.concurrency ?? 5;
   const wanted = opts?.companies?.map((s) => s.toLowerCase());
   const targets = wanted
-    ? API_COMPANIES.filter((c) => wanted.includes(c.name.toLowerCase()))
-    : API_COMPANIES;
+    ? DISCOVERY_SOURCES.filter((c) => wanted.includes(c.name.toLowerCase()))
+    : DISCOVERY_SOURCES;
 
   const results: CompanyRunResult[] = [];
-  for (let i = 0; i < targets.length; i += concurrency) {
-    const batch = targets.slice(i, i + concurrency);
+  // Company sites first (concurrent batches), then aggregator boards strictly
+  // sequentially. Boards re-list roles already found natively, so running them
+  // last + one-at-a-time makes cross-source dedup deterministic (each board
+  // sees every prior insert).
+  const boards = targets.filter((c) => c.system === "githubboard");
+  const companies = targets.filter((c) => c.system !== "githubboard");
+
+  for (let i = 0; i < companies.length; i += concurrency) {
+    const batch = companies.slice(i, i + concurrency);
     const batchResults = await Promise.all(batch.map((c) => runCompany(c, onlyEntryLevel)));
     for (const r of batchResults) {
       results.push(r);
       opts?.onProgress?.(r);
     }
+  }
+
+  for (const b of boards) {
+    const r = await runCompany(b, onlyEntryLevel);
+    results.push(r);
+    opts?.onProgress?.(r);
   }
 
   return {

@@ -12,6 +12,9 @@ describe("classifyCountry", () => {
     expect(classifyCountry("Austin, Texas")).toBe("US");
     expect(classifyCountry("Remote - US: Select locations")).toBe("US");
     expect(classifyCountry("Seattle, Washington, United States of America")).toBe("US");
+    // Bare ", CA" is California (a board's most common US format), not Canada.
+    expect(classifyCountry("Berkeley, CA")).toBe("US");
+    expect(classifyCountry("San Jose, CA")).toBe("US");
   });
 
   it("recognizes Canadian formats", () => {

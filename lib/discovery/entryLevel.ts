@@ -28,14 +28,16 @@ const US_STATES = [
   "washington", "west virginia", "wisconsin", "wyoming",
 ];
 
-// Postal abbreviations that appear as ", CA" style tokens. NOTE: "CA" is
-// deliberately excluded here because it collides with California — we resolve
-// California via the full state name / city list instead.
+// Postal abbreviations that appear as ", CA" style tokens. "CA" (California) is
+// included: Canadian locations are resolved FIRST (via city / province / "Canada"
+// name / province abbrev), so by the time we test these US abbrevs a bare ", CA"
+// is overwhelmingly California — the common case on US-centric job boards, which
+// we were previously dropping.
 const US_STATE_ABBR = [
-  "AL", "AK", "AZ", "AR", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN",
-  "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE",
-  "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
-  "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC",
+  "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL",
+  "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT",
+  "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI",
+  "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC",
 ];
 
 const US_CITIES = [
