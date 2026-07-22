@@ -1,31 +1,38 @@
 import type { ReactNode } from "react";
 
 export const cls = {
-  card: "rounded-xl border border-gray-200 bg-white p-5 shadow-sm",
+  card:
+    "rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900",
+  cardTight:
+    "rounded-lg border border-gray-200 bg-white p-3 shadow-sm dark:border-gray-800 dark:bg-gray-900",
   btnPrimary:
     "rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-50",
-  btn: "rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium transition-colors hover:bg-gray-50 disabled:opacity-50",
+  btn:
+    "rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium transition-colors hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700",
   btnDanger:
-    "rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50",
+    "rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:bg-gray-800 dark:hover:bg-red-950",
   btnGreen:
     "rounded-lg bg-green-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-green-700 disabled:opacity-50",
   input:
-    "w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none",
-  label: "block text-sm font-medium text-gray-700",
+    "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500",
+  label: "block text-sm font-medium text-gray-700 dark:text-gray-300",
+  chip:
+    "inline-flex items-center rounded-md bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-300",
+  muted: "text-gray-500 dark:text-gray-400",
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  new: "bg-gray-100 text-gray-700",
-  drafted: "bg-blue-100 text-blue-700",
-  pending_approval: "bg-amber-100 text-amber-800",
-  submitted: "bg-green-100 text-green-700",
-  rejected: "bg-red-100 text-red-700",
-  skipped: "bg-gray-100 text-gray-500",
-  failed: "bg-red-100 text-red-700",
+  new: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
+  drafted: "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
+  pending_approval: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+  submitted: "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300",
+  rejected: "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300",
+  skipped: "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400",
+  failed: "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300",
 };
 
 export function StatusBadge({ status }: { status: string }) {
-  const color = STATUS_COLORS[status] ?? "bg-gray-100 text-gray-700";
+  const color = STATUS_COLORS[status] ?? STATUS_COLORS.new;
   return (
     <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${color}`}>
       {status.replace(/_/g, " ")}
@@ -36,10 +43,10 @@ export function StatusBadge({ status }: { status: string }) {
 export function ScoreBadge({ score }: { score: number }) {
   const color =
     score >= 70
-      ? "bg-green-100 text-green-700"
+      ? "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300"
       : score >= 40
-        ? "bg-amber-100 text-amber-800"
-        : "bg-gray-100 text-gray-600";
+        ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+        : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400";
   return (
     <span className={`inline-block w-9 rounded-md text-center text-xs font-semibold ${color} py-1`}>
       {score}
@@ -47,8 +54,8 @@ export function ScoreBadge({ score }: { score: number }) {
   );
 }
 
-// Tier-2 resume-fit badge. `provider` distinguishes the deterministic baseline
-// ("auto") from a Copilot agent judgement ("agent").
+// Resume-fit badge from the post-scrape judge. `provider` distinguishes the
+// deterministic baseline ("auto") from a Copilot agent judgement ("agent").
 export function FitBadge({
   score,
   provider,
@@ -59,10 +66,10 @@ export function FitBadge({
   if (score == null) return null;
   const color =
     score >= 70
-      ? "bg-indigo-100 text-indigo-700"
+      ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300"
       : score >= 40
-        ? "bg-indigo-50 text-indigo-600"
-        : "bg-gray-100 text-gray-500";
+        ? "bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-300"
+        : "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400";
   const tag = provider === "agent" ? "agent" : "auto";
   return (
     <span
@@ -70,10 +77,101 @@ export function FitBadge({
       title={provider === "agent" ? "Scored by Copilot agent" : "Deterministic baseline score"}
     >
       fit {score}
-      <span className="rounded bg-white/60 px-1 text-[10px] font-medium uppercase tracking-wide">
+      <span className="rounded bg-white/60 px-1 text-[10px] font-medium uppercase tracking-wide dark:bg-black/30">
         {tag}
       </span>
     </span>
+  );
+}
+
+// User pipeline status for a discovered job (none | saved | applied | ...).
+const APPLIED_COLORS: Record<string, string> = {
+  none: "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400",
+  saved: "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300",
+  applied: "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300",
+  interviewing: "bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300",
+  offer: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
+  rejected: "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300",
+  dismissed: "bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-500",
+};
+
+export function AppliedBadge({ status }: { status: string }) {
+  if (!status || status === "none") return null;
+  const color = APPLIED_COLORS[status] ?? APPLIED_COLORS.none;
+  return (
+    <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${color}`}>
+      {status}
+    </span>
+  );
+}
+
+// Visa-sponsorship badge derived from enrichment (offers | none | citizenship).
+const SPONSOR_LABEL: Record<string, { text: string; color: string }> = {
+  offers: {
+    text: "sponsors visa",
+    color: "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300",
+  },
+  none: {
+    text: "no sponsorship",
+    color: "bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-300",
+  },
+  citizenship: {
+    text: "citizenship req.",
+    color: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+  },
+};
+
+export function SponsorshipBadge({ value }: { value: string | null | undefined }) {
+  if (!value || !SPONSOR_LABEL[value]) return null;
+  const { text, color } = SPONSOR_LABEL[value];
+  return (
+    <span className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium ${color}`}>{text}</span>
+  );
+}
+
+function fmtK(n: number): string {
+  return n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
+}
+
+// Compact salary display: "$120k–150k" from normalized min/max, else the raw
+// string the source provided.
+export function SalaryText({
+  min,
+  max,
+  currency,
+  raw,
+}: {
+  min: number | null | undefined;
+  max: number | null | undefined;
+  currency?: string | null;
+  raw?: string | null;
+}) {
+  const sym = currency === "CAD" ? "C$" : "$";
+  let text: string | null = null;
+  if (min && max) text = `${sym}${fmtK(min)}–${fmtK(max)}`;
+  else if (min) text = `${sym}${fmtK(min)}+`;
+  else if (raw) text = raw.length > 24 ? `${raw.slice(0, 24)}…` : raw;
+  if (!text) return null;
+  return (
+    <span className="inline-block rounded px-1.5 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+      {text}
+    </span>
+  );
+}
+
+export function SkillChips({ skills, limit = 8 }: { skills: string[]; limit?: number }) {
+  if (!skills?.length) return null;
+  const shown = skills.slice(0, limit);
+  const extra = skills.length - shown.length;
+  return (
+    <div className="mt-2 flex flex-wrap gap-1">
+      {shown.map((s) => (
+        <span key={s} className={cls.chip}>
+          {s}
+        </span>
+      ))}
+      {extra > 0 && <span className={cls.chip}>+{extra}</span>}
+    </div>
   );
 }
 
@@ -82,7 +180,7 @@ export function PageHeader({ title, subtitle, children }: { title: string; subti
     <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
-        {subtitle && <p className="mt-1 text-sm text-gray-500">{subtitle}</p>}
+        {subtitle && <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{subtitle}</p>}
       </div>
       {children}
     </div>

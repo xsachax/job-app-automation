@@ -46,6 +46,23 @@ model Job {
   minYoE          Int? // smallest years-of-experience the posting requires, if any
   discoverySystem String? // greenhouse | ashby | amazon | uber | ... provenance
   fingerprint String? // sha1(company|title|country) — cross-source dedup key
+  // --- Enrichment: structured, filterable facets extracted at ingest ---
+  salaryMin      Int? // normalized annual minimum, when the posting states one
+  salaryMax      Int? // normalized annual maximum
+  salaryCurrency String? // USD | CAD
+  salaryRaw      String? // original compensation string as shown
+  sponsorship    String? // offers | none | citizenship | unknown (visa sponsorship)
+  skills         String? // JSON array of normalized tech skills found in the posting
+  employmentType String? // fulltime | intern | contract | unknown
+  // --- User pipeline tracking (discovery link-out flow) ---
+  applicationStatus String @default("none") // none | saved | applied | interviewing | offer | rejected | dismissed
+  appliedAt         DateTime?
+  // --- Post-scrape resume judge (see lib/judge) ---
+  fitScore    Int? // 0..100 fit against the user's resume/qualifications
+  fitReasons  String? // JSON array of short fit reasons
+  fitSummary  String? // one-line fit/gap summary (mainly from the agent tier)
+  fitProvider String? // deterministic | agent
+  fitScoredAt DateTime?
   firstSeenAt DateTime      @default(now())
   lastSeenAt  DateTime      @default(now())
   raw         String? // raw source payload as JSON
@@ -58,6 +75,8 @@ model Job {
   @@index([country])
   @@index([isEntryLevel])
   @@index([fingerprint])
+  @@index([applicationStatus])
+  @@index([fitScore])
 }
 
 // Records that a given source saw a given job (one job, many source sightings).
@@ -118,6 +137,17 @@ model Profile {
 model Criteria {
   id        String   @id @default("default")
   data      String   @default("{}") // JSON: titles[], locations[], keywords[], excludeKeywords[], remoteOnly, seniority[]
+  updatedAt DateTime @updatedAt
+}
+
+// Singleton, fully user-editable discovery configuration. Stored as a JSON blob
+// (see lib/discovery/config.ts) so new knobs never require a migration — the
+// whole point is that in two years the roles, locations, YoE ceiling, degree
+// ceiling and enabled sources can all be changed from the dashboard without
+// touching code.
+model DiscoveryConfig {
+  id        String   @id @default("default")
+  data      String   @default("{}") // JSON DiscoveryConfigData
   updatedAt DateTime @updatedAt
 }
 

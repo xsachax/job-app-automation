@@ -20,6 +20,10 @@ export interface DiscoveryPosting {
   description: string;
   postedAt: Date | null;
   system: DiscoverySystem | BrowserSystem;
+  // Optional first-class enrichment hints a source may expose. Enrichment falls
+  // back to parsing the description when these are absent.
+  sponsorship?: string | null;
+  compensation?: string | null;
 }
 
 const UA =
@@ -140,6 +144,8 @@ async function ashby(c: ApiCompany): Promise<DiscoveryPosting[]> {
       applyUrl?: string;
       descriptionPlain?: string;
       publishedAt?: string;
+      compensation?: { compensationTierSummary?: string };
+      compensationTierSummary?: string;
     }[];
   };
   return (data.jobs ?? []).map((j) =>
@@ -150,6 +156,7 @@ async function ashby(c: ApiCompany): Promise<DiscoveryPosting[]> {
       externalId: String(j.id ?? ""),
       description: j.descriptionPlain ?? "",
       postedAt: toDate(j.publishedAt),
+      compensation: j.compensationTierSummary ?? j.compensation?.compensationTierSummary ?? null,
     }),
   );
 }
@@ -565,6 +572,7 @@ async function githubBoard(c: ApiCompany): Promise<DiscoveryPosting[]> {
         externalId: id,
         description: "",
         postedAt: toDate(r.date_posted ?? r.date_updated),
+        sponsorship: r.sponsorship ?? null,
       }),
     );
   }
