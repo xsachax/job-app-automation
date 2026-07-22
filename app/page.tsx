@@ -1,6 +1,5 @@
 import { prisma } from "@/lib/db";
-import { applyMode } from "@/lib/applications/submit";
-import { ScanButton } from "./components/ScanButton";
+import { API_COMPANIES, BROWSER_COMPANIES } from "@/lib/discovery/companies";
 import { cls, PageHeader } from "./components/ui";
 
 export const dynamic = "force-dynamic";
@@ -15,113 +14,81 @@ function Stat({ label, value, hint }: { label: string; value: number | string; h
   );
 }
 
-export default async function OverviewPage() {
-  const [sources, enabledSources, totalJobs, workdayJobs, groups, submitted, pending, agentReviewed, recent] =
-    await Promise.all([
-      prisma.source.count(),
-      prisma.source.count({ where: { enabled: true } }),
-      prisma.job.count({ where: { isWorkday: false } }),
-      prisma.job.count({ where: { isWorkday: true } }),
-      prisma.match.groupBy({ by: ["status"], _count: { _all: true } }),
-      prisma.application.count({ where: { status: "submitted" } }),
-      prisma.application.count({ where: { status: "pending_approval" } }),
-      prisma.match.count({ where: { matchProvider: "agent" } }),
-      prisma.source.findMany({ orderBy: { updatedAt: "desc" }, take: 8 }),
-    ]);
+function timeAgo(d: Date | null): string {
+  if (!d) return "never";
+  const mins = Math.max(0, Math.round((Date.now() - d.getTime()) / 60000));
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.round(hrs / 24)}d ago`;
+}
 
-  const byStatus: Record<string, number> = {};
-  for (const g of groups) byStatus[g.status] = g._count._all;
-  const mode = applyMode();
+export default async function OverviewPage() {
+  const entryWhere = { isWorkday: false, isEntryLevel: true } as const;
+  const [usEntry, caEntry, workdayJobs, lastJob, byCompany] = await Promise.all([
+    prisma.job.count({ where: { ...entryWhere, country: "US" } }),
+    prisma.job.count({ where: { ...entryWhere, country: "CA" } }),
+    prisma.job.count({ where: { isWorkday: true } }),
+    prisma.job.findFirst({ where: entryWhere, orderBy: { lastSeenAt: "desc" }, select: { lastSeenAt: true } }),
+    prisma.job.groupBy({
+      by: ["company"],
+      where: { ...entryWhere, country: { in: ["US", "CA"] } },
+      _count: { _all: true },
+      orderBy: { _count: { company: "desc" } },
+      take: 12,
+    }),
+  ]);
+
+  const companiesCovered = API_COMPANIES.length + BROWSER_COMPANIES.length;
 
   return (
     <div>
-      <PageHeader title="Overview" subtitle="Your job application pipeline at a glance.">
-        <ScanButton />
-      </PageHeader>
+      <PageHeader
+        title="Overview"
+        subtitle="Fresh entry-level software roles across US & Canada, scraped from company career sites."
+      />
 
-      <div
-        className={
-          "mb-6 rounded-xl border p-4 text-sm " +
-          (mode === "live"
-            ? "border-red-200 bg-red-50 text-red-800"
-            : "border-green-200 bg-green-50 text-green-800")
-        }
-      >
-        {mode === "live" ? (
-          <>
-            <b>LIVE mode.</b> Approved applications will be submitted to real ATS forms via Playwright.
-          </>
-        ) : (
-          <>
-            <b>DRY-RUN mode (safe).</b> Applications are fully prepared and gated for your approval, but
-            nothing is submitted. Set <code>APPLY_MODE=live</code> to enable real submission.
-          </>
-        )}
+      <div className="mb-6 rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-sm text-indigo-900">
+        <b>Discovery mode.</b> This pipeline finds currently-open entry-level roles (SWE, DevOps, ML and
+        related) requiring ≤ 2 years of experience and a bachelor&apos;s degree or below. Auto-apply and
+        resume matching are paused — run <code>npm run discover</code> to refresh the queue.
       </div>
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
-        <Stat label="Sources" value={sources} hint={`${enabledSources} enabled`} />
-        <Stat label="Jobs tracked" value={totalJobs} hint="deduped across sources" />
-        <Stat label="New matches" value={byStatus["new"] ?? 0} />
-        <Stat label="Agent-reviewed" value={agentReviewed} hint="resume fit by Copilot" />
-        <Stat label="Pending approval" value={pending} hint="awaiting your gate" />
-        <Stat label="Submitted" value={submitted} />
-        <Stat label="Workday flagged" value={workdayJobs} hint="never auto-applied" />
+        <Stat label="US entry-level" value={usEntry} hint="open roles in queue" />
+        <Stat label="CA entry-level" value={caEntry} hint="open roles in queue" />
+        <Stat label="Companies covered" value={companiesCovered} hint={`${API_COMPANIES.length} API · ${BROWSER_COMPANIES.length} browser`} />
+        <Stat label="Last discovery" value={timeAgo(lastJob?.lastSeenAt ?? null)} hint="most recent scrape" />
+        <Stat label="Workday flagged" value={workdayJobs} hint="tracked separately" />
       </div>
 
       <div className="mt-8">
-        <h2 className="mb-3 text-lg font-semibold">Recent source activity</h2>
+        <h2 className="mb-3 text-lg font-semibold">Entry-level roles by company</h2>
         <div className={cls.card + " overflow-x-auto p-0"}>
           <table className="w-full text-sm">
             <thead className="border-b border-gray-200 text-left text-gray-500">
               <tr>
-                <th className="px-4 py-2 font-medium">Source</th>
-                <th className="px-4 py-2 font-medium">Kind</th>
-                <th className="px-4 py-2 font-medium">Last run</th>
-                <th className="px-4 py-2 font-medium">Status</th>
-                <th className="px-4 py-2 font-medium">Detail</th>
+                <th className="px-4 py-2 font-medium">Company</th>
+                <th className="px-4 py-2 font-medium">Open entry-level roles</th>
               </tr>
             </thead>
             <tbody>
-              {recent.length === 0 && (
+              {byCompany.length === 0 && (
                 <tr>
-                  <td className="px-4 py-3 text-gray-400" colSpan={5}>
-                    No sources yet — add some on the Sources page.
+                  <td className="px-4 py-3 text-gray-400" colSpan={2}>
+                    No roles yet — run <code>npm run discover</code> to populate the queue.
                   </td>
                 </tr>
               )}
-              {recent.map((s) => (
-                <tr key={s.id} className="border-b border-gray-100 last:border-0">
-                  <td className="px-4 py-2 font-medium">{s.name}</td>
-                  <td className="px-4 py-2 text-gray-500">{s.kind}</td>
-                  <td className="px-4 py-2 text-gray-500">
-                    {s.lastRunAt ? new Date(s.lastRunAt).toLocaleString() : "—"}
-                  </td>
-                  <td className="px-4 py-2">
-                    {s.lastStatus ? (
-                      <span
-                        className={
-                          "rounded-full px-2 py-0.5 text-xs font-medium " +
-                          (s.lastStatus === "ok"
-                            ? "bg-green-100 text-green-700"
-                            : "bg-red-100 text-red-700")
-                        }
-                      >
-                        {s.lastStatus}
-                      </span>
-                    ) : (
-                      <span className="text-gray-400">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-2 text-gray-500">{s.lastMessage ?? "—"}</td>
+              {byCompany.map((c) => (
+                <tr key={c.company} className="border-b border-gray-100 last:border-0">
+                  <td className="px-4 py-2 font-medium">{c.company}</td>
+                  <td className="px-4 py-2 text-gray-600">{c._count._all}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        <p className="mt-4 text-xs text-gray-400">
-          Statuses tracked: {Object.entries(byStatus).map(([k, v]) => `${k.replace(/_/g, " ")}: ${v}`).join("  ·  ") || "none yet"}
-        </p>
       </div>
     </div>
   );

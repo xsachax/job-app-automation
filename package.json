@@ -23,7 +23,8 @@
     "e2e:seed": "tsx scripts/e2e-seed.ts",
     "e2e:report": "playwright show-report",
     "sources:probe": "tsx scripts/probe-sources.ts",
-    "discovery:verify": "tsx scripts/verify-queries.ts"
+    "discovery:verify": "tsx scripts/verify-queries.ts",
+    "discover": "tsx scripts/discover.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

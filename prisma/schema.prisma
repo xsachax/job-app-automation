@@ -40,6 +40,11 @@ model Job {
   description String?
   postedAt    DateTime?
   isWorkday   Boolean       @default(false) // flagged, never auto-applied
+  // --- Discovery pivot: entry-level SWE finder (see lib/discovery) ---
+  country         String? // US | CA | OTHER — geography split for the two lists
+  isEntryLevel    Boolean @default(false) // passed the entry-level/degree/YoE filter
+  minYoE          Int? // smallest years-of-experience the posting requires, if any
+  discoverySystem String? // greenhouse | ashby | amazon | uber | ... provenance
   fingerprint String? // company|title|location hash for repost/fuzzy dedup guard
   firstSeenAt DateTime      @default(now())
   lastSeenAt  DateTime      @default(now())
@@ -50,6 +55,8 @@ model Job {
 
   @@index([isWorkday])
   @@index([company])
+  @@index([country])
+  @@index([isEntryLevel])
 }
 
 // Records that a given source saw a given job (one job, many source sightings).

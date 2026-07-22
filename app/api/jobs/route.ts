@@ -8,10 +8,10 @@ const sourceSelect = { select: { id: true, name: true, kind: true } };
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
-  const view = searchParams.get("view") ?? "matches";
-  const status = searchParams.get("status") ?? undefined;
+  const view = searchParams.get("view") ?? "discovery";
+  const country = searchParams.get("country"); // US | CA
   const q = searchParams.get("q")?.toLowerCase();
-  const sort = searchParams.get("sort") ?? "posted"; // posted | score
+  const sort = searchParams.get("sort") ?? "posted"; // posted | company
   const since = searchParams.get("since") ?? "all"; // 24h | 7d | 30d | all
 
   if (view === "workday") {
@@ -24,23 +24,22 @@ export async function GET(req: NextRequest) {
     return json(jobs);
   }
 
+  // Discovery view: entry-level US/CA software roles surfaced by the scraper.
   const jobs = await prisma.job.findMany({
     where: {
       isWorkday: false,
-      ...(status ? { match: { is: { status } } } : {}),
+      isEntryLevel: true,
+      ...(country ? { country } : { country: { in: ["US", "CA"] } }),
     },
     include: {
-      match: true,
-      application: true,
       sightings: { include: { source: sourceSelect } },
     },
-    take: 2000,
+    take: 3000,
   });
 
   // Effective posting time: real postedAt when the ATS gives one, else the
   // moment we first saw it. Drives both the date filter and the queue order.
-  const posted = (j: (typeof jobs)[number]) =>
-    (j.postedAt ?? j.firstSeenAt).getTime();
+  const posted = (j: (typeof jobs)[number]) => (j.postedAt ?? j.firstSeenAt).getTime();
 
   const windowMs: Record<string, number> = {
     "24h": 864e5,
@@ -52,13 +51,10 @@ export async function GET(req: NextRequest) {
 
   let result = cutoff ? jobs.filter((j) => posted(j) >= cutoff) : jobs;
 
-  if (sort === "score") {
-    result.sort(
-      (a, b) =>
-        (b.match?.score ?? 0) - (a.match?.score ?? 0) || posted(b) - posted(a),
-    );
+  if (sort === "company") {
+    result.sort((a, b) => a.company.localeCompare(b.company) || posted(b) - posted(a));
   } else {
-    result.sort((a, b) => posted(b) - posted(a) || (b.match?.score ?? 0) - (a.match?.score ?? 0));
+    result.sort((a, b) => posted(b) - posted(a) || a.company.localeCompare(b.company));
   }
 
   if (q) {
@@ -67,5 +63,5 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  return json(result.slice(0, 1000));
+  return json(result.slice(0, 1500));
 }

@@ -1,15 +1,16 @@
 import { test, expect } from "@playwright/test";
 
 test.describe("smoke", () => {
-  test("overview loads with stats and the dry-run safety banner", async ({ page }) => {
+  test("overview loads with discovery stats", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
-    await expect(page.getByText(/DRY-RUN mode/i)).toBeVisible();
-    await expect(page.getByText("Jobs tracked")).toBeVisible();
-    await expect(page.getByText("Agent-reviewed")).toBeVisible();
+    await expect(page.getByText(/Discovery mode/i)).toBeVisible();
+    await expect(page.getByText("US entry-level")).toBeVisible();
+    await expect(page.getByText("CA entry-level")).toBeVisible();
+    await expect(page.getByText("Companies covered")).toBeVisible();
   });
 
-  test("nav to Jobs shows the seeded postings", async ({ page }) => {
+  test("nav to Jobs shows the seeded US postings", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("link", { name: "Jobs", exact: true }).click();
     await expect(page).toHaveURL(/\/jobs$/);
@@ -19,6 +20,13 @@ test.describe("smoke", () => {
     await expect(
       page.getByRole("link", { name: "E2E Apply Engineer", exact: true }),
     ).toBeVisible();
+  });
+
+  test("Companies page lists API and browser sources", async ({ page }) => {
+    await page.goto("/companies");
+    await expect(page.getByRole("heading", { name: "Companies" })).toBeVisible();
+    await expect(page.getByText("API sources")).toBeVisible();
+    await expect(page.getByText("Browser-scraped sources")).toBeVisible();
   });
 
   test("Workday page lists flagged postings only", async ({ page }) => {
