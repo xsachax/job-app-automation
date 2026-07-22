@@ -191,11 +191,28 @@ const ADVANCED_DEGREE_REQUIRED = new RegExp(
 // Any wording that shows the role is happy with a bachelor's (or less).
 const BACHELOR_OK = /(bachelor|\bb\.?s\.?\b|\bb\.?a\.?\b|undergraduate|associate'?s|high school|no degree|equivalent (practical )?experience|or equivalent)/i;
 
-// High years-of-experience requirement (>= 3 years).
-const HIGH_YOE = /(\b([3-9]|1[0-9])\s*\+?\s*(?:years|yrs)\b)|(\b([3-9]|1[0-9])\s*(?:-|to)\s*\d+\s*(?:years|yrs)\b)/i;
+// Maximum years-of-experience a role may REQUIRE and still count as entry-level.
+// The user wants entry-level roles OR roles with no YoE specified, now widened
+// to also include anything asking for up to 2 years. So a posting qualifies on
+// experience when the smallest minimum it states is <= 2 years (or it states
+// none at all).
+export const MAX_YEARS_EXPERIENCE = 2;
 
-// Low / entry YoE ("0-2 years", "1+ years", "at least 1 year").
-const LOW_YOE = /\b(0|1|2)\s*\+?\s*(?:-|to)?\s*\d*\s*(?:years|yrs)\b/i;
+// Pulls every "<n> years" style requirement out of the text and returns the
+// smallest minimum found (e.g. "3-5 years" -> 3, "2+ years" -> 2), or null when
+// no YoE is mentioned. The leading number of each phrase is the minimum, so a
+// role wanting "5+ years" reads as 5 while "0-2 years" reads as 0.
+export function minRequiredYoE(text: string): number | null {
+  const re = /(?:at least\s*|minimum(?:\s*of)?\s*|min\.?\s*)?(\d{1,2})\s*\+?\s*(?:-|to|–)?\s*(?:\d{1,2})?\s*(?:years?|yrs?)\b/gi;
+  let min: number | null = null;
+  for (const m of text.matchAll(re)) {
+    const n = Number.parseInt(m[1], 10);
+    if (Number.isFinite(n) && n >= 0 && n <= 40) {
+      min = min === null ? n : Math.min(min, n);
+    }
+  }
+  return min;
+}
 
 export interface EntryLevelInput {
   title: string;
@@ -209,12 +226,13 @@ export interface EntryLevelVerdict {
   hasEntrySignal: boolean;
   requiresAdvancedDegree: boolean;
   hasHighYoE: boolean;
+  minYearsExperience: number | null;
   reasons: string[];
 }
 
 // The core gate. A posting qualifies when it is a software role that is NOT
 // clearly senior, does NOT require an advanced degree, and is either explicitly
-// entry-level OR specifies no high years-of-experience requirement.
+// entry-level OR requires no more than MAX_YEARS_EXPERIENCE (2) years.
 export function classifyEntryLevel(input: EntryLevelInput): EntryLevelVerdict {
   const title = input.title ?? "";
   const desc = input.description ?? "";
@@ -224,13 +242,14 @@ export function classifyEntryLevel(input: EntryLevelInput): EntryLevelVerdict {
   const hasSeniorTitle = SENIOR_TITLE.test(title);
   const hasEntrySignal = ENTRY_TITLE.test(title);
   const requiresAdvancedDegree = ADVANCED_DEGREE_REQUIRED.test(desc) && !BACHELOR_OK.test(desc);
-  const hasHighYoE = HIGH_YOE.test(blob) && !LOW_YOE.test(blob);
+  const minYearsExperience = minRequiredYoE(blob);
+  const hasHighYoE = minYearsExperience !== null && minYearsExperience > MAX_YEARS_EXPERIENCE;
 
   const reasons: string[] = [];
   if (!isSoftware) reasons.push("not a software role");
   if (hasSeniorTitle && !hasEntrySignal) reasons.push("senior/mid title");
   if (requiresAdvancedDegree) reasons.push("advanced degree required");
-  if (hasHighYoE && !hasEntrySignal) reasons.push("high YoE required");
+  if (hasHighYoE && !hasEntrySignal) reasons.push(`requires ${minYearsExperience}+ years`);
 
   const isEntryLevel =
     isSoftware &&
@@ -244,6 +263,7 @@ export function classifyEntryLevel(input: EntryLevelInput): EntryLevelVerdict {
     hasEntrySignal,
     requiresAdvancedDegree,
     hasHighYoE,
+    minYearsExperience,
     reasons,
   };
 }

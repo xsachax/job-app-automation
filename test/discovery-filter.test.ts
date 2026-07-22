@@ -82,6 +82,24 @@ describe("classifyEntryLevel", () => {
     expect(v.isEntryLevel).toBe(true);
   });
 
+  it("allows up to 2 years of experience but rejects 3+", () => {
+    expect(
+      classifyEntryLevel({ title: "Software Engineer", description: "2 years of experience required." }).isEntryLevel,
+    ).toBe(true);
+    expect(
+      classifyEntryLevel({ title: "Software Engineer", description: "Up to 2 years of experience." }).isEntryLevel,
+    ).toBe(true);
+    expect(
+      classifyEntryLevel({ title: "Software Engineer", description: "2+ years of experience." }).isEntryLevel,
+    ).toBe(true);
+    expect(
+      classifyEntryLevel({ title: "Software Engineer", description: "3 years of experience required." }).isEntryLevel,
+    ).toBe(false);
+    expect(
+      classifyEntryLevel({ title: "Software Engineer", description: "Minimum of 4 years of experience." }).isEntryLevel,
+    ).toBe(false);
+  });
+
   it("rejects roles requiring an advanced degree", () => {
     const v = classifyEntryLevel({
       title: "Machine Learning Engineer",
