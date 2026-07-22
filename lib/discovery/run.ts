@@ -1,7 +1,9 @@
 import { prisma } from "../db";
 import { createHash } from "node:crypto";
 import { fetchCompanyPostings, type DiscoveryPosting } from "./adapters";
-import { classifyEntryLevel } from "./entryLevel";
+import { classifyEntryLevel, type EntryLevelOptions } from "./entryLevel";
+import { enrich, type Enrichment } from "./enrich";
+import { getDiscoveryConfig, toEntryLevelOptions, type DiscoveryConfigData } from "./config";
 import { DISCOVERY_SOURCES, type ApiCompany } from "./companies";
 import { detectAts, normalizeUrl } from "../sources/normalize";
 
@@ -54,6 +56,7 @@ function fingerprintFor(p: DiscoveryPosting): string {
 async function persist(
   p: DiscoveryPosting,
   minYoE: number | null,
+  enrichment: Enrichment,
 ): Promise<"created" | "updated"> {
   const dedupeKey = dedupeKeyFor(p);
   const fingerprint = fingerprintFor(p);
@@ -76,6 +79,14 @@ async function persist(
     minYoE,
     discoverySystem: p.system,
     fingerprint,
+    // Enrichment facets (deterministic; see lib/discovery/enrich.ts).
+    salaryMin: enrichment.salaryMin,
+    salaryMax: enrichment.salaryMax,
+    salaryCurrency: enrichment.salaryCurrency,
+    salaryRaw: enrichment.salaryRaw,
+    sponsorship: enrichment.sponsorship === "unknown" ? null : enrichment.sponsorship,
+    skills: enrichment.skills.length ? JSON.stringify(enrichment.skills) : null,
+    employmentType: enrichment.employmentType,
     lastSeenAt: new Date(),
   };
 
@@ -119,56 +130,94 @@ function zeroCounts(): IngestCounts {
   return { usTotal: 0, caTotal: 0, usEntry: 0, caEntry: 0, created: 0, updated: 0 };
 }
 
-// Classify a batch of postings (any source) and persist the US/CA entry-level
-// ones. Mutates and returns a running counter. Shared by the API runner and the
-// Playwright browser runner.
+export interface IngestOptions {
+  /** Classifier knobs (from config). Omit for the historical defaults. */
+  entryOptions?: EntryLevelOptions;
+  /** Countries to keep. Omit to keep the default US + CA. */
+  countries?: string[];
+}
+
+// Classify a batch of postings (any source) and persist the entry-level ones for
+// the configured countries. Mutates and returns a running counter. Shared by the
+// API runner and the Playwright browser runner.
 export async function ingestPostings(
   postings: DiscoveryPosting[],
   onlyEntryLevel: boolean,
   res: IngestCounts = zeroCounts(),
+  opts: IngestOptions = {},
 ): Promise<IngestCounts> {
+  const countries = opts.countries?.length ? opts.countries : ["US", "CA"];
   for (const p of postings) {
-    if (p.country === "OTHER") continue;
+    if (!countries.includes(p.country)) continue;
     if (!p.title || !p.applyUrl) continue;
     if (p.country === "US") res.usTotal++;
-    else res.caTotal++;
+    else if (p.country === "CA") res.caTotal++;
 
-    const verdict = classifyEntryLevel({ title: p.title, description: p.description });
+    const verdict = classifyEntryLevel(
+      { title: p.title, description: p.description },
+      opts.entryOptions,
+    );
     if (onlyEntryLevel && !verdict.isEntryLevel) continue;
     if (p.country === "US") res.usEntry++;
-    else res.caEntry++;
+    else if (p.country === "CA") res.caEntry++;
 
-    const outcome = await persist(p, verdict.minYearsExperience);
+    const enrichment = enrich({
+      title: p.title,
+      description: p.description,
+      location: p.location,
+      country: p.country,
+      sponsorship: p.sponsorship,
+      compensation: p.compensation,
+      isInternship: verdict.isInternship,
+    });
+
+    const outcome = await persist(p, verdict.minYearsExperience, enrichment);
     if (outcome === "created") res.created++;
     else res.updated++;
   }
   return res;
 }
 
-async function runCompany(c: ApiCompany, onlyEntryLevel: boolean): Promise<CompanyRunResult> {
+async function runCompany(
+  c: ApiCompany,
+  onlyEntryLevel: boolean,
+  opts: IngestOptions,
+): Promise<CompanyRunResult> {
   const res: CompanyRunResult = { company: c.name, system: c.system, ...zeroCounts() };
   try {
     const postings = await fetchCompanyPostings(c);
-    await ingestPostings(postings, onlyEntryLevel, res);
+    await ingestPostings(postings, onlyEntryLevel, res, opts);
   } catch (e) {
     res.error = e instanceof Error ? e.message : String(e);
   }
   return res;
 }
 
-// Run discovery across the API companies (optionally filtered by name).
+// Run discovery across the API companies (optionally filtered by name). The
+// stored DiscoveryConfig drives classification, country selection and which
+// sources are enabled — pass `config` to override (e.g. tests) or omit to load
+// the singleton (falling back to defaults when unset).
 export async function runDiscovery(opts?: {
   companies?: string[];
   onlyEntryLevel?: boolean;
   concurrency?: number;
+  config?: DiscoveryConfigData;
   onProgress?: (r: CompanyRunResult) => void;
 }): Promise<DiscoveryRunResult> {
   const onlyEntryLevel = opts?.onlyEntryLevel ?? true;
   const concurrency = opts?.concurrency ?? 5;
+  const config = opts?.config ?? (await getDiscoveryConfig());
+  const ingestOpts: IngestOptions = {
+    entryOptions: toEntryLevelOptions(config),
+    countries: config.countries,
+  };
+  const disabled = new Set(config.disabledSources.map((s) => s.toLowerCase()));
   const wanted = opts?.companies?.map((s) => s.toLowerCase());
-  const targets = wanted
-    ? DISCOVERY_SOURCES.filter((c) => wanted.includes(c.name.toLowerCase()))
-    : DISCOVERY_SOURCES;
+  const targets = DISCOVERY_SOURCES.filter((c) => {
+    if (disabled.has(c.name.toLowerCase())) return false;
+    if (wanted) return wanted.includes(c.name.toLowerCase());
+    return true;
+  });
 
   const results: CompanyRunResult[] = [];
   // Company sites first (concurrent batches), then aggregator boards strictly
@@ -180,7 +229,7 @@ export async function runDiscovery(opts?: {
 
   for (let i = 0; i < companies.length; i += concurrency) {
     const batch = companies.slice(i, i + concurrency);
-    const batchResults = await Promise.all(batch.map((c) => runCompany(c, onlyEntryLevel)));
+    const batchResults = await Promise.all(batch.map((c) => runCompany(c, onlyEntryLevel, ingestOpts)));
     for (const r of batchResults) {
       results.push(r);
       opts?.onProgress?.(r);
@@ -188,7 +237,7 @@ export async function runDiscovery(opts?: {
   }
 
   for (const b of boards) {
-    const r = await runCompany(b, onlyEntryLevel);
+    const r = await runCompany(b, onlyEntryLevel, ingestOpts);
     results.push(r);
     opts?.onProgress?.(r);
   }

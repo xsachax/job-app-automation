@@ -144,12 +144,26 @@ const NON_SOFTWARE = new RegExp(
   "i",
 );
 
-export function isSoftwareRole(title: string): boolean {
+export function isSoftwareRole(title: string, opts?: EntryLevelOptions): boolean {
   if (!title) return false;
-  if (NON_SOFTWARE.test(title) && !/software|developer|\bswe\b|\bsde\b/i.test(title)) {
+  const extraInclude = kwRegex(opts?.extraRoleKeywords ?? []);
+  const extraExclude = kwRegex(opts?.extraExcludeKeywords ?? []);
+  if (extraExclude?.test(title)) return false;
+  const extraHit = extraInclude?.test(title) ?? false;
+  if (NON_SOFTWARE.test(title) && !/software|developer|\bswe\b|\bsde\b/i.test(title) && !extraHit) {
     return false;
   }
-  return SOFTWARE_TITLE.test(title);
+  return SOFTWARE_TITLE.test(title) || extraHit;
+}
+
+// Compile a list of user-supplied keywords into a case-insensitive alternation,
+// escaping regex metacharacters. Returns null when the list is empty.
+function kwRegex(words: string[]): RegExp | null {
+  const parts = words
+    .map((w) => w.trim())
+    .filter(Boolean)
+    .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  return parts.length ? new RegExp(parts.join("|"), "i") : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -172,6 +186,15 @@ const ENTRY_TITLE = new RegExp(
     "\\bjr\\.?\\b", "early career", "early[ -]in[ -]career", "campus",
     "apprentice", "rotational", "associate", "\\bi\\b", "\\bl3\\b",
     "\\be3\\b", "\\b1\\b", "graduate program", "emerging talent",
+  ].join("|"),
+  "i",
+);
+
+// Internship / co-op signals. Excluded by default (config.includeInternships).
+const INTERN_TITLE = new RegExp(
+  [
+    "intern\\b", "internship", "co[ -]?op\\b", "\\bcoop\\b",
+    "summer\\s+(analyst|20\\d\\d)", "working student", "\\btrainee\\b",
   ].join("|"),
   "i",
 );
@@ -221,9 +244,31 @@ export interface EntryLevelInput {
   description?: string | null;
 }
 
+// Runtime-tunable knobs (see lib/discovery/config.ts). All optional; omitting
+// any preserves the historical defaults (entry-level SWE, <=2 YoE, no advanced
+// degree, no internships), so existing callers/tests are unaffected.
+export interface EntryLevelOptions {
+  maxYoE?: number;
+  includeInternships?: boolean;
+  excludeAdvancedDegree?: boolean;
+  extraRoleKeywords?: string[];
+  extraExcludeKeywords?: string[];
+}
+
+function resolveOptions(opts?: EntryLevelOptions) {
+  return {
+    maxYoE: opts?.maxYoE ?? MAX_YEARS_EXPERIENCE,
+    includeInternships: opts?.includeInternships ?? false,
+    excludeAdvancedDegree: opts?.excludeAdvancedDegree ?? true,
+    extraRoleKeywords: opts?.extraRoleKeywords ?? [],
+    extraExcludeKeywords: opts?.extraExcludeKeywords ?? [],
+  };
+}
+
 export interface EntryLevelVerdict {
   isSoftware: boolean;
   isEntryLevel: boolean;
+  isInternship: boolean;
   hasSeniorTitle: boolean;
   hasEntrySignal: boolean;
   requiresAdvancedDegree: boolean;
@@ -232,38 +277,48 @@ export interface EntryLevelVerdict {
   reasons: string[];
 }
 
-// The core gate. A posting qualifies when it is a software role that is NOT
-// clearly senior, does NOT require an advanced degree, and is either explicitly
-// entry-level OR requires no more than MAX_YEARS_EXPERIENCE (2) years.
-export function classifyEntryLevel(input: EntryLevelInput): EntryLevelVerdict {
+// The core gate. A posting qualifies when it is a software role (per config)
+// that is NOT clearly senior, does NOT require an advanced degree (when the
+// config excludes those), is not an internship (unless allowed), and is either
+// explicitly entry-level OR requires no more than the configured max years.
+export function classifyEntryLevel(
+  input: EntryLevelInput,
+  opts?: EntryLevelOptions,
+): EntryLevelVerdict {
+  const o = resolveOptions(opts);
   const title = input.title ?? "";
   const desc = input.description ?? "";
   const blob = `${title}\n${desc}`;
 
-  const isSoftware = isSoftwareRole(title);
+  const isSoftware = isSoftwareRole(title, o);
+  const isInternship = INTERN_TITLE.test(title);
   const hasSeniorTitle = SENIOR_TITLE.test(title);
   const hasEntrySignal = ENTRY_TITLE.test(title);
-  const requiresAdvancedDegree = ADVANCED_DEGREE_REQUIRED.test(desc) && !BACHELOR_OK.test(desc);
+  const rawAdvanced = ADVANCED_DEGREE_REQUIRED.test(desc) && !BACHELOR_OK.test(desc);
+  const blockAdvanced = o.excludeAdvancedDegree && rawAdvanced;
   const minYearsExperience = minRequiredYoE(blob);
-  const hasHighYoE = minYearsExperience !== null && minYearsExperience > MAX_YEARS_EXPERIENCE;
+  const hasHighYoE = minYearsExperience !== null && minYearsExperience > o.maxYoE;
 
   const reasons: string[] = [];
   if (!isSoftware) reasons.push("not a software role");
+  if (isInternship && !o.includeInternships) reasons.push("internship / co-op");
   if (hasSeniorTitle && !hasEntrySignal) reasons.push("senior/mid title");
-  if (requiresAdvancedDegree) reasons.push("advanced degree required");
+  if (blockAdvanced) reasons.push("advanced degree required");
   if (hasHighYoE && !hasEntrySignal) reasons.push(`requires ${minYearsExperience}+ years`);
 
   const isEntryLevel =
     isSoftware &&
-    !requiresAdvancedDegree &&
+    !blockAdvanced &&
+    (o.includeInternships || !isInternship) &&
     (hasEntrySignal || (!hasSeniorTitle && !hasHighYoE));
 
   return {
     isSoftware,
     isEntryLevel,
+    isInternship,
     hasSeniorTitle,
     hasEntrySignal,
-    requiresAdvancedDegree,
+    requiresAdvancedDegree: rawAdvanced,
     hasHighYoE,
     minYearsExperience,
     reasons,

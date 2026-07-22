@@ -7,6 +7,8 @@ const links = [
   { href: "/", label: "Overview" },
   { href: "/jobs", label: "Jobs" },
   { href: "/companies", label: "Companies" },
+  { href: "/settings", label: "Settings" },
+  { href: "/profile", label: "Profile" },
   { href: "/workday", label: "Workday" },
 ];
 
@@ -24,7 +26,7 @@ export function Nav() {
               "rounded-lg px-3 py-2 text-sm font-medium transition-colors " +
               (active
                 ? "bg-indigo-600 text-white"
-                : "text-gray-700 hover:bg-gray-100")
+                : "text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800")
             }
           >
             {l.label}

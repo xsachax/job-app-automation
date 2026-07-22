@@ -1,18 +1,35 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { json } from "@/lib/http";
+import { shapeJob } from "@/lib/jobs/shape";
 
 export const dynamic = "force-dynamic";
 
 const sourceSelect = { select: { id: true, name: true, kind: true } };
+
+function parseList(v: string | null): string[] {
+  return (v ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+}
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const view = searchParams.get("view") ?? "discovery";
   const country = searchParams.get("country"); // US | CA
   const q = searchParams.get("q")?.toLowerCase();
-  const sort = searchParams.get("sort") ?? "posted"; // posted | company
+  const sort = searchParams.get("sort") ?? "posted"; // posted | company | fit | salary
   const since = searchParams.get("since") ?? "all"; // 24h | 7d | 30d | all
+  // Enrichment / pipeline filters (all optional, comma-lists where sensible).
+  const skills = parseList(searchParams.get("skills")); // AND — job must have all
+  const sponsorship = parseList(searchParams.get("sponsorship")); // offers | none | citizenship
+  const status = parseList(searchParams.get("status")); // applicationStatus values
+  const employmentType = parseList(searchParams.get("employmentType"));
+  const source = parseList(searchParams.get("source")); // discoverySystem
+  const remoteOnly = searchParams.get("remote") === "1";
+  const salaryMin = Number(searchParams.get("salaryMin")) || 0;
+  const fitMin = Number(searchParams.get("fitMin")) || 0;
 
   if (view === "workday") {
     const jobs = await prisma.job.findMany({
@@ -21,7 +38,7 @@ export async function GET(req: NextRequest) {
       take: 1000,
       include: { sightings: { include: { source: sourceSelect } } },
     });
-    return json(jobs);
+    return json(jobs.map(shapeJob));
   }
 
   // Discovery view: entry-level US/CA software roles surfaced by the scraper.
@@ -34,7 +51,7 @@ export async function GET(req: NextRequest) {
     include: {
       sightings: { include: { source: sourceSelect } },
     },
-    take: 3000,
+    take: 4000,
   });
 
   // Effective posting time: real postedAt when the ATS gives one, else the
@@ -49,19 +66,40 @@ export async function GET(req: NextRequest) {
   const win = windowMs[since];
   const cutoff = win ? Date.now() - win : 0;
 
-  let result = cutoff ? jobs.filter((j) => posted(j) >= cutoff) : jobs;
+  const result = jobs.filter((j) => {
+    if (cutoff && posted(j) < cutoff) return false;
+    if (remoteOnly && !j.remote) return false;
+    if (sponsorship.length && !sponsorship.includes((j.sponsorship ?? "").toLowerCase())) return false;
+    if (status.length && !status.includes(j.applicationStatus.toLowerCase())) return false;
+    if (employmentType.length && !employmentType.includes((j.employmentType ?? "").toLowerCase())) return false;
+    if (source.length && !source.includes((j.discoverySystem ?? "").toLowerCase())) return false;
+    if (fitMin && (j.fitScore ?? -1) < fitMin) return false;
+    if (salaryMin) {
+      const top = j.salaryMax ?? j.salaryMin ?? 0;
+      if (top < salaryMin) return false;
+    }
+    if (skills.length) {
+      const have = (j.skills ?? "").toLowerCase();
+      if (!skills.every((s) => have.includes(s))) return false;
+    }
+    if (q && !(j.title.toLowerCase().includes(q) || j.company.toLowerCase().includes(q))) {
+      return false;
+    }
+    return true;
+  });
 
+  const byPosted = (a: (typeof jobs)[number], b: (typeof jobs)[number]) =>
+    posted(b) - posted(a) || a.company.localeCompare(b.company);
   if (sort === "company") {
     result.sort((a, b) => a.company.localeCompare(b.company) || posted(b) - posted(a));
+  } else if (sort === "fit") {
+    result.sort((a, b) => (b.fitScore ?? -1) - (a.fitScore ?? -1) || byPosted(a, b));
+  } else if (sort === "salary") {
+    const top = (j: (typeof jobs)[number]) => j.salaryMax ?? j.salaryMin ?? -1;
+    result.sort((a, b) => top(b) - top(a) || byPosted(a, b));
   } else {
-    result.sort((a, b) => posted(b) - posted(a) || a.company.localeCompare(b.company));
+    result.sort(byPosted);
   }
 
-  if (q) {
-    result = result.filter(
-      (j) => j.title.toLowerCase().includes(q) || j.company.toLowerCase().includes(q),
-    );
-  }
-
-  return json(result.slice(0, 1500));
+  return json(result.slice(0, 2000).map(shapeJob));
 }
