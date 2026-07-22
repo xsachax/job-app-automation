@@ -18,7 +18,10 @@
     "cron": "tsx scripts/cron.ts",
     "match:export": "tsx scripts/match.ts export",
     "match:apply": "tsx scripts/match.ts apply",
-    "match:rescore": "tsx scripts/match.ts rescore"
+    "match:rescore": "tsx scripts/match.ts rescore",
+    "e2e": "playwright test",
+    "e2e:seed": "tsx scripts/e2e-seed.ts",
+    "e2e:report": "playwright show-report"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -34,6 +37,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/node-cron": "^3.0.11",

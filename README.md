@@ -207,10 +207,30 @@ npm test          # vitest: dedup, scoring, resume matching, adapters, resume pa
 npm run typecheck # tsc --noEmit
 npm run lint      # eslint
 npm run build     # production build
+npm run e2e       # Playwright: dashboard flows against an isolated seeded DB
 ```
 
-Tests run against an isolated `prisma/test.db` (migrated fresh each run) and mock all
+Unit tests run against an isolated `prisma/test.db` (migrated fresh each run) and mock all
 network calls, so the suite is offline and deterministic.
+
+### End-to-end (Playwright)
+
+`npm run e2e` boots the real production dashboard against a throwaway SQLite database
+seeded by `scripts/e2e-seed.ts` (fixed jobs/matches, a full profile, `APPLY_MODE=dry_run`).
+It exercises the human approval gate (draft → review → confirm → submitted), rejecting a
+job, the two-tier resume-fit badges (auto vs. agent), and the Workday flag-only list — with
+no live ATS network calls. First run needs the browser: `npx playwright install chromium`.
+Open the last HTML report with `npm run e2e:report`.
+
+### Continuous integration
+
+`.github/workflows/ci.yml` runs on every push to `main` and every pull request, in two jobs:
+
+- **unit** — `npm ci` → `prisma generate` → lint → typecheck → `npm test` → build.
+- **e2e** — `npm ci` → `prisma generate` → install Chromium → build → `npm run e2e`
+  (uploads the Playwright HTML report as an artifact on failure).
+
+Both run on Node 22 / Ubuntu with no secrets — everything is offline and dry-run.
 
 ## Project structure
 
@@ -224,8 +244,9 @@ lib/
   llm/               resume parsing (OpenAI + deterministic fallback)
   settings.ts        Profile & Criteria singletons
 prisma/              schema, migrations, seed
-scripts/             scan (one-off) + cron (scheduled) + match (agent resume review)
+scripts/             scan (one-off) + cron (scheduled) + match (agent resume review) + e2e-seed
 test/                vitest suite
+e2e/                 Playwright specs (smoke, apply-flow, resume-match)
 sample-data/         a sample resume for the demo profile
 ```
 
