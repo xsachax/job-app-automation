@@ -26,6 +26,7 @@ interface Fixture {
   provider: "deterministic" | "agent";
   summary?: string;
   isWorkday?: boolean;
+  ageDays?: number; // how long ago the job was posted (drives the date filter)
 }
 
 const JOBS: Fixture[] = [
@@ -38,6 +39,7 @@ const JOBS: Fixture[] = [
     resumeScore: 90,
     provider: "agent",
     summary: "Excellent fit — core stack matches end to end.",
+    ageDays: 0,
   },
   {
     key: "apply",
@@ -47,6 +49,7 @@ const JOBS: Fixture[] = [
     ruleScore: 80,
     resumeScore: 74,
     provider: "deterministic",
+    ageDays: 0,
   },
   {
     key: "reject",
@@ -56,6 +59,7 @@ const JOBS: Fixture[] = [
     ruleScore: 61,
     resumeScore: 40,
     provider: "deterministic",
+    ageDays: 2,
   },
   {
     key: "staff",
@@ -66,6 +70,7 @@ const JOBS: Fixture[] = [
     resumeScore: 82,
     provider: "agent",
     summary: "Strong fit; seniority aligns.",
+    ageDays: 10,
   },
   {
     key: "workday",
@@ -148,6 +153,7 @@ async function main() {
         description: f.description,
         isWorkday: Boolean(f.isWorkday),
         fingerprint: `fp-e2e-${f.key}`,
+        postedAt: f.ageDays != null ? new Date(Date.now() - f.ageDays * 864e5) : null,
       },
     });
     await prisma.jobSighting.create({ data: { jobId: job.id, sourceId: source.id } });

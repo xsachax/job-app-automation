@@ -11,6 +11,8 @@ export async function GET(req: NextRequest) {
   const view = searchParams.get("view") ?? "matches";
   const status = searchParams.get("status") ?? undefined;
   const q = searchParams.get("q")?.toLowerCase();
+  const sort = searchParams.get("sort") ?? "posted"; // posted | score
+  const since = searchParams.get("since") ?? "all"; // 24h | 7d | 30d | all
 
   if (view === "workday") {
     const jobs = await prisma.job.findMany({
@@ -32,20 +34,38 @@ export async function GET(req: NextRequest) {
       application: true,
       sightings: { include: { source: sourceSelect } },
     },
-    take: 1000,
+    take: 2000,
   });
 
-  jobs.sort(
-    (a, b) =>
-      (b.match?.score ?? 0) - (a.match?.score ?? 0) ||
-      b.lastSeenAt.getTime() - a.lastSeenAt.getTime(),
-  );
+  // Effective posting time: real postedAt when the ATS gives one, else the
+  // moment we first saw it. Drives both the date filter and the queue order.
+  const posted = (j: (typeof jobs)[number]) =>
+    (j.postedAt ?? j.firstSeenAt).getTime();
 
-  const filtered = q
-    ? jobs.filter(
-        (j) => j.title.toLowerCase().includes(q) || j.company.toLowerCase().includes(q),
-      )
-    : jobs;
+  const windowMs: Record<string, number> = {
+    "24h": 864e5,
+    "7d": 7 * 864e5,
+    "30d": 30 * 864e5,
+  };
+  const win = windowMs[since];
+  const cutoff = win ? Date.now() - win : 0;
 
-  return json(filtered);
+  let result = cutoff ? jobs.filter((j) => posted(j) >= cutoff) : jobs;
+
+  if (sort === "score") {
+    result.sort(
+      (a, b) =>
+        (b.match?.score ?? 0) - (a.match?.score ?? 0) || posted(b) - posted(a),
+    );
+  } else {
+    result.sort((a, b) => posted(b) - posted(a) || (b.match?.score ?? 0) - (a.match?.score ?? 0));
+  }
+
+  if (q) {
+    result = result.filter(
+      (j) => j.title.toLowerCase().includes(q) || j.company.toLowerCase().includes(q),
+    );
+  }
+
+  return json(result.slice(0, 1000));
 }

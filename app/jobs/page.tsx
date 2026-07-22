@@ -31,6 +31,7 @@ interface Job {
   atsType: string;
   remote: boolean;
   postedAt: string | null;
+  firstSeenAt: string;
   lastSeenAt: string;
   match: Match | null;
   application: Application | null;
@@ -39,6 +40,25 @@ interface Job {
 
 const REQUIRED = ["firstName", "lastName", "email", "resume"];
 const STATUS_FILTERS = ["all", "new", "pending_approval", "submitted", "rejected", "skipped"];
+const SINCE_FILTERS: { value: string; label: string }[] = [
+  { value: "24h", label: "Last 24 hours" },
+  { value: "7d", label: "Last 7 days" },
+  { value: "30d", label: "Last 30 days" },
+  { value: "all", label: "All time" },
+];
+
+function timeAgo(iso: string | null): string {
+  if (!iso) return "";
+  const then = new Date(iso).getTime();
+  const mins = Math.max(0, Math.round((Date.now() - then) / 60000));
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.round(hrs / 24);
+  if (days < 30) return `${days}d ago`;
+  const months = Math.round(days / 30);
+  return `${months}mo ago`;
+}
 
 function parse<T>(s: string | null, fallback: T): T {
   try {
@@ -52,6 +72,8 @@ export default function JobsPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState("all");
+  const [sort, setSort] = useState("posted");
+  const [since, setSince] = useState("all");
   const [q, setQ] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [rescoring, setRescoring] = useState(false);
@@ -63,7 +85,7 @@ export default function JobsPage() {
     let active = true;
     (async () => {
       try {
-        const params = new URLSearchParams({ view: "matches" });
+        const params = new URLSearchParams({ view: "matches", sort, since });
         if (status !== "all") params.set("status", status);
         if (q.trim()) params.set("q", q.trim());
         const data = await api<Job[]>(`/api/jobs?${params.toString()}`);
@@ -77,7 +99,7 @@ export default function JobsPage() {
     return () => {
       active = false;
     };
-  }, [status, q, refreshKey]);
+  }, [status, sort, since, q, refreshKey]);
 
   async function act(jobId: string, action: "draft" | "approve" | "reject") {
     setBusyId(jobId);
@@ -112,6 +134,27 @@ export default function JobsPage() {
       <PageHeader title="Jobs" subtitle="Matched postings, scored against your criteria. Apply behind the human gate." />
 
       <div className="mb-5 flex flex-wrap items-center gap-3">
+        <select
+          className={cls.input + " max-w-40"}
+          value={since}
+          onChange={(e) => setSince(e.target.value)}
+          title="Filter by when the job was posted"
+        >
+          {SINCE_FILTERS.map((s) => (
+            <option key={s.value} value={s.value}>
+              {s.label}
+            </option>
+          ))}
+        </select>
+        <select
+          className={cls.input + " max-w-44"}
+          value={sort}
+          onChange={(e) => setSort(e.target.value)}
+          title="Queue ordering"
+        >
+          <option value="posted">Newest first</option>
+          <option value="score">Best match first</option>
+        </select>
         <select className={cls.input + " max-w-44"} value={status} onChange={(e) => setStatus(e.target.value)}>
           {STATUS_FILTERS.map((s) => (
             <option key={s} value={s}>
@@ -129,6 +172,12 @@ export default function JobsPage() {
           {rescoring ? "Re-scoring…" : "Re-score fit"}
         </button>
       </div>
+
+      {!loading && jobs.length > 0 && (
+        <p className="mb-3 text-xs text-gray-400">
+          {jobs.length} posting{jobs.length === 1 ? "" : "s"} in queue
+        </p>
+      )}
 
       {error && (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
@@ -178,6 +227,12 @@ export default function JobsPage() {
                         <span className="ml-1 rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-500">
                           {job.atsType}
                         </span>
+                        {(job.postedAt || job.firstSeenAt) && (
+                          <span className="ml-2 text-xs text-gray-400" title={job.postedAt ? "Posted" : "First seen"}>
+                            {job.postedAt ? "posted " : "seen "}
+                            {timeAgo(job.postedAt ?? job.firstSeenAt)}
+                          </span>
+                        )}
                         <span className="ml-2 align-middle">
                           <FitBadge score={job.match?.resumeScore} provider={job.match?.matchProvider} />
                         </span>

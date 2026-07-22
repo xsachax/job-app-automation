@@ -75,7 +75,7 @@ box. Replace it with your own details on the **Profile** page.
 | Page | What you do there |
 | --- | --- |
 | **Overview** | Pipeline stats, current apply mode, recent source runs. |
-| **Jobs** | Matched postings sorted by fit score. Draft → review the exact fields → **Confirm & send**, or Reject. Filter by status / search. |
+| **Jobs** | Time-sorted queue of matched postings. Filter by date posted (24h / 7d / 30d / all), sort by **Newest first** or **Best match**, filter by status / search. Draft → review the exact fields → **Confirm & send**, or Reject. |
 | **Sources** | Add / remove / enable / disable job boards and run them on demand. |
 | **Workday** | Read-only list of flagged Workday jobs with apply links. |
 | **Profile** | Edit every field applications ask for, and **Refresh Profile** from your resume. |
@@ -110,6 +110,32 @@ seed them. Built-in kinds:
 
 All sources feed the same dedup + scoring layer, so overlapping feeds (e.g. an
 aggregator that links to a Greenhouse board) collapse into one canonical job.
+
+### Company catalog (seeded by default)
+
+`npm run db:seed` wires up a curated catalog of **70+ companies** that hire in the
+US/Canada and use easy-apply ATSes — big tech (Airbnb, Roblox, Waymo…), known
+scale-ups (Stripe, Databricks, Figma, OpenAI, Notion…), and startups backed by
+**Y Combinator / a16z / Greylock** (Ramp, Vanta, Cursor, Harvey, Vercel…). Every
+token in [`lib/sources/catalog.ts`](lib/sources/catalog.ts) is verified live against
+its public job-board API, so a fresh scan pulls **~12k real postings** on the first run.
+
+To vet new tokens before adding them to the catalog:
+
+```bash
+npm run sources:probe   # probes candidate Greenhouse/Lever/Ashby boards, prints the live ones
+```
+
+## The queue (Jobs page)
+
+The Jobs page is a **queue ordered by time posted** (`postedAt`, falling back to when we
+first saw the job). Controls:
+
+- **Date posted** — `Last 24 hours`, `Last 7 days`, `Last 30 days`, `All time`.
+- **Sort** — `Newest first` (default) or `Best match first` (rule score).
+- **Status** filter + free-text search on title/company.
+
+The API backs this at `GET /api/jobs?sort=posted|score&since=24h|7d|30d|all`.
 
 ## Dedup — never apply twice
 
@@ -237,14 +263,14 @@ Both run on Node 22 / Ubuntu with no secrets — everything is offline and dry-r
 ```
 app/                 Next.js dashboard (pages) + API routes under app/api
 lib/
-  sources/           adapters, dedup/normalize, run engine, registry
+  sources/           adapters, dedup/normalize, run engine, registry, catalog (curated companies)
   matching/          score.ts (rule/criteria), resume.ts (resume fit), agent.ts (agent-in-the-loop)
   applications/      draft, human-gate service, dry-run/live submit
   profile/           resume extraction + Refresh Profile
   llm/               resume parsing (OpenAI + deterministic fallback)
   settings.ts        Profile & Criteria singletons
 prisma/              schema, migrations, seed
-scripts/             scan (one-off) + cron (scheduled) + match (agent resume review) + e2e-seed
+scripts/             scan (one-off) + cron (scheduled) + match (agent resume review) + e2e-seed + probe-sources
 test/                vitest suite
 e2e/                 Playwright specs (smoke, apply-flow, resume-match)
 sample-data/         a sample resume for the demo profile

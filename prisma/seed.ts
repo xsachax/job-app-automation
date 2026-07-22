@@ -1,14 +1,13 @@
 import { prisma } from "../lib/db";
 import { saveProfile, saveCriteria, DEFAULT_PROFILE, type ProfileData } from "../lib/settings";
 import type { Criteria } from "../lib/matching/score";
+import { catalogSources } from "../lib/sources/catalog";
 
-// Example sources — all validated against live public ATS endpoints.
-// Safe to run: fetching a public job board is read-only.
+// Sources = the curated, live-verified company catalog (Greenhouse/Lever/Ashby
+// across US/CA big tech, known scale-ups, and YC/a16z/Greylock startups) plus a
+// couple of aggregator feeds. Fetching a public job board is read-only.
 const SEED_SOURCES: { name: string; kind: string; config: Record<string, unknown> }[] = [
-  { name: "Figma (Greenhouse)", kind: "greenhouse", config: { company: "figma", companyName: "Figma" } },
-  { name: "GitLab (Greenhouse)", kind: "greenhouse", config: { company: "gitlab", companyName: "GitLab" } },
-  { name: "Palantir (Lever)", kind: "lever", config: { company: "palantir", companyName: "Palantir" } },
-  { name: "Ramp (Ashby)", kind: "ashby", config: { company: "ramp", companyName: "Ramp" } },
+  ...catalogSources(),
   {
     name: "SimplifyJobs New-Grad (GitHub)",
     kind: "github-repo",
