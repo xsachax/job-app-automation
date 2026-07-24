@@ -101,7 +101,8 @@ const SWE = ["software engineer", "software developer"];
 const SWE_BROAD = ["software engineer", "software developer", "machine learning", "devops"];
 
 // ---------------------------------------------------------------------------
-// API companies (52) — direct public JSON endpoints, verified live
+// API companies (76) — direct public JSON endpoints, verified live. Includes a
+// block of quant / trading firms at the end.
 // ---------------------------------------------------------------------------
 
 export const API_COMPANIES: ApiCompany[] = [
@@ -126,9 +127,6 @@ export const API_COMPANIES: ApiCompany[] = [
   { name: "SpaceX", method: "api", system: "greenhouse", token: "spacex", countryFilter: "post", queryTerms: SWE_BROAD },
   { name: "Thinking Machines", method: "api", system: "greenhouse", token: "thinkingmachines", countryFilter: "post", queryTerms: SWE_BROAD },
   { name: "Nuro", method: "api", system: "greenhouse", token: "nuro", countryFilter: "post", queryTerms: SWE_BROAD },
-  { name: "DRW", method: "api", system: "greenhouse", token: "drweng", countryFilter: "post", queryTerms: SWE_BROAD },
-  { name: "Jane Street", method: "api", system: "greenhouse", token: "janestreet", countryFilter: "post", queryTerms: SWE_BROAD },
-  { name: "Hudson River Trading", method: "api", system: "greenhouse", token: "wehrtyou", countryFilter: "post", queryTerms: SWE_BROAD },
   { name: "Waymo", method: "api", system: "greenhouse", token: "waymo", countryFilter: "post", queryTerms: SWE_BROAD },
   { name: "Together AI", method: "api", system: "greenhouse", token: "togetherai", countryFilter: "post", queryTerms: SWE_BROAD },
   { name: "Scale AI", method: "api", system: "greenhouse", token: "scaleai", countryFilter: "post", queryTerms: SWE_BROAD },
@@ -164,6 +162,39 @@ export const API_COMPANIES: ApiCompany[] = [
   { name: "Adobe", method: "api", system: "workday", countryFilter: "post", queryTerms: SWE, workday: { host: "adobe.wd5.myworkdayjobs.com", tenant: "adobe", site: "external_experienced" } },
   { name: "Salesforce", method: "api", system: "workday", countryFilter: "post", queryTerms: SWE, workday: { host: "salesforce.wd12.myworkdayjobs.com", tenant: "salesforce", site: "External_Career_Site" } },
   { name: "Zoom", method: "api", system: "workday", countryFilter: "post", queryTerms: SWE, workday: { host: "zoom.wd5.myworkdayjobs.com", tenant: "zoom", site: "Zoom" } },
+
+  // ---- Quant / high-frequency trading firms — verified live (Greenhouse /
+  // Lever / Ashby). Only software roles (SWE / ML / infra / devops) survive the
+  // downstream isSoftwareRole + entry-level + US/CA filters, so quant-researcher
+  // / trader reqs and non-US/CA offices self-exclude. Re-probe with
+  // `npm run discovery:verify`.
+  { name: "Jane Street", method: "api", system: "greenhouse", token: "janestreet", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Hudson River Trading", method: "api", system: "greenhouse", token: "wehrtyou", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "DRW", method: "api", system: "greenhouse", token: "drweng", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Point72", method: "api", system: "greenhouse", token: "point72", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Optiver", method: "api", system: "greenhouse", token: "optiverus", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "IMC Trading", method: "api", system: "greenhouse", token: "imc", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Jump Trading", method: "api", system: "greenhouse", token: "jumptrading", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Tower Research Capital", method: "api", system: "greenhouse", token: "towerresearchcapital", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Squarepoint Capital", method: "api", system: "greenhouse", token: "squarepointcapital", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Qube Research & Technologies", method: "api", system: "greenhouse", token: "quberesearchandtechnologies", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "WorldQuant", method: "api", system: "greenhouse", token: "worldquant", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "AQR Capital", method: "api", system: "greenhouse", token: "aqr", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Schonfeld", method: "api", system: "greenhouse", token: "schonfeld", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Virtu Financial", method: "api", system: "greenhouse", token: "virtu", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Akuna Capital", method: "api", system: "greenhouse", token: "akunacapital", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Five Rings", method: "api", system: "greenhouse", token: "fiveringsllc", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Old Mission Capital", method: "api", system: "greenhouse", token: "oldmissioncapital", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "PDT Partners", method: "api", system: "greenhouse", token: "pdtpartners", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Vatic Labs", method: "api", system: "greenhouse", token: "vaticlabs", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Chicago Trading Company", method: "api", system: "greenhouse", token: "chicagotrading", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "DV Trading", method: "api", system: "greenhouse", token: "dvtrading", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Geneva Trading", method: "api", system: "greenhouse", token: "genevatrading", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Flow Traders", method: "api", system: "greenhouse", token: "flowtraders", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "TransMarket Group", method: "api", system: "greenhouse", token: "transmarketgroup", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Belvedere Trading", method: "api", system: "lever", token: "belvederetrading", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Valkyrie Trading", method: "api", system: "lever", token: "valkyrietrading", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Maven Securities", method: "api", system: "ashby", token: "maven", countryFilter: "post", queryTerms: SWE_BROAD },
 ];
 
 // ---------------------------------------------------------------------------
