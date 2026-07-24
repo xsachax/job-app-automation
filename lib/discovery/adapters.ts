@@ -9,6 +9,16 @@
 
 import { classifyCountry, type Country } from "./entryLevel";
 import type { ApiCompany, DiscoverySystem, BrowserSystem } from "./companies";
+import { prisma } from "../db";
+import { DEFAULT_YC_CONFIG, type YcConfig } from "./config";
+import {
+  YC_DIRECTORY_URL,
+  selectYcCompanies,
+  resolveYcBoards,
+  mapPool,
+  type YcDirectoryCompany,
+  type ResolvedSystem,
+} from "./yc";
 
 export interface DiscoveryPosting {
   company: string;
@@ -40,6 +50,26 @@ async function fetchJson(url: string, init?: RequestInit, timeoutMs = 20000): Pr
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+// Best-effort HTML fetch used by the YC ATS resolver. Never throws — a missing
+// or blocked page just yields "" so the resolver moves on to the next candidate.
+async function fetchText(url: string, timeoutMs = 8000): Promise<string> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      headers: { "User-Agent": UA, Accept: "text/html,application/xhtml+xml,*/*" },
+      redirect: "follow",
+      signal: ctrl.signal,
+    });
+    if (!res.ok) return "";
+    return await res.text();
+  } catch {
+    return "";
   } finally {
     clearTimeout(t);
   }
@@ -159,6 +189,36 @@ async function ashby(c: ApiCompany): Promise<DiscoveryPosting[]> {
       compensation: j.compensationTierSummary ?? j.compensation?.compensationTierSummary ?? null,
     }),
   );
+}
+
+// ----------------------------------- Lever -----------------------------------
+
+async function lever(c: ApiCompany): Promise<DiscoveryPosting[]> {
+  const data = (await fetchJson(
+    `https://api.lever.co/v0/postings/${c.token}?mode=json`,
+  )) as {
+    id?: string;
+    text?: string;
+    hostedUrl?: string;
+    applyUrl?: string;
+    createdAt?: number;
+    categories?: { location?: string; allLocations?: string[] };
+    descriptionPlain?: string;
+    description?: string;
+  }[];
+  return (Array.isArray(data) ? data : []).map((j) => {
+    const loc =
+      j.categories?.location ||
+      (j.categories?.allLocations ?? []).filter(Boolean).join(" | ");
+    return mk("lever", c.name, {
+      title: j.text ?? "",
+      location: loc ?? "",
+      applyUrl: j.hostedUrl || j.applyUrl || "",
+      externalId: String(j.id ?? ""),
+      description: j.descriptionPlain ?? stripHtml(j.description),
+      postedAt: toDate(j.createdAt),
+    });
+  });
 }
 
 // ----------------------------------- Amazon -----------------------------------
@@ -579,10 +639,10 @@ async function githubBoard(c: ApiCompany): Promise<DiscoveryPosting[]> {
   return out;
 }
 
-const FETCHERS: Record<DiscoverySystem, (c: ApiCompany) => Promise<DiscoveryPosting[]>> = {
+const FETCHERS: Record<Exclude<DiscoverySystem, "ycombinator">, (c: ApiCompany) => Promise<DiscoveryPosting[]>> = {
   greenhouse,
   ashby,
-  lever: async () => [], // no API company currently uses Lever (Mistral moved to browser)
+  lever,
   amazon,
   uber,
   netflix,
@@ -595,8 +655,68 @@ const FETCHERS: Record<DiscoverySystem, (c: ApiCompany) => Promise<DiscoveryPost
   workday,
 };
 
-// Fetch every posting for one API company across US + Canada (unfiltered).
-export async function fetchCompanyPostings(c: ApiCompany): Promise<DiscoveryPosting[]> {
+// Extra context the runner threads through for sources that need config (the YC
+// expansion needs its knobs + the enabled country list). Plain fetchers ignore it.
+export interface FetchContext {
+  yc?: YcConfig;
+  countries?: string[];
+}
+
+// --------------------------------- Y Combinator ---------------------------------
+// Pull the YC "currently hiring" directory, keep the recent + successful + US/CA
+// companies, resolve each one's public ATS (cached), then reuse the per-ATS
+// fetchers above to pull the real postings. The company name on each posting is
+// the YC company, and the system is its underlying ATS, so downstream dedup /
+// enrichment / country filtering all behave exactly as for a named company.
+
+async function ycombinator(c: ApiCompany, ctx: FetchContext): Promise<DiscoveryPosting[]> {
+  const yc = ctx.yc ?? DEFAULT_YC_CONFIG;
+  const countries = ctx.countries?.length ? ctx.countries : ["US", "CA"];
+  const dirUrl = c.yc?.directoryUrl ?? YC_DIRECTORY_URL;
+
+  const directory = (await fetchJson(dirUrl, { headers: { Accept: "application/json" } }, 30000)) as
+    | YcDirectoryCompany[]
+    | { companies?: YcDirectoryCompany[] };
+  const list = Array.isArray(directory) ? directory : (directory.companies ?? []);
+
+  const selected = selectYcCompanies(list, {
+    yearsBack: yc.yearsBack,
+    minTeamSize: yc.minTeamSize,
+    maxTeamSize: yc.maxTeamSize,
+    countries,
+  }).slice(0, yc.maxCompanies);
+
+  const boards = await resolveYcBoards(selected, {
+    prisma,
+    fetchText,
+    concurrency: yc.concurrency,
+  });
+
+  const perBoard = await mapPool(boards, yc.concurrency, async (b) => {
+    const synthetic: ApiCompany = {
+      name: b.name,
+      method: "api",
+      system: b.system as ResolvedSystem,
+      token: b.token,
+      countryFilter: "post",
+      queryTerms: c.queryTerms,
+    };
+    try {
+      return await FETCHERS[b.system](synthetic);
+    } catch {
+      return [];
+    }
+  });
+  return perBoard.flat();
+}
+
+// Fetch every posting for one API company across US + Canada (unfiltered). The
+// optional context carries config for sources (e.g. YC) that need it.
+export async function fetchCompanyPostings(
+  c: ApiCompany,
+  ctx: FetchContext = {},
+): Promise<DiscoveryPosting[]> {
+  if (c.system === "ycombinator") return ycombinator(c, ctx);
   const fetcher = FETCHERS[c.system];
   if (!fetcher) throw new Error(`no discovery fetcher for system ${c.system}`);
   return fetcher(c);

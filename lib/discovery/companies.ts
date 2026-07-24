@@ -40,6 +40,7 @@ export type DiscoverySystem =
   | "talentbrew"
   | "microsoft"
   | "githubboard"
+  | "ycombinator"
   | "workday";
 
 export type BrowserSystem =
@@ -73,6 +74,10 @@ export interface ApiCompany {
   // sets each posting's company from the feed row (not `name`), so one board
   // entry contributes roles across many employers.
   board?: { owner: string; repo: string; ref: string; path: string };
+  // Y Combinator directory-expansion source: a static JSON feed of currently
+  // hiring YC companies. The runner resolves each company's ATS at scrape time
+  // (see lib/discovery/yc.ts), so one entry covers hundreds of employers.
+  yc?: { directoryUrl: string };
   // Does the endpoint filter US/CA server-side, or must we post-filter?
   countryFilter: "native" | "post";
   // Software keywords used to scope the query.
@@ -256,6 +261,24 @@ export const BOARD_SOURCES: ApiCompany[] = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// Y Combinator expansion — the long tail of "any successful YC startup of the
+// past N years". One source that resolves each hiring company's ATS at scrape
+// time (see lib/discovery/yc.ts). Runs after the named company sites but before
+// the GitHub boards, so a role found natively on a YC company's own board wins
+// over the same role re-listed on an aggregator.
+// ---------------------------------------------------------------------------
+
+export const YC_SOURCE: ApiCompany = {
+  name: "Y Combinator",
+  method: "api",
+  system: "ycombinator",
+  countryFilter: "post",
+  queryTerms: SWE,
+  yc: { directoryUrl: "https://yc-oss.github.io/api/companies/hiring.json" },
+};
+
 // The full set the discovery runner iterates: named company APIs first, then the
-// aggregator boards (so board dupes of already-covered roles are suppressed).
-export const DISCOVERY_SOURCES: ApiCompany[] = [...API_COMPANIES, ...BOARD_SOURCES];
+// aggregator sources (YC expansion, then GitHub boards) so dupes of already-
+// covered roles are suppressed in favor of the richer native listing.
+export const DISCOVERY_SOURCES: ApiCompany[] = [...API_COMPANIES, YC_SOURCE, ...BOARD_SOURCES];

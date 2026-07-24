@@ -1,6 +1,6 @@
 import { prisma } from "../db";
 import { createHash } from "node:crypto";
-import { fetchCompanyPostings, type DiscoveryPosting } from "./adapters";
+import { fetchCompanyPostings, type DiscoveryPosting, type FetchContext } from "./adapters";
 import { classifyEntryLevel, type EntryLevelOptions } from "./entryLevel";
 import { enrich, type Enrichment } from "./enrich";
 import { getDiscoveryConfig, toEntryLevelOptions, type DiscoveryConfigData } from "./config";
@@ -182,10 +182,11 @@ async function runCompany(
   c: ApiCompany,
   onlyEntryLevel: boolean,
   opts: IngestOptions,
+  ctx: FetchContext,
 ): Promise<CompanyRunResult> {
   const res: CompanyRunResult = { company: c.name, system: c.system, ...zeroCounts() };
   try {
-    const postings = await fetchCompanyPostings(c);
+    const postings = await fetchCompanyPostings(c, ctx);
     await ingestPostings(postings, onlyEntryLevel, res, opts);
   } catch (e) {
     res.error = e instanceof Error ? e.message : String(e);
@@ -211,6 +212,7 @@ export async function runDiscovery(opts?: {
     entryOptions: toEntryLevelOptions(config),
     countries: config.countries,
   };
+  const ctx: FetchContext = { yc: config.yc, countries: config.countries };
   const disabled = new Set(config.disabledSources.map((s) => s.toLowerCase()));
   const wanted = opts?.companies?.map((s) => s.toLowerCase());
   const targets = DISCOVERY_SOURCES.filter((c) => {
@@ -220,24 +222,32 @@ export async function runDiscovery(opts?: {
   });
 
   const results: CompanyRunResult[] = [];
-  // Company sites first (concurrent batches), then aggregator boards strictly
-  // sequentially. Boards re-list roles already found natively, so running them
-  // last + one-at-a-time makes cross-source dedup deterministic (each board
-  // sees every prior insert).
-  const boards = targets.filter((c) => c.system === "githubboard");
-  const companies = targets.filter((c) => c.system !== "githubboard");
+  // Named company sites first (concurrent batches), then the aggregator sources
+  // strictly sequentially: the YC expansion (native company boards) before the
+  // GitHub boards. Aggregators re-list roles already found natively, so running
+  // them last + one-at-a-time makes cross-source dedup deterministic (each sees
+  // every prior insert) and the richer native listing wins.
+  const AGGREGATORS = ["ycombinator", "githubboard"] as const;
+  const isAggregator = (c: ApiCompany) =>
+    (AGGREGATORS as readonly string[]).includes(c.system);
+  const companies = targets.filter((c) => !isAggregator(c));
+  const aggregators = targets
+    .filter(isAggregator)
+    .sort((a, b) => AGGREGATORS.indexOf(a.system as never) - AGGREGATORS.indexOf(b.system as never));
 
   for (let i = 0; i < companies.length; i += concurrency) {
     const batch = companies.slice(i, i + concurrency);
-    const batchResults = await Promise.all(batch.map((c) => runCompany(c, onlyEntryLevel, ingestOpts)));
+    const batchResults = await Promise.all(
+      batch.map((c) => runCompany(c, onlyEntryLevel, ingestOpts, ctx)),
+    );
     for (const r of batchResults) {
       results.push(r);
       opts?.onProgress?.(r);
     }
   }
 
-  for (const b of boards) {
-    const r = await runCompany(b, onlyEntryLevel, ingestOpts);
+  for (const a of aggregators) {
+    const r = await runCompany(a, onlyEntryLevel, ingestOpts, ctx);
     results.push(r);
     opts?.onProgress?.(r);
   }

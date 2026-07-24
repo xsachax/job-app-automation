@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { API_COMPANIES, BOARD_SOURCES, BROWSER_COMPANIES, SCRAPABLE_BROWSER_SYSTEMS } from "@/lib/discovery/companies";
+import { getDiscoveryConfig } from "@/lib/discovery/config";
 import { cls, PageHeader } from "../components/ui";
 
 export const dynamic = "force-dynamic";
@@ -35,6 +36,19 @@ export default async function CompaniesPage() {
   });
   const boardUs = boardAgg.find((g) => g.country === "US")?._count._all ?? 0;
   const boardCa = boardAgg.find((g) => g.country === "CA")?._count._all ?? 0;
+
+  // Y Combinator expansion: how many hiring YC companies we've resolved to a
+  // public ATS (cached), grouped by backend. Nulls are companies with no public
+  // board found. Zero rows = the YC source hasn't run yet.
+  const [ycConfig, ycResolved, ycWithBoard, ycBySystem] = await Promise.all([
+    getDiscoveryConfig(),
+    prisma.ycAtsCache.count(),
+    prisma.ycAtsCache.count({ where: { system: { not: null } } }),
+    prisma.ycAtsCache.groupBy({ by: ["system"], where: { system: { not: null } }, _count: { _all: true } }),
+  ]);
+  const ycSystemLine = ycBySystem
+    .map((g) => `${g._count._all} ${g.system}`)
+    .join(" · ");
 
   return (
     <div>
@@ -163,6 +177,29 @@ export default async function CompaniesPage() {
             ))}
           </tbody>
         </table>
+      </div>
+
+      <h2 className="mb-3 text-lg font-semibold">Y Combinator expansion</h2>
+      <p className="mb-3 text-xs text-gray-400">
+        Any hiring YC company from the last <strong>{ycConfig.yc.yearsBack}</strong> years with a team
+        of <strong>{ycConfig.yc.minTeamSize}+</strong> is pulled from the live YC directory; we resolve
+        each one&apos;s public ATS (Greenhouse / Lever / Ashby) from its own site and merge the roles
+        into the US/CA lists (deduped against the named companies above). Resolved boards are cached.
+      </p>
+      <div className={cls.card + " flex flex-wrap gap-x-8 gap-y-2 text-sm"}>
+        {ycResolved === 0 ? (
+          <span className="text-gray-500 dark:text-gray-400">
+            Not resolved yet — runs on the next <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">npm run discover</code>.
+          </span>
+        ) : (
+          <>
+            <span>
+              <strong>{ycWithBoard}</strong> of <strong>{ycResolved}</strong> companies resolved to a
+              public board
+            </span>
+            {ycSystemLine && <span className="text-gray-500 dark:text-gray-400">{ycSystemLine}</span>}
+          </>
+        )}
       </div>
     </div>
   );

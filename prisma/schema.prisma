@@ -151,6 +151,20 @@ model DiscoveryConfig {
   updatedAt DateTime @updatedAt
 }
 
+// Resolved ATS backend for a Y Combinator company, cached so repeat discovery
+// runs skip the (expensive) website crawl. `system`/`token` are null when no
+// public Greenhouse/Lever/Ashby board could be found (negative result cached
+// with a shorter TTL). Keyed by the company's YC directory slug.
+model YcAtsCache {
+  slug      String   @id
+  name      String
+  website   String?
+  batch     String?
+  system    String? // greenhouse | lever | ashby | null (none found)
+  token     String?
+  checkedAt DateTime @default(now())
+}
+
 // A parsed snapshot of the user's resume; drives "Refresh Profile".
 model ResumeVersion {
   id        String   @id @default(cuid())

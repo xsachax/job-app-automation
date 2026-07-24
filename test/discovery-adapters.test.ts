@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { fetchCompanyPostings } from "../lib/discovery/adapters";
-import { API_COMPANIES, BOARD_SOURCES, DISCOVERY_SOURCES, type ApiCompany } from "../lib/discovery/companies";
+import { API_COMPANIES, BOARD_SOURCES, DISCOVERY_SOURCES, YC_SOURCE, type ApiCompany } from "../lib/discovery/companies";
 import { jsonResponse } from "./helpers";
 
 afterEach(() => {
@@ -141,6 +141,51 @@ describe("github board adapter (aggregator listings.json)", () => {
   });
 });
 
+describe("lever adapter", () => {
+  it("maps postings with location, apply URL, id and date", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse([
+          {
+            id: "lev-1",
+            text: "Software Engineer",
+            hostedUrl: "https://jobs.lever.co/acme/lev-1",
+            categories: { location: "San Francisco, CA" },
+            createdAt: 1_700_000_000_000,
+            descriptionPlain: "Build things.",
+          },
+          {
+            id: "lev-2",
+            text: "Backend Engineer",
+            applyUrl: "https://jobs.lever.co/acme/lev-2/apply",
+            categories: { allLocations: ["Toronto, ON", "Remote - Canada"] },
+          },
+        ]),
+      ),
+    );
+    const c: ApiCompany = {
+      name: "Acme",
+      method: "api",
+      system: "lever",
+      token: "acme",
+      countryFilter: "post",
+      queryTerms: ["software engineer"],
+    };
+    const posts = await fetchCompanyPostings(c);
+    expect(posts).toHaveLength(2);
+    const one = posts.find((p) => p.externalId === "lev-1")!;
+    expect(one.title).toBe("Software Engineer");
+    expect(one.system).toBe("lever");
+    expect(one.country).toBe("US");
+    expect(one.applyUrl).toBe("https://jobs.lever.co/acme/lev-1");
+    expect(one.postedAt).toBeInstanceOf(Date);
+    const two = posts.find((p) => p.externalId === "lev-2")!;
+    expect(two.applyUrl).toBe("https://jobs.lever.co/acme/lev-2/apply");
+    expect(two.country).toBe("CA");
+  });
+});
+
 describe("discovery catalog", () => {
   it("registers the newly added companies with the expected system", () => {
     const bySystem = (name: string) => API_COMPANIES.find((c) => c.name === name)?.system;
@@ -173,6 +218,19 @@ describe("discovery catalog", () => {
       expect(b.board?.repo).toBeTruthy();
       expect(b.board?.path).toBeTruthy();
     }
+  });
+
+  it("registers the Y Combinator expansion source with a directory URL", () => {
+    expect(YC_SOURCE.system).toBe("ycombinator");
+    expect(YC_SOURCE.yc?.directoryUrl).toMatch(/^https?:\/\//);
+    expect(DISCOVERY_SOURCES).toContain(YC_SOURCE);
+    // It must run after every named company so native listings win dedup.
+    const ycIdx = DISCOVERY_SOURCES.indexOf(YC_SOURCE);
+    const lastNamed = DISCOVERY_SOURCES.reduce(
+      (acc, c, i) => (c.system !== "ycombinator" && c.system !== "githubboard" ? i : acc),
+      -1,
+    );
+    expect(ycIdx).toBeGreaterThan(lastNamed);
   });
 
   it("gives every discovery source a fetchable system (no missing fetcher)", async () => {
