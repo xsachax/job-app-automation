@@ -154,6 +154,10 @@ describe("discovery catalog", () => {
     expect(bySystem("Zoom")).toBe("workday");
     expect(bySystem("Waymo")).toBe("greenhouse");
     expect(bySystem("Wealthsimple")).toBe("ashby");
+    expect(bySystem("Cursor")).toBe("ashby");
+    expect(bySystem("Cognition")).toBe("ashby");
+    expect(bySystem("Lovable")).toBe("ashby");
+    expect(bySystem("Granola")).toBe("ashby");
   });
 
   it("registers the GitHub board sources with a repo config", () => {
