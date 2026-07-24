@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { json } from "@/lib/http";
+import { categorizeCompany, fallbackForSystem, CATEGORY_ORDER } from "@/lib/discovery/categories";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +14,7 @@ export async function GET() {
     select: {
       skills: true,
       discoverySystem: true,
+      company: true,
       sponsorship: true,
       employmentType: true,
       salaryMax: true,
@@ -24,6 +26,7 @@ export async function GET() {
 
   const skillCounts = new Map<string, number>();
   const sources = new Map<string, number>();
+  const categories = new Map<string, number>();
   const sponsorship = new Map<string, number>();
   const employmentType = new Map<string, number>();
   const statuses = new Map<string, number>();
@@ -36,6 +39,7 @@ export async function GET() {
 
   for (const j of jobs) {
     bump(sources, j.discoverySystem);
+    bump(categories, categorizeCompany(j.company, fallbackForSystem(j.discoverySystem)));
     bump(sponsorship, j.sponsorship);
     bump(employmentType, j.employmentType);
     bump(statuses, j.applicationStatus);
@@ -58,6 +62,10 @@ export async function GET() {
   return json({
     skills: sorted(skillCounts, 60),
     sources: sorted(sources),
+    categories: CATEGORY_ORDER.filter((c) => categories.has(c)).map((c) => ({
+      value: c,
+      count: categories.get(c) ?? 0,
+    })),
     sponsorship: sorted(sponsorship),
     employmentType: sorted(employmentType),
     statuses: sorted(statuses),

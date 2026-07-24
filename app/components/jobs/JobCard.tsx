@@ -2,6 +2,7 @@
 
 import {
   AppliedBadge,
+  CategoryBadge,
   FitBadge,
   SalaryText,
   SkillChips,
@@ -107,6 +108,7 @@ export function JobCard({ job, updating, onStatusChange }: JobCardProps) {
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-1.5">
+            <CategoryBadge category={job.category} />
             {isNew && (
               <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 dark:bg-indigo-950 dark:text-indigo-200">
                 NEW

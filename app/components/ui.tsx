@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { CATEGORY_LABELS, type JobCategory } from "@/lib/discovery/categories";
 
 export const cls = {
   card:
@@ -101,6 +102,28 @@ export function AppliedBadge({ status }: { status: string }) {
   return (
     <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${color}`}>
       {status}
+    </span>
+  );
+}
+
+// Company-category chip (Big Tech / AI Lab / Quant / Startup / Other). Each
+// bucket gets a distinct hue so a card's kind is legible at a glance; colors are
+// contrast-checked for both themes.
+const CATEGORY_COLORS: Record<JobCategory, string> = {
+  bigtech: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-200",
+  ai: "bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-200",
+  quant: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200",
+  startup: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200",
+  other: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
+};
+
+export function CategoryBadge({ category }: { category: JobCategory | null | undefined }) {
+  if (!category) return null;
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${CATEGORY_COLORS[category]}`}
+    >
+      {CATEGORY_LABELS[category]}
     </span>
   );
 }

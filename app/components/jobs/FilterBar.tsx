@@ -1,6 +1,7 @@
 "use client";
 
 import { cls } from "../ui";
+import { CATEGORY_LABELS } from "@/lib/discovery/categories";
 import type { FacetItem, FilterState, JobFacets, MultiFilterKey, SinceKey, SortKey } from "./types";
 
 const SINCE_OPTIONS: { value: SinceKey; label: string }[] = [
@@ -63,6 +64,7 @@ function formatFacetLabel(filterKey: MultiFilterKey, value: string): string {
   if (filterKey === "sponsorship") return SPONSORSHIP_LABELS[value] ?? titleize(value);
   if (filterKey === "employmentType") return EMPLOYMENT_LABELS[value] ?? titleize(value);
   if (filterKey === "status") return STATUS_LABELS[value] ?? titleize(value);
+  if (filterKey === "category") return CATEGORY_LABELS[value as keyof typeof CATEGORY_LABELS] ?? titleize(value);
   return titleize(value);
 }
 
@@ -88,6 +90,7 @@ function activeFilterCount(filters: FilterState): number {
     filters.sponsorship.length +
     filters.employmentType.length +
     filters.source.length +
+    filters.category.length +
     filters.status.length +
     (filters.remote ? 1 : 0) +
     (filters.salaryMin ? 1 : 0) +
@@ -303,6 +306,14 @@ export function FilterBar({
           </div>
         ) : (
           <>
+            <ChipGroup
+              label="Category"
+              hint="company type"
+              items={facets?.categories ?? []}
+              selected={filters.category}
+              filterKey="category"
+              onToggleValue={onToggleValue}
+            />
             <ChipGroup
               label="Skills"
               hint="match all"

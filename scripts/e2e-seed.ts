@@ -43,7 +43,7 @@ const JOBS: Fixture[] = [
   {
     key: "frontend",
     title: "E2E Frontend Engineer",
-    company: "AcmeE2E",
+    company: "OpenAI",
     description: "Build UI with TypeScript, React and Node.js. New grad friendly.",
     country: "US",
     minYoE: 0,

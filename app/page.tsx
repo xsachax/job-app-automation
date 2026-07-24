@@ -1,6 +1,12 @@
 import { prisma } from "@/lib/db";
 import { API_COMPANIES, BROWSER_COMPANIES } from "@/lib/discovery/companies";
-import { cls, PageHeader } from "./components/ui";
+import {
+  categorizeCompany,
+  fallbackForSystem,
+  CATEGORY_ORDER,
+  type JobCategory,
+} from "@/lib/discovery/categories";
+import { cls, PageHeader, CategoryBadge } from "./components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +31,7 @@ function timeAgo(d: Date | null): string {
 
 export default async function OverviewPage() {
   const entryWhere = { isWorkday: false, isEntryLevel: true } as const;
-  const [usEntry, caEntry, workdayJobs, lastJob, byCompany] = await Promise.all([
+  const [usEntry, caEntry, workdayJobs, lastJob, byCompany, allByCompany] = await Promise.all([
     prisma.job.count({ where: { ...entryWhere, country: "US" } }),
     prisma.job.count({ where: { ...entryWhere, country: "CA" } }),
     prisma.job.count({ where: { isWorkday: true } }),
@@ -37,9 +43,25 @@ export default async function OverviewPage() {
       orderBy: { _count: { company: "desc" } },
       take: 12,
     }),
+    // All employers (company + provenance) so we can roll counts up by category.
+    prisma.job.groupBy({
+      by: ["company", "discoverySystem"],
+      where: { ...entryWhere, country: { in: ["US", "CA"] } },
+      _count: { _all: true },
+    }),
   ]);
 
   const companiesCovered = API_COMPANIES.length + BROWSER_COMPANIES.length;
+
+  const byCategory = new Map<JobCategory, number>();
+  for (const row of allByCompany) {
+    const cat = categorizeCompany(row.company, fallbackForSystem(row.discoverySystem));
+    byCategory.set(cat, (byCategory.get(cat) ?? 0) + row._count._all);
+  }
+  const categoryRows = CATEGORY_ORDER.filter((c) => byCategory.has(c)).map((c) => ({
+    category: c,
+    count: byCategory.get(c) ?? 0,
+  }));
 
   return (
     <div>
@@ -61,6 +83,26 @@ export default async function OverviewPage() {
         <Stat label="Last discovery" value={timeAgo(lastJob?.lastSeenAt ?? null)} hint="most recent scrape" />
         <Stat label="Workday flagged" value={workdayJobs} hint="tracked separately" />
       </div>
+
+      {categoryRows.length > 0 && (
+        <div className="mt-8">
+          <h2 className="mb-3 text-lg font-semibold">Roles by category</h2>
+          <div className="flex flex-wrap gap-2">
+            {categoryRows.map((row) => (
+              <div
+                key={row.category}
+                className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 shadow-sm dark:border-gray-800 dark:bg-gray-900"
+              >
+                <CategoryBadge category={row.category} />
+                <span className="text-lg font-bold tabular-nums text-gray-900 dark:text-gray-100">
+                  {row.count}
+                </span>
+                <span className="text-xs text-gray-500 dark:text-gray-400">roles</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="mt-8">
         <h2 className="mb-3 text-lg font-semibold">Entry-level roles by company</h2>

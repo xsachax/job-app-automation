@@ -79,9 +79,14 @@ npm run discover -- "Y Combinator"
 - **Enriched job cards** — each posting carries a filterable data shape: normalized
   **salary range**, **required skills**, **visa-sponsorship** signal, and **employment
   type**, extracted deterministically at ingest (no API key).
-- **Strong filtering** — filter the queue by skills (match-all), sponsorship, employment
-  type, source, minimum salary, minimum fit, remote, applied status, plus text search;
-  sort by newest / company / best fit / salary.
+- **Strong filtering** — filter the queue by **company category** (Big Tech / AI Lab / Quant
+  / Startup), skills (match-all), sponsorship, employment type, source, minimum salary,
+  minimum fit, remote, applied status, plus text search; sort by newest / company / best fit
+  / salary.
+- **Company categories** — every card is tagged and colour-badged by employer type (Big Tech,
+  AI Lab, Quant, Startup, or Other for aggregated board employers). Derived on read from a
+  single classifier (`lib/discovery/categories.ts`), so re-tagging or adding a firm needs no
+  migration; the Overview shows a per-category roll-up.
 - **Applied tracking** — mark a job `saved` / `applied` / `dismissed` (etc.) right on the
   card; **new** (< 48h) and **stale** (> 30d) postings are styled distinctly.
 - **Post-scrape fit judge** — rank every discovered role against your résumé/skills with a
@@ -148,8 +153,8 @@ npm run dev
 
 | Page | What you do there |
 | --- | --- |
-| **Overview** | Discovery stats, US/CA entry-level counts, companies covered, by-company breakdown. |
-| **Jobs** | Time-sorted US / CA queues of discovered postings. Filter by date, skills, sponsorship, employment type, source, min salary, min fit, remote and applied status; sort by newest / company / best fit / salary. Each card links out and lets you mark status. |
+| **Overview** | Discovery stats, US/CA entry-level counts, companies covered, by-category and by-company breakdowns. |
+| **Jobs** | Time-sorted US / CA queues of discovered postings. Filter by category, date, skills, sponsorship, employment type, source, min salary, min fit, remote and applied status; sort by newest / company / best fit / salary. Each card links out and lets you mark status. |
 | **Companies** | Coverage of every API and browser-scraped source. |
 | **Settings** | Edit the discovery configuration — countries, max YoE, degree/internship gates, keywords, scraper query terms, per-source enable/disable. |
 | **Profile** | Import your contact details, résumé PDF URL (or pasted text), target roles, skills and qualifications, then run the fit judge. |
@@ -196,15 +201,15 @@ first saw the job), split into **United States** and **Canada** tabs. Controls:
 
 - **Date posted** — `Last 24 hours`, `Last 7 days`, `Last 30 days`, `All time`.
 - **Sort** — `Newest` (default), `Company`, `Best fit`, or `Salary`.
-- **Facets** — skills (match-all), sponsorship, employment type, source, applied status —
-  each showing live counts — plus **min salary**, **min fit**, **remote only** and
-  free-text search on title/company.
+- **Facets** — category (Big Tech / AI Lab / Quant / Startup), skills (match-all),
+  sponsorship, employment type, source, applied status — each showing live counts — plus
+  **min salary**, **min fit**, **remote only** and free-text search on title/company.
 - **Card actions** — `Open posting ↗` (link-out) and status buttons (`Save`,
   `Mark applied`, `Dismiss`, `Clear`). **New** (< 48h) cards and **stale** (> 30d) cards
   are styled distinctly.
 
 The API backs this at `GET /api/jobs?view=discovery&country=US|CA&sort=posted|company|fit|salary`
-`&since=24h|7d|30d|all&skills=…&sponsorship=…&status=…&employmentType=…&source=…`
+`&since=24h|7d|30d|all&category=…&skills=…&sponsorship=…&status=…&employmentType=…&source=…`
 `&salaryMin=…&fitMin=…&remote=1&q=…`. Available filter values come from
 `GET /api/jobs/facets`; `PATCH /api/jobs/:id` records applied status.
 
