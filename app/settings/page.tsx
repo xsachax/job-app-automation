@@ -3,6 +3,7 @@
 import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
 import type { DiscoveryConfigData } from "@/lib/discovery/config";
+import { DEFAULT_YC_CONFIG } from "@/lib/discovery/config";
 import { api } from "../components/api";
 import { cls, PageHeader } from "../components/ui";
 
@@ -20,6 +21,7 @@ const DEFAULT_CONFIG: DiscoveryConfigData = {
   excludeTitleKeywords: [],
   queryTerms: [],
   disabledSources: [],
+  yc: DEFAULT_YC_CONFIG,
 };
 
 const helper = "mt-1 text-xs text-gray-500 dark:text-gray-400";
@@ -100,6 +102,14 @@ export default function SettingsPage() {
 
   function updateConfig(patch: Partial<DiscoveryConfigData>) {
     setConfig((current) => (current ? { ...current, ...patch } : current));
+    setError(null);
+    setMessage(null);
+  }
+
+  function updateYc(patch: Partial<DiscoveryConfigData["yc"]>) {
+    setConfig((current) =>
+      current ? { ...current, yc: { ...(current.yc ?? DEFAULT_YC_CONFIG), ...patch } } : current,
+    );
     setError(null);
     setMessage(null);
   }
@@ -389,6 +399,82 @@ export default function SettingsPage() {
                   placeholder="software engineer, backend, platform"
                 />
               </div>
+            </div>
+          </section>
+
+          <section className={cls.card}>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold">Y Combinator expansion</h2>
+                <p className={helper}>
+                  The <strong>Y Combinator</strong> source pulls the live directory of hiring YC
+                  companies, keeps the recent + established ones, resolves each company&apos;s public
+                  ATS (Greenhouse / Lever / Ashby) and merges their roles into your lists. Disable it
+                  under Disabled sources below. Resolved boards are cached, so only the first run pays
+                  the crawl cost.
+                </p>
+              </div>
+              <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700 dark:bg-gray-800 dark:text-gray-200">
+                {(config.yc ?? DEFAULT_YC_CONFIG).yearsBack}y window
+              </span>
+            </div>
+
+            <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {(
+                [
+                  {
+                    key: "yearsBack",
+                    label: "Batch window (years)",
+                    hint: "Only companies from a YC batch within this many years qualify.",
+                    min: 1,
+                    max: 30,
+                  },
+                  {
+                    key: "minTeamSize",
+                    label: "Minimum team size",
+                    hint: "A coarse traction / success signal. Smaller teams are skipped.",
+                    min: 0,
+                    max: 100000,
+                  },
+                  {
+                    key: "maxTeamSize",
+                    label: "Maximum team size",
+                    hint: "Keeps the list startup-shaped. 0 means no ceiling.",
+                    min: 0,
+                    max: 1000000,
+                  },
+                  {
+                    key: "maxCompanies",
+                    label: "Max companies / run",
+                    hint: "Caps how many companies are ATS-resolved per run.",
+                    min: 1,
+                    max: 6000,
+                  },
+                  {
+                    key: "concurrency",
+                    label: "Resolver concurrency",
+                    hint: "Parallel website lookups while resolving ATS backends.",
+                    min: 1,
+                    max: 32,
+                  },
+                ] as const
+              ).map((f) => (
+                <div key={f.key} className={fieldShell}>
+                  <label htmlFor={`yc-${f.key}`} className={cls.label}>
+                    {f.label}
+                  </label>
+                  <p className={helper}>{f.hint}</p>
+                  <input
+                    id={`yc-${f.key}`}
+                    type="number"
+                    min={f.min}
+                    max={f.max}
+                    className={cls.input + " mt-3 max-w-36"}
+                    value={(config.yc ?? DEFAULT_YC_CONFIG)[f.key]}
+                    onChange={(event) => updateYc({ [f.key]: Number(event.target.value) })}
+                  />
+                </div>
+              ))}
             </div>
           </section>
 

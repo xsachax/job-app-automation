@@ -46,6 +46,22 @@ Roles are filtered to US/Canada and classified as entry-level up front, then ups
 the `Job` table deduped by `system:externalId` (or a content fingerprint). Browse them on
 the **Jobs** page (US / CA tabs) and see coverage on the **Companies** page.
 
+### Y Combinator expansion (config-driven, no hardcoded list)
+
+Beyond the named companies, one aggregator source expands to **any currently-hiring YC
+company from the last few years** without hardcoding tokens. It pulls the community
+[`yc-oss`](https://yc-oss.github.io/api/companies/hiring.json) hiring directory, keeps the
+recent + established + US/CA companies (batch window, team-size floor/ceiling), then
+**resolves each company's public ATS** (Greenhouse / Lever / Ashby) from its own website and
+reuses the per-ATS fetchers — so every posting still flows through the normal entry-level /
+country / enrichment filters. Resolved boards are cached in `YcAtsCache` (positive 30d,
+negative 7d), so the first run crawls sites once and later runs are near-instant. Tune the
+window/floor/cap/concurrency in **Settings → Y Combinator expansion**.
+
+```bash
+npm run discover -- "Y Combinator"
+```
+
 ---
 
 ## Features
