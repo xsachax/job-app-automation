@@ -158,6 +158,11 @@ describe("discovery catalog", () => {
     expect(bySystem("Cognition")).toBe("ashby");
     expect(bySystem("Lovable")).toBe("ashby");
     expect(bySystem("Granola")).toBe("ashby");
+    expect(bySystem("Together AI")).toBe("greenhouse");
+    expect(bySystem("Scale AI")).toBe("greenhouse");
+    expect(bySystem("Mercor")).toBe("ashby");
+    expect(bySystem("Sierra")).toBe("ashby");
+    expect(bySystem("Harvey")).toBe("ashby");
   });
 
   it("registers the GitHub board sources with a repo config", () => {
