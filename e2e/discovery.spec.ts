@@ -23,4 +23,26 @@ test.describe("US / CA discovery lists", () => {
     await page.goto("/jobs");
     await expect(page.getByText(/postings? in queue/)).toBeVisible();
   });
+
+  test("cards show a company-category badge", async ({ page }) => {
+    await page.goto("/jobs");
+    const card = jobCard(page, "E2E Frontend Engineer");
+    await expect(card).toBeVisible();
+    // OpenAI classifies as an AI Lab; AcmeE2E roles are startups.
+    await expect(card.getByText("AI Lab", { exact: true })).toBeVisible();
+  });
+
+  test("category filter narrows the US list", async ({ page }) => {
+    await page.goto("/jobs");
+    await expect(jobCard(page, "E2E Frontend Engineer")).toBeVisible();
+    await expect(jobCard(page, "E2E Backend Engineer")).toBeVisible();
+
+    // Filter to AI Lab: keeps the OpenAI role, drops the AcmeE2E (startup) ones.
+    await page.getByRole("button", { name: /^AI Lab/ }).click();
+
+    await expect(jobCard(page, "E2E Frontend Engineer")).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "E2E Backend Engineer", exact: true }),
+    ).toHaveCount(0);
+  });
 });

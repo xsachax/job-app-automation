@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { json } from "@/lib/http";
 import { shapeJob } from "@/lib/jobs/shape";
+import { categorizeCompany, fallbackForSystem } from "@/lib/discovery/categories";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,7 @@ export async function GET(req: NextRequest) {
   const status = parseList(searchParams.get("status")); // applicationStatus values
   const employmentType = parseList(searchParams.get("employmentType"));
   const source = parseList(searchParams.get("source")); // discoverySystem
+  const category = parseList(searchParams.get("category")); // bigtech | ai | quant | startup | other
   const remoteOnly = searchParams.get("remote") === "1";
   const salaryMin = Number(searchParams.get("salaryMin")) || 0;
   const fitMin = Number(searchParams.get("fitMin")) || 0;
@@ -38,7 +40,12 @@ export async function GET(req: NextRequest) {
       take: 1000,
       include: { sightings: { include: { source: sourceSelect } } },
     });
-    return json(jobs.map(shapeJob));
+    return json(
+      jobs.map((j) => ({
+        ...shapeJob(j),
+        category: categorizeCompany(j.company, fallbackForSystem(j.discoverySystem)),
+      })),
+    );
   }
 
   // Discovery view: entry-level US/CA software roles surfaced by the scraper.
@@ -73,6 +80,7 @@ export async function GET(req: NextRequest) {
     if (status.length && !status.includes(j.applicationStatus.toLowerCase())) return false;
     if (employmentType.length && !employmentType.includes((j.employmentType ?? "").toLowerCase())) return false;
     if (source.length && !source.includes((j.discoverySystem ?? "").toLowerCase())) return false;
+    if (category.length && !category.includes(categorizeCompany(j.company, fallbackForSystem(j.discoverySystem)))) return false;
     if (fitMin && (j.fitScore ?? -1) < fitMin) return false;
     if (salaryMin) {
       const top = j.salaryMax ?? j.salaryMin ?? 0;
@@ -101,5 +109,10 @@ export async function GET(req: NextRequest) {
     result.sort(byPosted);
   }
 
-  return json(result.slice(0, 2000).map(shapeJob));
+  return json(
+    result.slice(0, 2000).map((j) => ({
+      ...shapeJob(j),
+      category: categorizeCompany(j.company, fallbackForSystem(j.discoverySystem)),
+    })),
+  );
 }

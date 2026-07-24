@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { json, errorResponse } from "@/lib/http";
 import { shapeJob } from "@/lib/jobs/shape";
+import { categorizeCompany, fallbackForSystem } from "@/lib/discovery/categories";
 
 export const dynamic = "force-dynamic";
 
@@ -50,5 +51,8 @@ export async function PATCH(
     data: { applicationStatus: status, appliedAt },
     include: { sightings: { include: { source: { select: { id: true, name: true, kind: true } } } } },
   });
-  return json(shapeJob(job));
+  return json({
+    ...shapeJob(job),
+    category: categorizeCompany(job.company, fallbackForSystem(job.discoverySystem)),
+  });
 }

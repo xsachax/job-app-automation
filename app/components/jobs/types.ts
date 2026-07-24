@@ -1,3 +1,5 @@
+import type { JobCategory } from "@/lib/discovery/categories";
+
 export type Country = "US" | "CA";
 export type SortKey = "posted" | "company" | "fit" | "salary";
 export type SinceKey = "24h" | "7d" | "30d" | "all";
@@ -24,6 +26,7 @@ export interface Job {
   atsType: string;
   remote: boolean;
   country: Country | string | null;
+  category: JobCategory;
   minYoE: number | null;
   discoverySystem: string | null;
   postedAt: string | null;
@@ -53,6 +56,7 @@ export interface FacetItem {
 export interface JobFacets {
   skills: FacetItem[];
   sources: FacetItem[];
+  categories: FacetItem[];
   sponsorship: FacetItem[];
   employmentType: FacetItem[];
   statuses: FacetItem[];
@@ -68,13 +72,14 @@ export interface FilterState {
   sponsorship: string[];
   employmentType: string[];
   source: string[];
+  category: string[];
   status: string[];
   remote: boolean;
   salaryMin: number | null;
   fitMin: number | null;
 }
 
-export type MultiFilterKey = "skills" | "sponsorship" | "employmentType" | "source" | "status";
+export type MultiFilterKey = "skills" | "sponsorship" | "employmentType" | "source" | "category" | "status";
 
 export const DEFAULT_FILTERS: FilterState = {
   sort: "posted",
@@ -84,6 +89,7 @@ export const DEFAULT_FILTERS: FilterState = {
   sponsorship: [],
   employmentType: [],
   source: [],
+  category: [],
   status: [],
   remote: false,
   salaryMin: null,

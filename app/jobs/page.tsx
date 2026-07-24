@@ -28,6 +28,7 @@ function buildJobsUrl(country: Country, filters: FilterState): string {
   if (filters.status.length > 0) params.set("status", filters.status.join(","));
   if (filters.employmentType.length > 0) params.set("employmentType", filters.employmentType.join(","));
   if (filters.source.length > 0) params.set("source", filters.source.join(","));
+  if (filters.category.length > 0) params.set("category", filters.category.join(","));
   if (filters.remote) params.set("remote", "1");
   if (filters.salaryMin) params.set("salaryMin", String(filters.salaryMin));
   if (filters.fitMin) params.set("fitMin", String(filters.fitMin));
@@ -44,6 +45,7 @@ function hasActiveFilters(filters: FilterState): boolean {
     filters.sponsorship.length > 0 ||
     filters.employmentType.length > 0 ||
     filters.source.length > 0 ||
+    filters.category.length > 0 ||
     filters.status.length > 0 ||
     filters.remote ||
     Boolean(filters.salaryMin) ||
