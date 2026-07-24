@@ -152,6 +152,8 @@ describe("discovery catalog", () => {
     expect(bySystem("Hudson River Trading")).toBe("greenhouse");
     expect(bySystem("Intuit")).toBe("talentbrew");
     expect(bySystem("Zoom")).toBe("workday");
+    expect(bySystem("Waymo")).toBe("greenhouse");
+    expect(bySystem("Wealthsimple")).toBe("ashby");
   });
 
   it("registers the GitHub board sources with a repo config", () => {
