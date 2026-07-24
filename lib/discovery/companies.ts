@@ -96,7 +96,7 @@ const SWE = ["software engineer", "software developer"];
 const SWE_BROAD = ["software engineer", "software developer", "machine learning", "devops"];
 
 // ---------------------------------------------------------------------------
-// API companies (43) — direct public JSON endpoints, verified live
+// API companies (47) — direct public JSON endpoints, verified live
 // ---------------------------------------------------------------------------
 
 export const API_COMPANIES: ApiCompany[] = [
@@ -134,6 +134,10 @@ export const API_COMPANIES: ApiCompany[] = [
   { name: "ElevenLabs", method: "api", system: "ashby", token: "elevenlabs", countryFilter: "post", queryTerms: SWE_BROAD },
   { name: "Baseten", method: "api", system: "ashby", token: "baseten", countryFilter: "post", queryTerms: SWE_BROAD },
   { name: "Wealthsimple", method: "api", system: "ashby", token: "wealthsimple", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Cursor", method: "api", system: "ashby", token: "cursor", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Cognition", method: "api", system: "ashby", token: "cognition", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Lovable", method: "api", system: "ashby", token: "lovable", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Granola", method: "api", system: "ashby", token: "granola", countryFilter: "post", queryTerms: SWE_BROAD },
 
   // ---- Bespoke public JSON endpoints
   { name: "Amazon", method: "api", system: "amazon", countryFilter: "native", queryTerms: SWE },
