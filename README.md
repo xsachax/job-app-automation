@@ -20,9 +20,11 @@ The queue targets roles that are **entry-level or ask for ≤ 2 years of experie
 
 ## Discovery pipeline
 
-Postings are pulled directly from each company's careers backend. 34 companies expose a
-usable public JSON API (Greenhouse, Ashby, Amazon, Uber, Netflix, Snap, Phenom, Spotify,
-Workday CXS) and are fetched server-side; the rest are client-rendered or bot-gated and
+Postings are pulled directly from each company's careers backend. 76 companies expose a
+usable public JSON API (Greenhouse, Ashby, Lever, Amazon, Uber, Netflix, Snap, Phenom,
+Spotify, Workday CXS) — including a block of quant / high-frequency trading firms (Jane
+Street, Point72, Optiver, Jump, IMC, Tower Research, Squarepoint, Qube, WorldQuant, AQR,
+DRW, HRT…) — and are fetched server-side; the rest are client-rendered or bot-gated and
 are either scraped with Playwright (Apple) or surfaced via a pinned search URL.
 
 ```bash
@@ -66,9 +68,9 @@ npm run discover -- "Y Combinator"
 
 ## Features
 
-- **Company-site discovery** — 41 public-API companies + Playwright scraping for Apple,
-  plus community GitHub job boards (SimplifyJobs, vanshb03) for the long tail of employers,
-  classified to US/Canada entry-level roles. See [Discovery pipeline](#discovery-pipeline).
+- **Company-site discovery** — 76 public-API companies (incl. quant / HFT firms) + Playwright
+  scraping for Apple, plus community GitHub job boards (SimplifyJobs, vanshb03) for the long
+  tail of employers, classified to US/Canada entry-level roles. See [Discovery pipeline](#discovery-pipeline).
 - **Two separate queues** — US and Canada, newest-first, with last-24h / 7d / 30d filters.
 - **Configurable, nothing hardcoded** — countries, max years of experience, degree/
   internship gates, extra role/exclude keywords, scraper query terms and per-source

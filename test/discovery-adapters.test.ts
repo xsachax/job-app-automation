@@ -210,6 +210,28 @@ describe("discovery catalog", () => {
     expect(bySystem("Harvey")).toBe("ashby");
   });
 
+  it("registers the quant / trading firms with the expected system", () => {
+    const bySystem = (name: string) => API_COMPANIES.find((c) => c.name === name)?.system;
+    // Greenhouse
+    expect(bySystem("Point72")).toBe("greenhouse");
+    expect(bySystem("Optiver")).toBe("greenhouse");
+    expect(bySystem("Jump Trading")).toBe("greenhouse");
+    expect(bySystem("IMC Trading")).toBe("greenhouse");
+    expect(bySystem("Tower Research Capital")).toBe("greenhouse");
+    expect(bySystem("Qube Research & Technologies")).toBe("greenhouse");
+    expect(bySystem("WorldQuant")).toBe("greenhouse");
+    expect(bySystem("AQR Capital")).toBe("greenhouse");
+    // Lever + Ashby
+    expect(bySystem("Belvedere Trading")).toBe("lever");
+    expect(bySystem("Valkyrie Trading")).toBe("lever");
+    expect(bySystem("Maven Securities")).toBe("ashby");
+    // Every quant board token is a non-empty string.
+    const quant = ["Jane Street", "DRW", "Hudson River Trading", "Point72", "Optiver"];
+    for (const name of quant) {
+      expect(API_COMPANIES.find((c) => c.name === name)?.token).toBeTruthy();
+    }
+  });
+
   it("registers the GitHub board sources with a repo config", () => {
     expect(BOARD_SOURCES.length).toBeGreaterThanOrEqual(2);
     for (const b of BOARD_SOURCES) {
