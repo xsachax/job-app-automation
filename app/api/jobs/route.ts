@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { json } from "@/lib/http";
 import { shapeJob } from "@/lib/jobs/shape";
 import { categorizeCompany, fallbackForSystem } from "@/lib/discovery/categories";
+import { getConnectionSet, lookupConnections } from "@/lib/connections/store";
 
 export const dynamic = "force-dynamic";
 
@@ -30,8 +31,35 @@ export async function GET(req: NextRequest) {
   const source = parseList(searchParams.get("source")); // discoverySystem
   const category = parseList(searchParams.get("category")); // bigtech | ai | quant | startup | other
   const remoteOnly = searchParams.get("remote") === "1";
+  const warmOnly = searchParams.get("connections") === "1"; // only jobs where the user has a connection
   const salaryMin = Number(searchParams.get("salaryMin")) || 0;
   const fitMin = Number(searchParams.get("fitMin")) || 0;
+
+  // Imported LinkedIn connections (empty when none), loaded once per request and
+  // matched by normalized company name to tag "warm intro" jobs.
+  const connections = await getConnectionSet();
+
+  // Attach derived, non-column fields every job card renders: company category
+  // and (when present) the user's connections at that employer.
+  const decorate = <
+    T extends {
+      company: string;
+      discoverySystem: string | null;
+      skills?: string | null;
+      fitReasons?: string | null;
+    },
+  >(
+    j: T,
+  ) => {
+    const match = lookupConnections(connections, j.company);
+    return {
+      ...shapeJob(j),
+      category: categorizeCompany(j.company, fallbackForSystem(j.discoverySystem)),
+      ...(match
+        ? { connections: { count: match.count, contacts: match.contacts.slice(0, 6) } }
+        : {}),
+    };
+  };
 
   if (view === "workday") {
     const jobs = await prisma.job.findMany({
@@ -40,12 +68,7 @@ export async function GET(req: NextRequest) {
       take: 1000,
       include: { sightings: { include: { source: sourceSelect } } },
     });
-    return json(
-      jobs.map((j) => ({
-        ...shapeJob(j),
-        category: categorizeCompany(j.company, fallbackForSystem(j.discoverySystem)),
-      })),
-    );
+    return json(jobs.map(decorate));
   }
 
   // Discovery view: entry-level US/CA software roles surfaced by the scraper.
@@ -81,6 +104,7 @@ export async function GET(req: NextRequest) {
     if (employmentType.length && !employmentType.includes((j.employmentType ?? "").toLowerCase())) return false;
     if (source.length && !source.includes((j.discoverySystem ?? "").toLowerCase())) return false;
     if (category.length && !category.includes(categorizeCompany(j.company, fallbackForSystem(j.discoverySystem)))) return false;
+    if (warmOnly && !lookupConnections(connections, j.company)) return false;
     if (fitMin && (j.fitScore ?? -1) < fitMin) return false;
     if (salaryMin) {
       const top = j.salaryMax ?? j.salaryMin ?? 0;
@@ -109,10 +133,5 @@ export async function GET(req: NextRequest) {
     result.sort(byPosted);
   }
 
-  return json(
-    result.slice(0, 2000).map((j) => ({
-      ...shapeJob(j),
-      category: categorizeCompany(j.company, fallbackForSystem(j.discoverySystem)),
-    })),
-  );
+  return json(result.slice(0, 2000).map(decorate));
 }

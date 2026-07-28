@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { json } from "@/lib/http";
 import { categorizeCompany, fallbackForSystem, CATEGORY_ORDER } from "@/lib/discovery/categories";
+import { getConnectionSet, lookupConnections } from "@/lib/connections/store";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +32,9 @@ export async function GET() {
   const employmentType = new Map<string, number>();
   const statuses = new Map<string, number>();
   let maxSalary = 0;
+  let withConnections = 0;
+
+  const connections = await getConnectionSet();
 
   const bump = (m: Map<string, number>, k: string | null | undefined) => {
     if (!k) return;
@@ -44,6 +48,7 @@ export async function GET() {
     bump(employmentType, j.employmentType);
     bump(statuses, j.applicationStatus);
     maxSalary = Math.max(maxSalary, j.salaryMax ?? j.salaryMin ?? 0);
+    if (lookupConnections(connections, j.company)) withConnections += 1;
     if (j.skills) {
       try {
         for (const s of JSON.parse(j.skills) as string[]) bump(skillCounts, s);
@@ -70,6 +75,7 @@ export async function GET() {
     employmentType: sorted(employmentType),
     statuses: sorted(statuses),
     maxSalary,
+    withConnections,
     total: jobs.length,
   });
 }

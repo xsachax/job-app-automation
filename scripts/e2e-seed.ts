@@ -1,4 +1,6 @@
 import { prisma } from "../lib/db";
+import { buildConnectionSet, saveConnectionSet } from "../lib/connections/store";
+import { parseConnectionsCsv } from "../lib/connections/parse";
 
 // Deterministic, network-free fixtures for the Playwright e2e suite.
 // Wipes the target database (DATABASE_URL — an isolated e2e.db) and inserts a
@@ -15,6 +17,7 @@ async function wipe() {
   await prisma.resumeVersion.deleteMany();
   await prisma.profile.deleteMany();
   await prisma.criteria.deleteMany();
+  await prisma.connectionSet.deleteMany();
 }
 
 interface Fixture {
@@ -172,7 +175,17 @@ async function main() {
   const jobs = await prisma.job.count();
   const us = await prisma.job.count({ where: { country: "US", isEntryLevel: true, isWorkday: false } });
   const ca = await prisma.job.count({ where: { country: "CA", isEntryLevel: true, isWorkday: false } });
-  console.log(`e2e seed: ${jobs} jobs (${us} US entry, ${ca} CA entry, 1 workday flag).`);
+
+  // Two connections at OpenAI (the "frontend" fixture company) so the warm-intro
+  // badge and filter have something to match. AcmeE2E/MapleE2E stay unmatched.
+  const connCsv = [
+    "First Name,Last Name,URL,Email Address,Company,Position,Connected On",
+    "Ada,Lovelace,https://linkedin.com/in/ada-e2e,,OpenAI,Research Engineer,01 Jan 2024",
+    "Alan,Turing,https://linkedin.com/in/alan-e2e,,OpenAI Inc.,Member of Technical Staff,02 Feb 2024",
+  ].join("\n");
+  await saveConnectionSet(buildConnectionSet(parseConnectionsCsv(connCsv).connections));
+
+  console.log(`e2e seed: ${jobs} jobs (${us} US entry, ${ca} CA entry, 1 workday flag), 2 connections.`);
 }
 
 main()

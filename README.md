@@ -89,6 +89,11 @@ npm run discover -- "Y Combinator"
   migration; the Overview shows a per-category roll-up.
 - **Applied tracking** — mark a job `saved` / `applied` / `dismissed` (etc.) right on the
   card; **new** (< 48h) and **stale** (> 30d) postings are styled distinctly.
+- **Warm-intro tagging** — import your LinkedIn **Connections.csv** on the Profile page and
+  every card at a company where you already know someone gets a 🤝 badge (with names/roles in
+  the tooltip). A **Warm intro** filter narrows the queue to just those. Matching is local and
+  normalized (`lib/connections/*`), so "Amazon Web Services (AWS)" matches the catalog's
+  "Amazon" and "Jane Street Capital" matches "Jane Street". See [below](#warm-intros-linkedin-connections).
 - **Post-scrape fit judge** — rank every discovered role against your résumé/skills with a
   deterministic baseline, optionally upgraded by the Copilot agent. See below.
 - **Import your info** — the **Profile** page imports contact details, a résumé PDF URL (or
@@ -154,10 +159,10 @@ npm run dev
 | Page | What you do there |
 | --- | --- |
 | **Overview** | Discovery stats, US/CA entry-level counts, companies covered, by-category and by-company breakdowns. |
-| **Jobs** | Time-sorted US / CA queues of discovered postings. Filter by category, date, skills, sponsorship, employment type, source, min salary, min fit, remote and applied status; sort by newest / company / best fit / salary. Each card links out and lets you mark status. |
+| **Jobs** | Time-sorted US / CA queues of discovered postings. Filter by category, date, skills, sponsorship, employment type, source, min salary, min fit, remote, warm intro and applied status; sort by newest / company / best fit / salary. Each card links out and lets you mark status. |
 | **Companies** | Coverage of every API and browser-scraped source. |
 | **Settings** | Edit the discovery configuration — countries, max YoE, degree/internship gates, keywords, scraper query terms, per-source enable/disable. |
-| **Profile** | Import your contact details, résumé PDF URL (or pasted text), target roles, skills and qualifications, then run the fit judge. |
+| **Profile** | Import your contact details, résumé PDF URL (or pasted text), target roles, skills and qualifications, and your LinkedIn Connections.csv (for warm-intro tagging), then run the fit judge. |
 | **Workday** | Read-only list of flagged Workday jobs with apply links. |
 
 ---
@@ -203,15 +208,34 @@ first saw the job), split into **United States** and **Canada** tabs. Controls:
 - **Sort** — `Newest` (default), `Company`, `Best fit`, or `Salary`.
 - **Facets** — category (Big Tech / AI Lab / Quant / Startup), skills (match-all),
   sponsorship, employment type, source, applied status — each showing live counts — plus
-  **min salary**, **min fit**, **remote only** and free-text search on title/company.
+  **min salary**, **min fit**, **remote only**, **warm intro** (jobs where you have a LinkedIn
+  connection, shown only once connections are imported) and free-text search on title/company.
 - **Card actions** — `Open posting ↗` (link-out) and status buttons (`Save`,
   `Mark applied`, `Dismiss`, `Clear`). **New** (< 48h) cards and **stale** (> 30d) cards
   are styled distinctly.
 
 The API backs this at `GET /api/jobs?view=discovery&country=US|CA&sort=posted|company|fit|salary`
 `&since=24h|7d|30d|all&category=…&skills=…&sponsorship=…&status=…&employmentType=…&source=…`
-`&salaryMin=…&fitMin=…&remote=1&q=…`. Available filter values come from
-`GET /api/jobs/facets`; `PATCH /api/jobs/:id` records applied status.
+`&salaryMin=…&fitMin=…&remote=1&connections=1&q=…`. Available filter values (including
+`withConnections`) come from `GET /api/jobs/facets`; `PATCH /api/jobs/:id` records applied
+status.
+
+## Warm intros (LinkedIn connections)
+
+There is **no LinkedIn API** for your connection list (deprecated years ago; scraping breaks
+their ToS), so the compliant path is your own data export:
+
+1. On LinkedIn: **Settings → Data privacy → Get a copy of your data → Connections**.
+2. Request the archive, then download **Connections.csv**.
+3. On the **Profile** page, upload the file (or paste its contents) under *LinkedIn
+   connections*. It is parsed **locally** — nothing is uploaded anywhere.
+
+The importer (`lib/connections/parse.ts`) handles LinkedIn's `Notes:` preamble and quoted
+fields; `lib/connections/normalize.ts` reduces both a connection's free-text employer and a
+job's catalog company to a shared key (dropping corporate/industry suffixes and resolving a
+few aliases), so matches survive spelling differences. The set is stored as a single
+`ConnectionSet` row and surfaced via `GET/POST/DELETE /api/connections`. Re-import monthly to
+stay current.
 
 ## Dedup — never apply twice
 
@@ -282,6 +306,9 @@ a **summary** and **qualifications**. **Fetch text** pulls a résumé URL into a
 `ResumeVersion` and non-destructively fills blank fields; **Save and re-run judge**
 persists your profile and re-scores the queue in one click. PDF parsing uses the optional
 `pdf-parse` package when installed, otherwise paste text directly.
+
+The same page hosts **LinkedIn connections** import (upload/paste `Connections.csv`) for
+warm-intro tagging — see [Warm intros](#warm-intros-linkedin-connections).
 
 ---
 
