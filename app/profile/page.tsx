@@ -41,6 +41,19 @@ interface JudgeResult {
   skipped: number;
 }
 
+interface ConnectionSummary {
+  importedAt: string;
+  total: number;
+  distinctCompanies: number;
+  topCompanies: { company: string; count: number }[];
+}
+
+interface ConnectionImportResult extends ConnectionSummary {
+  imported: number;
+  parsedRows: number;
+  skippedNoCompany: number;
+}
+
 const CONTACT_FIELDS: { name: keyof Profile; label: string; placeholder?: string; type?: string }[] = [
   { name: "firstName", label: "First name", placeholder: "Sacha" },
   { name: "lastName", label: "Last name", placeholder: "Lee" },
@@ -99,6 +112,10 @@ export default function ProfilePage() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const [connSummary, setConnSummary] = useState<ConnectionSummary | null>(null);
+  const [connText, setConnText] = useState("");
+  const [importingConn, setImportingConn] = useState(false);
+
   useEffect(() => {
     let active = true;
     (async () => {
@@ -109,6 +126,14 @@ export default function ProfilePage() {
         if (active) setError((e as Error).message);
       } finally {
         if (active) setLoading(false);
+      }
+    })();
+    (async () => {
+      try {
+        const data = await api<ConnectionSummary>("/api/connections");
+        if (active) setConnSummary(data);
+      } catch {
+        /* connections are optional; ignore load failure */
       }
     })();
     return () => {
@@ -188,6 +213,57 @@ export default function ProfilePage() {
     } finally {
       setSaving(false);
       setJudging(false);
+    }
+  }
+
+  async function importConnections(csv: string) {
+    const content = csv.trim();
+    if (!content) {
+      setError("Paste your Connections.csv contents or choose the file first.");
+      return;
+    }
+    setImportingConn(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const result = await api<ConnectionImportResult>("/api/connections", {
+        method: "POST",
+        body: JSON.stringify({ csv: content }),
+      });
+      setConnSummary(result);
+      setConnText("");
+      setMessage(
+        `Imported ${result.imported.toLocaleString()} connections across ${result.distinctCompanies.toLocaleString()} companies. Job cards now flag warm intros.`,
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setImportingConn(false);
+    }
+  }
+
+  async function clearConnections() {
+    setImportingConn(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const data = await api<ConnectionSummary>("/api/connections", { method: "DELETE" });
+      setConnSummary(data);
+      setMessage("Cleared imported connections.");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setImportingConn(false);
+    }
+  }
+
+  async function onConnFile(file: File | undefined) {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      await importConnections(text);
+    } catch (e) {
+      setError((e as Error).message);
     }
   }
 
@@ -328,6 +404,111 @@ export default function ProfilePage() {
                   onChange={(e) => setField("qualifications", e.target.value)}
                 />
               </FieldShell>
+            </div>
+          </section>
+
+          <section className={cls.card}>
+            <div className="mb-1 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-950 dark:text-gray-50">
+                  LinkedIn connections
+                </h2>
+                <p className="mt-1 max-w-2xl text-sm text-gray-600 dark:text-gray-400">
+                  Import your connections so job cards flag companies where you already know
+                  someone — a warm intro is the fastest way past the resume pile.
+                </p>
+              </div>
+              <span className="inline-flex items-center gap-1 rounded-full bg-teal-100 px-2.5 py-1 text-xs font-medium text-teal-800 dark:bg-teal-950 dark:text-teal-200">
+                🤝 Warm intros
+              </span>
+            </div>
+
+            {connSummary && connSummary.total > 0 ? (
+              <div className="mt-4 rounded-lg border border-teal-200 bg-teal-50/60 p-4 dark:border-teal-900 dark:bg-teal-950/30">
+                <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-sm">
+                  <span className="text-gray-700 dark:text-gray-200">
+                    <span className="text-lg font-semibold text-teal-800 dark:text-teal-200">
+                      {connSummary.total.toLocaleString()}
+                    </span>{" "}
+                    connections
+                  </span>
+                  <span className="text-gray-700 dark:text-gray-200">
+                    <span className="text-lg font-semibold text-teal-800 dark:text-teal-200">
+                      {connSummary.distinctCompanies.toLocaleString()}
+                    </span>{" "}
+                    companies
+                  </span>
+                  {connSummary.importedAt && (
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      Imported {new Date(connSummary.importedAt).toLocaleDateString()}
+                    </span>
+                  )}
+                </div>
+                {connSummary.topCompanies.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {connSummary.topCompanies.map((c) => (
+                      <span
+                        key={c.company}
+                        className="rounded-full border border-teal-200 bg-white px-2 py-0.5 text-xs font-medium text-teal-800 dark:border-teal-800 dark:bg-gray-900 dark:text-teal-200"
+                      >
+                        {c.company} · {c.count}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="mt-4 text-sm text-gray-600 dark:text-gray-400">
+                No connections imported yet.
+              </p>
+            )}
+
+            <ol className="mt-4 space-y-1 text-xs text-gray-600 dark:text-gray-400">
+              <li>
+                1. On LinkedIn, go to <span className="font-medium">Settings → Data privacy → Get a copy of your data</span>.
+              </li>
+              <li>
+                2. Pick <span className="font-medium">Connections</span>, request the archive, then download <span className="font-medium">Connections.csv</span> from the email or page.
+              </li>
+              <li>3. Upload the file below (or paste its contents). It is parsed locally and never leaves this machine.</li>
+            </ol>
+
+            <div className="mt-4 grid gap-3">
+              <FieldShell label="Upload Connections.csv">
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  disabled={importingConn}
+                  onChange={(e) => void onConnFile(e.target.files?.[0])}
+                  className="block w-full text-sm text-gray-600 file:mr-3 file:rounded-md file:border-0 file:bg-teal-600 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white hover:file:bg-teal-700 disabled:opacity-50 dark:text-gray-300"
+                />
+              </FieldShell>
+              <FieldShell label="…or paste the CSV contents" hint="Handy when the download opens in your browser.">
+                <textarea
+                  className={`${cls.input} min-h-28 font-mono text-xs placeholder:text-gray-500 dark:placeholder:text-gray-400`}
+                  value={connText}
+                  placeholder={'First Name,Last Name,URL,Email Address,Company,Position,Connected On'}
+                  onChange={(e) => setConnText(e.target.value)}
+                />
+              </FieldShell>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => void importConnections(connText)}
+                  disabled={importingConn || !connText.trim()}
+                  className="rounded-lg bg-teal-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-700 disabled:opacity-50"
+                >
+                  {importingConn ? "Importing…" : "Import pasted CSV"}
+                </button>
+                {connSummary && connSummary.total > 0 && (
+                  <button
+                    onClick={() => void clearConnections()}
+                    disabled={importingConn}
+                    className={`${cls.btnDanger} py-2`}
+                  >
+                    Clear connections
+                  </button>
+                )}
+              </div>
             </div>
           </section>
         </div>

@@ -17,6 +17,17 @@ export interface Sighting {
   source: JobSource;
 }
 
+export interface JobConnectionContact {
+  name: string;
+  position: string;
+  url: string;
+}
+
+export interface JobConnections {
+  count: number;
+  contacts: JobConnectionContact[];
+}
+
 export interface Job {
   id: string;
   title: string;
@@ -45,6 +56,7 @@ export interface Job {
   sponsorship: SponsorshipValue | null;
   skills: string[];
   employmentType: EmploymentType | null;
+  connections?: JobConnections;
   sightings: Sighting[];
 }
 
@@ -61,6 +73,7 @@ export interface JobFacets {
   employmentType: FacetItem[];
   statuses: FacetItem[];
   maxSalary: number;
+  withConnections: number;
   total: number;
 }
 
@@ -75,6 +88,7 @@ export interface FilterState {
   category: string[];
   status: string[];
   remote: boolean;
+  warmIntro: boolean;
   salaryMin: number | null;
   fitMin: number | null;
 }
@@ -92,6 +106,7 @@ export const DEFAULT_FILTERS: FilterState = {
   category: [],
   status: [],
   remote: false,
+  warmIntro: false,
   salaryMin: null,
   fitMin: null,
 };

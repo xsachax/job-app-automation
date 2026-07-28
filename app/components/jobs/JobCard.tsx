@@ -3,6 +3,7 @@
 import {
   AppliedBadge,
   CategoryBadge,
+  ConnectionsBadge,
   FitBadge,
   SalaryText,
   SkillChips,
@@ -109,6 +110,9 @@ export function JobCard({ job, updating, onStatusChange }: JobCardProps) {
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-1.5">
             <CategoryBadge category={job.category} />
+            {job.connections && job.connections.count > 0 && (
+              <ConnectionsBadge count={job.connections.count} contacts={job.connections.contacts} />
+            )}
             {isNew && (
               <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 dark:bg-indigo-950 dark:text-indigo-200">
                 NEW

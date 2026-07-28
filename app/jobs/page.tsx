@@ -30,6 +30,7 @@ function buildJobsUrl(country: Country, filters: FilterState): string {
   if (filters.source.length > 0) params.set("source", filters.source.join(","));
   if (filters.category.length > 0) params.set("category", filters.category.join(","));
   if (filters.remote) params.set("remote", "1");
+  if (filters.warmIntro) params.set("connections", "1");
   if (filters.salaryMin) params.set("salaryMin", String(filters.salaryMin));
   if (filters.fitMin) params.set("fitMin", String(filters.fitMin));
 
@@ -48,6 +49,7 @@ function hasActiveFilters(filters: FilterState): boolean {
     filters.category.length > 0 ||
     filters.status.length > 0 ||
     filters.remote ||
+    filters.warmIntro ||
     Boolean(filters.salaryMin) ||
     Boolean(filters.fitMin)
   );

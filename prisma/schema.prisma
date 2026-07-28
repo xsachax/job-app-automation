@@ -173,3 +173,14 @@ model ResumeVersion {
   parsed    String   @default("{}") // structured fields JSON
   createdAt DateTime @default(now())
 }
+
+// Singleton snapshot of the user's imported LinkedIn connections (from the
+// official "Get a copy of your data → Connections" CSV export). Stored as a
+// compact JSON blob (see lib/connections/store.ts): a company-keyed index of
+// who the user knows where, used to tag job cards with "warm intro" signals.
+// Blob shape so re-imports never need a migration and nothing PII leaves disk.
+model ConnectionSet {
+  id        String   @id @default("me")
+  data      String   @default("{}") // JSON ConnectionSetData
+  updatedAt DateTime @updatedAt
+}

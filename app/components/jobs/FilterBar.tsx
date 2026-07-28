@@ -93,6 +93,7 @@ function activeFilterCount(filters: FilterState): number {
     filters.category.length +
     filters.status.length +
     (filters.remote ? 1 : 0) +
+    (filters.warmIntro ? 1 : 0) +
     (filters.salaryMin ? 1 : 0) +
     (filters.fitMin ? 1 : 0)
   );
@@ -286,6 +287,23 @@ export function FilterBar({
         >
           Remote only
         </button>
+
+        {facets && facets.withConnections > 0 && (
+          <button
+            type="button"
+            aria-pressed={filters.warmIntro}
+            onClick={() => onFiltersChange({ warmIntro: !filters.warmIntro })}
+            title="Only jobs where you have a LinkedIn connection"
+            className={
+              "h-9 rounded-lg border px-3 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-1 dark:focus:ring-teal-400 dark:focus:ring-offset-gray-900 " +
+              (filters.warmIntro
+                ? "border-teal-500 bg-teal-50 text-teal-700 hover:bg-teal-100 dark:border-teal-700 dark:bg-teal-950 dark:text-teal-200 dark:hover:bg-teal-900"
+                : "border-gray-300 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700")
+            }
+          >
+            🤝 Warm intro ({facets.withConnections})
+          </button>
+        )}
 
         <button
           type="button"

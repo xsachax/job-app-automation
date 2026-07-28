@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { json, errorResponse } from "@/lib/http";
 import { shapeJob } from "@/lib/jobs/shape";
 import { categorizeCompany, fallbackForSystem } from "@/lib/discovery/categories";
+import { getConnectionSet, lookupConnections } from "@/lib/connections/store";
 
 export const dynamic = "force-dynamic";
 
@@ -51,8 +52,10 @@ export async function PATCH(
     data: { applicationStatus: status, appliedAt },
     include: { sightings: { include: { source: { select: { id: true, name: true, kind: true } } } } },
   });
+  const match = lookupConnections(await getConnectionSet(), job.company);
   return json({
     ...shapeJob(job),
     category: categorizeCompany(job.company, fallbackForSystem(job.discoverySystem)),
+    ...(match ? { connections: { count: match.count, contacts: match.contacts.slice(0, 6) } } : {}),
   });
 }
