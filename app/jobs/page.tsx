@@ -13,6 +13,10 @@ const COUNTRIES: { value: Country; label: string }[] = [
   { value: "CA", label: "Canada" },
 ];
 
+// The queue can hold well over a thousand postings; rendering every card up front
+// is slow and janky. Show a page at a time and let the user reveal more.
+const PAGE_SIZE = 60;
+
 function buildJobsUrl(country: Country, filters: FilterState): string {
   const params = new URLSearchParams({
     view: "discovery",
@@ -90,6 +94,7 @@ export default function JobsPage() {
   const [facetsError, setFacetsError] = useState<string | null>(null);
   const [updatingIds, setUpdatingIds] = useState<Set<string>>(() => new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const committedSearch = useRef(DEFAULT_FILTERS.q);
 
@@ -103,6 +108,7 @@ export default function JobsPage() {
         const data = await api<Job[]>(jobsUrl);
         if (active) {
           setJobs(data);
+          setVisibleCount(PAGE_SIZE);
           setError(null);
         }
       } catch (caught) {
@@ -145,15 +151,20 @@ export default function JobsPage() {
     };
   }, []);
 
+  // Only a page of postings is rendered at a time; everything selection-related
+  // operates on that visible slice so "Select all" matches what's on screen.
+  const shownJobs = useMemo(() => jobs.slice(0, visibleCount), [jobs, visibleCount]);
+
   // Selection is stored as a plain id set; we always intersect it with the jobs
-  // currently on screen so a country switch or filter change can never "Open" a
+  // currently loaded so a country switch or filter change can never "Open" a
   // posting that is no longer visible. Stale ids simply go unused.
   const selectedVisibleIds = useMemo(
     () => jobs.filter((job) => selectedIds.has(job.id)).map((job) => job.id),
     [jobs, selectedIds],
   );
   const selectedCount = selectedVisibleIds.length;
-  const allSelected = jobs.length > 0 && selectedCount === jobs.length;
+  const allSelected =
+    shownJobs.length > 0 && shownJobs.every((job) => selectedIds.has(job.id));
 
   function toggleSelect(jobId: string) {
     setSelectedIds((current) => {
@@ -165,7 +176,15 @@ export default function JobsPage() {
   }
 
   function toggleSelectAll() {
-    setSelectedIds(() => (allSelected ? new Set() : new Set(jobs.map((job) => job.id))));
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (allSelected) {
+        for (const job of shownJobs) next.delete(job.id);
+      } else {
+        for (const job of shownJobs) next.add(job.id);
+      }
+      return next;
+    });
   }
 
   function clearSelection() {
@@ -394,7 +413,7 @@ export default function JobsPage() {
         </div>
       ) : (
         <div className="space-y-2">
-          {jobs.map((job) => (
+          {shownJobs.map((job) => (
             <JobCard
               key={job.id}
               job={job}
@@ -404,6 +423,21 @@ export default function JobsPage() {
               onToggleSelect={toggleSelect}
             />
           ))}
+          {visibleCount < jobs.length && (
+            <div className="flex flex-col items-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setVisibleCount((n) => n + PAGE_SIZE)}
+                data-testid="show-more"
+                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium transition-colors hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
+              >
+                Show more
+              </button>
+              <span className="text-xs text-gray-500 dark:text-gray-400" data-testid="show-more-count">
+                Showing {Math.min(visibleCount, jobs.length)} of {jobs.length}
+              </span>
+            </div>
+          )}
         </div>
       )}
     </div>
