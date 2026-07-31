@@ -184,3 +184,11 @@ model ConnectionSet {
   data      String   @default("{}") // JSON ConnectionSetData
   updatedAt DateTime @updatedAt
 }
+
+// User-defined company tier ranking (S/A/B/C/D/F). Keyed by the company display
+// name; the assigned tier nudges that company's fit score in the judge.
+model CompanyTier {
+  company   String   @id
+  tier      String // S | A | B | C | D | F
+  updatedAt DateTime @updatedAt
+}

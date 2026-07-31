@@ -1,6 +1,7 @@
 import { prisma } from "../db";
 import { getProfile, type ProfileData } from "../settings";
 import { scoreResumeFit, type ResumeContext } from "../matching/resume";
+import { applyTierModifier, isTier, normalizeCompanyKey, type Tier } from "../tiers";
 
 export interface ScoreAllJobsOptions {
   onlyUnscored?: boolean;
@@ -63,17 +64,29 @@ function parseJobSkills(raw: string | null): string[] {
   }
 }
 
-function deterministicSummary(score: number, reasons: string[], missingSignals: string[]): string {
+function deterministicSummary(
+  score: number,
+  reasons: string[],
+  missingSignals: string[],
+  tier?: Tier | null,
+): string {
   const fit = score >= 70 ? "Strong fit" : score >= 40 ? "Possible fit" : "Weak fit";
   const reason = reasons[0] ?? "limited resume overlap";
   const gap = missingSignals.length ? ` Gaps: ${missingSignals.slice(0, 3).join(", ")}.` : "";
-  return `${fit}: ${reason}.${gap}`.replace(/\.\./g, ".").slice(0, 300);
+  const tierNote = isTier(tier) ? ` Tier ${tier}.` : "";
+  return `${fit}: ${reason}.${gap}${tierNote}`.replace(/\.\./g, ".").slice(0, 300);
 }
 
 export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<ScoreAllJobsResult> {
   const profile = await getProfile();
   const resume = buildResumeContext(profile);
   const take = opts.limit && opts.limit > 0 ? Math.min(Math.floor(opts.limit), 1000) : undefined;
+
+  const tierRows = await prisma.companyTier.findMany();
+  const tierByCompany = new Map<string, Tier>();
+  for (const row of tierRows) {
+    if (isTier(row.tier)) tierByCompany.set(normalizeCompanyKey(row.company), row.tier);
+  }
 
   const jobs = await prisma.job.findMany({
     where: {
@@ -104,12 +117,15 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
       resume,
     );
 
+    const tier = tierByCompany.get(normalizeCompanyKey(job.company)) ?? null;
+    const adjustedScore = applyTierModifier(result.score, tier);
+
     await prisma.job.update({
       where: { id: job.id },
       data: {
-        fitScore: result.score,
+        fitScore: adjustedScore,
         fitReasons: JSON.stringify(result.reasons.slice(0, 5)),
-        fitSummary: deterministicSummary(result.score, result.reasons, result.missingSignals),
+        fitSummary: deterministicSummary(adjustedScore, result.reasons, result.missingSignals, tier),
         fitProvider: "deterministic",
         fitScoredAt: now,
       },

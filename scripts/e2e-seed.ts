@@ -18,6 +18,7 @@ async function wipe() {
   await prisma.profile.deleteMany();
   await prisma.criteria.deleteMany();
   await prisma.connectionSet.deleteMany();
+  await prisma.companyTier.deleteMany();
 }
 
 interface Fixture {
@@ -184,6 +185,10 @@ async function main() {
     "Alan,Turing,https://linkedin.com/in/alan-e2e,,OpenAI Inc.,Member of Technical Staff,02 Feb 2024",
   ].join("\n");
   await saveConnectionSet(buildConnectionSet(parseConnectionsCsv(connCsv).connections));
+
+  // Pre-rank one seeded company so the tier list renders an assigned row on load
+  // and the persistence e2e has a known starting point.
+  await prisma.companyTier.create({ data: { company: "OpenAI", tier: "S" } });
 
   console.log(`e2e seed: ${jobs} jobs (${us} US entry, ${ca} CA entry, 1 workday flag), 2 connections.`);
 }
