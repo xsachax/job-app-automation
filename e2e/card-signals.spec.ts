@@ -29,11 +29,15 @@ test.describe("job card country + sponsorship signals", () => {
     ).toBeVisible();
   });
 
-  test("a posting with no stated sponsorship falls back to an unknown tag", async ({ page }) => {
+  test("postings with missing salary or sponsorship fall back to unknown tags", async ({ page }) => {
     await page.goto("/jobs");
-    // E2E Apply Engineer is seeded without a sponsorship value.
+    // E2E Apply Engineer is seeded without a sponsorship value…
     await expect(
       jobCard(page, "E2E Apply Engineer").getByText("sponsorship unknown", { exact: true }),
+    ).toBeVisible();
+    // …and without a salary, so the salary slot stays aligned with an unknown tag.
+    await expect(
+      jobCard(page, "E2E Apply Engineer").getByText("Salary unknown", { exact: true }),
     ).toBeVisible();
   });
 });

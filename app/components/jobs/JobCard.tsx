@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 import { CompanyLogo } from "../CompanyLogo";
 import {
   AppliedBadge,
@@ -149,10 +151,14 @@ export function JobCard({
   }`;
   const seenOn = sources.length > 0 ? `seen on ${sources.join(", ")}` : "";
   const subtitleFull = [job.company, ...metaParts, timingText, seenOn].filter(Boolean).join(" · ");
-  const shownSkills = job.skills.slice(0, 6);
-  const extraSkills = job.skills.length - shownSkills.length;
   const tone = fitTone(job.fitScore);
   const fitReason = fitReasonText(job.fitSummary);
+  const yoeText =
+    job.minYoE == null ? null : job.minYoE === 0 ? "No exp. req." : `${job.minYoE}+ yrs`;
+  const employmentText = job.employmentType
+    ? employmentLabels[job.employmentType] ?? titleize(job.employmentType)
+    : null;
+  const [expanded, setExpanded] = useState(false);
 
   return (
     <article
@@ -210,6 +216,7 @@ export function JobCard({
                   </span>
                 )}
                 <AppliedBadge status={status} />
+                <FitBadge score={job.fitScore} provider={job.fitProvider} />
               </div>
               <p
                 className="mt-0.5 truncate text-xs text-gray-600 dark:text-gray-300"
@@ -225,26 +232,31 @@ export function JobCard({
             </div>
           </div>
 
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            {job.minYoE != null && (
-              <span className="inline-flex items-center rounded bg-indigo-50 px-1.5 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
-                {job.minYoE === 0 ? "No exp. req." : `${job.minYoE}+ yrs`}
-              </span>
-            )}
-            <SalaryText min={job.salaryMin} max={job.salaryMax} currency={job.salaryCurrency} raw={job.salaryRaw} />
+          <div className="mt-1.5 grid grid-cols-2 items-center justify-items-start gap-x-3 gap-y-1 lg:grid-cols-4 [&>*]:whitespace-nowrap">
+            <SalaryText
+              min={job.salaryMin}
+              max={job.salaryMax}
+              currency={job.salaryCurrency}
+              raw={job.salaryRaw}
+              fallback="Salary unknown"
+            />
             <SponsorshipBadge value={job.sponsorship} />
-            {job.employmentType && (
-              <span className={neutralPill}>
-                {employmentLabels[job.employmentType] ?? titleize(job.employmentType)}
+            {employmentText ? (
+              <span className={neutralPill}>{employmentText}</span>
+            ) : (
+              <span className="inline-block px-1.5 py-0.5 text-xs text-gray-400 dark:text-gray-500">
+                Type unknown
               </span>
             )}
-            <FitBadge score={job.fitScore} provider={job.fitProvider} />
-            {shownSkills.map((s) => (
-              <span key={s} className={cls.chip}>
-                {s}
+            {yoeText ? (
+              <span className="inline-flex items-center rounded bg-indigo-50 px-1.5 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
+                {yoeText}
               </span>
-            ))}
-            {extraSkills > 0 && <span className={cls.chip}>+{extraSkills}</span>}
+            ) : (
+              <span className="inline-block px-1.5 py-0.5 text-xs text-gray-400 dark:text-gray-500">
+                Exp. unknown
+              </span>
+            )}
           </div>
 
           {tone && (
@@ -259,6 +271,27 @@ export function JobCard({
             </p>
           )}
 
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            aria-expanded={expanded}
+            data-testid="job-expand"
+            className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-gray-500 transition-colors hover:text-indigo-600 dark:text-gray-400 dark:hover:text-indigo-300"
+          >
+            <svg
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              aria-hidden="true"
+              className={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-180" : ""}`}
+            >
+              <path
+                fillRule="evenodd"
+                d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.17l3.71-3.94a.75.75 0 1 1 1.08 1.04l-4.25 4.5a.75.75 0 0 1-1.08 0l-4.25-4.5a.75.75 0 0 1 .02-1.06Z"
+                clipRule="evenodd"
+              />
+            </svg>
+            {expanded ? "Less" : "Details"}
+          </button>
         </div>
 
         <div className="flex shrink-0 flex-col items-end gap-1.5">
@@ -309,6 +342,58 @@ export function JobCard({
           {updating && <span className="text-xs text-gray-500 dark:text-gray-400">Updating…</span>}
         </div>
       </div>
+
+      {expanded && (
+        <div className="mt-2.5 grid gap-x-6 gap-y-3 border-t border-gray-100 pt-2.5 text-xs dark:border-gray-800 sm:grid-cols-2">
+          <div className="min-w-0">
+            <div className="mb-1 font-semibold text-gray-500 dark:text-gray-400">Skills</div>
+            {job.skills.length > 0 ? (
+              <div className="flex flex-wrap gap-1">
+                {job.skills.map((s) => (
+                  <span key={s} className={cls.chip}>
+                    {s}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <span className="text-gray-400 dark:text-gray-500">None listed</span>
+            )}
+          </div>
+
+          {job.fitReasons?.length > 0 && (
+            <div className="min-w-0">
+              <div className="mb-1 font-semibold text-gray-500 dark:text-gray-400">Why this fit</div>
+              <ul className="list-disc space-y-0.5 pl-4 text-gray-600 dark:text-gray-300">
+                {job.fitReasons.slice(0, 4).map((reason, i) => (
+                  <li key={i}>{reason}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <div className="min-w-0">
+            <div className="mb-1 font-semibold text-gray-500 dark:text-gray-400">Posting</div>
+            <dl className="space-y-0.5 text-gray-600 dark:text-gray-300">
+              {job.location && (
+                <div className="flex gap-1.5">
+                  <dt className="shrink-0 text-gray-400 dark:text-gray-500">Location</dt>
+                  <dd className="min-w-0 truncate">{job.location}</dd>
+                </div>
+              )}
+              <div className="flex gap-1.5">
+                <dt className="shrink-0 text-gray-400 dark:text-gray-500">Platform</dt>
+                <dd className="min-w-0 truncate">{titleize(job.discoverySystem ?? job.atsType)}</dd>
+              </div>
+              {sources.length > 0 && (
+                <div className="flex gap-1.5">
+                  <dt className="shrink-0 text-gray-400 dark:text-gray-500">Seen on</dt>
+                  <dd className="min-w-0 truncate">{sources.join(", ")}</dd>
+                </div>
+              )}
+            </dl>
+          </div>
+        </div>
+      )}
     </article>
   );
 }

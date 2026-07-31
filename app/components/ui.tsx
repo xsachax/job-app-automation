@@ -228,18 +228,26 @@ export function SalaryText({
   max,
   currency,
   raw,
+  fallback,
 }: {
   min: number | null | undefined;
   max: number | null | undefined;
   currency?: string | null;
   raw?: string | null;
+  /** Rendered as a muted tag when no salary is known, so a row of tags still aligns. */
+  fallback?: string;
 }) {
   const sym = currency === "CAD" ? "C$" : "$";
   let text: string | null = null;
   if (min && max) text = `${sym}${fmtK(min)}–${fmtK(max)}`;
   else if (min) text = `${sym}${fmtK(min)}+`;
   else if (raw) text = raw.length > 24 ? `${raw.slice(0, 24)}…` : raw;
-  if (!text) return null;
+  if (!text)
+    return fallback ? (
+      <span className="inline-block px-1.5 py-0.5 text-xs text-gray-400 dark:text-gray-500">
+        {fallback}
+      </span>
+    ) : null;
   return (
     <span className="inline-block rounded px-1.5 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
       {text}

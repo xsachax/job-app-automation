@@ -2,16 +2,26 @@ import { test, expect } from "@playwright/test";
 import { jobCard } from "./helpers";
 
 test.describe("job card enrichment + applied tracking", () => {
-  test("enriched cards show fit, salary and skill signals", async ({ page }) => {
+  test("enriched cards show fit and salary signals", async ({ page }) => {
     await page.goto("/jobs");
 
     const card = jobCard(page, "E2E Frontend Engineer");
     await expect(card).toBeVisible();
     // Deterministic fit badge from the seeded fitScore.
     await expect(card.getByText(/fit 88/)).toBeVisible();
-    // Salary + skill enrichment render on the card.
+    // Salary enrichment renders on the card face.
     await expect(card.getByText(/\$120k.150k/)).toBeVisible();
-    await expect(card.getByText("React", { exact: true })).toBeVisible();
+  });
+
+  test("skills live behind the Details expander", async ({ page }) => {
+    await page.goto("/jobs");
+
+    const card = jobCard(page, "E2E Frontend Engineer");
+    // Skills are not on the card face…
+    await expect(card.getByText("Node.js", { exact: true })).toHaveCount(0);
+    // …until the card is expanded.
+    await card.getByTestId("job-expand").click();
+    await expect(card.getByText("Node.js", { exact: true })).toBeVisible();
   });
 
   test("marking a job applied updates its status, then can be cleared", async ({ page }) => {
