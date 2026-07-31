@@ -99,7 +99,7 @@ export async function GET(req: NextRequest) {
   const result = jobs.filter((j) => {
     if (cutoff && posted(j) < cutoff) return false;
     if (remoteOnly && !j.remote) return false;
-    if (sponsorship.length && !sponsorship.includes((j.sponsorship ?? "").toLowerCase())) return false;
+    if (sponsorship.length && !sponsorship.includes((j.sponsorship ?? "unknown").toLowerCase())) return false;
     if (status.length && !status.includes(j.applicationStatus.toLowerCase())) return false;
     if (employmentType.length && !employmentType.includes((j.employmentType ?? "").toLowerCase())) return false;
     if (source.length && !source.includes((j.discoverySystem ?? "").toLowerCase())) return false;

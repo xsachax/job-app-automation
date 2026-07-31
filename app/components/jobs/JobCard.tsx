@@ -4,6 +4,7 @@ import {
   AppliedBadge,
   CategoryBadge,
   ConnectionsBadge,
+  CountryFlag,
   FitBadge,
   SalaryText,
   SkillChips,
@@ -109,6 +110,7 @@ export function JobCard({ job, updating, onStatusChange }: JobCardProps) {
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-1.5">
+            <CountryFlag country={job.country} />
             <CategoryBadge category={job.category} />
             {job.connections && job.connections.count > 0 && (
               <ConnectionsBadge count={job.connections.count} contacts={job.connections.contacts} />

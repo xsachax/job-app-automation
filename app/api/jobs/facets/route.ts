@@ -44,7 +44,7 @@ export async function GET() {
   for (const j of jobs) {
     bump(sources, j.discoverySystem);
     bump(categories, categorizeCompany(j.company, fallbackForSystem(j.discoverySystem)));
-    bump(sponsorship, j.sponsorship);
+    bump(sponsorship, j.sponsorship ?? "unknown");
     bump(employmentType, j.employmentType);
     bump(statuses, j.applicationStatus);
     maxSalary = Math.max(maxSalary, j.salaryMax ?? j.salaryMin ?? 0);

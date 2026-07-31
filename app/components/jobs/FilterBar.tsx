@@ -24,6 +24,7 @@ const SPONSORSHIP_LABELS: Record<string, string> = {
   offers: "Sponsors visa",
   none: "No sponsorship",
   citizenship: "Citizenship req.",
+  unknown: "Sponsorship unknown",
 };
 
 const EMPLOYMENT_LABELS: Record<string, string> = {
