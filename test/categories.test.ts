@@ -29,6 +29,17 @@ describe("categorizeCompany", () => {
     ["Ramp", "startup"],
     ["Wealthsimple", "startup"],
     ["Notion", "startup"],
+    ["Lockheed Martin", "defense"],
+    ["L3Harris Technologies", "defense"],
+    ["General Dynamics Mission Systems", "defense"],
+    ["Anduril Industries", "defense"],
+    ["Palantir", "defense"],
+    ["Booz Allen Hamilton", "defense"],
+    ["RTX", "defense"],
+    ["The Boeing Company", "defense"],
+    ["Cerebras", "ai"],
+    ["Perplexity", "ai"],
+    ["Hugging Face", "ai"],
   ];
 
   it.each(cases)("maps %s -> %s", (name, expected) => {
@@ -47,6 +58,8 @@ describe("categorizeCompany", () => {
     expect(categorizeCompany("Anysphere")).toBe("ai"); // Cursor
     expect(categorizeCompany("Facebook")).toBe("bigtech");
     expect(categorizeCompany("Amazon Web Services")).toBe("bigtech");
+    expect(categorizeCompany("GDIT")).toBe("defense"); // General Dynamics IT
+    expect(categorizeCompany("HII")).toBe("defense"); // Huntington Ingalls
   });
 
   it("honors the fallback for unknown employers", () => {

@@ -18,18 +18,19 @@
 // guard in test/categories.test.ts asserts every catalog company still resolves
 // to a real (non-"other") category, so the two never silently diverge.
 
-export type JobCategory = "bigtech" | "ai" | "quant" | "startup" | "other";
+export type JobCategory = "bigtech" | "ai" | "quant" | "defense" | "startup" | "other";
 
 export const CATEGORY_LABELS: Record<JobCategory, string> = {
   bigtech: "Big Tech",
   ai: "AI Lab",
   quant: "Quant",
+  defense: "Defense",
   startup: "Startup",
   other: "Other",
 };
 
 // Display / facet order: broadest and most-recognizable buckets first.
-export const CATEGORY_ORDER: JobCategory[] = ["bigtech", "ai", "quant", "startup", "other"];
+export const CATEGORY_ORDER: JobCategory[] = ["bigtech", "ai", "quant", "defense", "startup", "other"];
 
 function norm(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -49,9 +50,18 @@ const BIGTECH = new Set(
 // AI-first labs and applied-AI product companies.
 const AI = new Set(
   [
-    "Anthropic", "xAI", "Thinking Machines", "Together AI", "Scale AI", "OpenAI",
-    "Cohere", "ElevenLabs", "Baseten", "Cursor", "Cognition", "Lovable",
-    "Granola", "Mercor", "Sierra", "Harvey", "DeepMind", "Mistral",
+    "Anthropic", "xAI", "Thinking Machines", "Thinking Machines Lab", "Together AI",
+    "Scale AI", "OpenAI", "Cohere", "ElevenLabs", "Baseten", "Cursor", "Cognition",
+    "Lovable", "Granola", "Mercor", "Sierra", "Harvey", "DeepMind", "Mistral",
+    // Well-known AI labs / applied-AI companies (many surface via YC + boards).
+    "Perplexity", "Perplexity AI", "Hugging Face", "Runway", "Runway ML",
+    "Character AI", "Character.AI", "Glean", "Writer", "Adept", "Inflection",
+    "Inflection AI", "Suno", "Luma AI", "Luma Labs", "Physical Intelligence",
+    "Figure", "Figure AI", "Codeium", "Windsurf", "Poolside", "Magic",
+    "Contextual AI", "Decagon", "Cresta", "Abridge", "OpenEvidence", "World Labs",
+    "Skild AI", "Cerebras", "Cerebras Systems", "Retell AI", "SafetyKit",
+    "Sierra AI", "Anysphere", "Groq", "Sakana AI", "Liquid AI", "Reka",
+    "Imbue", "Cartesia", "Suno AI",
   ].map(norm),
 );
 
@@ -65,6 +75,25 @@ const QUANT = new Set(
     "PDT Partners", "Vatic Labs", "Chicago Trading Company", "DV Trading",
     "Geneva Trading", "Flow Traders", "TransMarket Group", "Belvedere Trading",
     "Valkyrie Trading", "Maven Securities",
+  ].map(norm),
+);
+
+// Defense / aerospace primes and defense-tech companies. Names include the
+// legal-entity and subsidiary variants that turn up on career sites, Workday
+// and the aggregator boards (e.g. "L3Harris Technologies", the two General
+// Dynamics units) so each classifies without an extra alias.
+const DEFENSE = new Set(
+  [
+    "Lockheed Martin", "RTX", "Raytheon", "Raytheon Technologies",
+    "Northrop Grumman", "General Dynamics", "General Dynamics Information Technology",
+    "General Dynamics Mission Systems", "Boeing", "The Boeing Company",
+    "L3Harris", "L3Harris Technologies", "Leidos", "Collins Aerospace",
+    "BAE Systems", "Booz Allen Hamilton", "Booz Allen", "SAIC", "Peraton",
+    "Anduril", "Anduril Industries", "Palantir", "Palantir Technologies",
+    "Huntington Ingalls", "Huntington Ingalls Industries", "Textron",
+    "Sierra Nevada Corporation", "Sierra Space", "Shield AI", "Applied Intuition",
+    "Draper", "MITRE", "Parsons", "CACI", "CACI International", "Textron Systems",
+    "Ball Aerospace", "L3 Technologies",
   ].map(norm),
 );
 
@@ -92,12 +121,22 @@ const ALIASES: Record<string, JobCategory> = {
   anysphere: "ai", // Cursor
   googledeepmind: "ai",
   deepmindtechnologies: "ai",
+  characterai: "ai",
+  huggingface: "ai",
   facebook: "bigtech",
   metaplatforms: "bigtech",
   alphabet: "bigtech",
   googlellc: "bigtech",
   aws: "bigtech",
   amazonwebservices: "bigtech",
+  // Defense / aerospace short forms and board variants.
+  gdit: "defense",
+  gdms: "defense",
+  hii: "defense",
+  snc: "defense",
+  l3: "defense",
+  l3technologies: "defense",
+  baesystemsinc: "defense",
 };
 
 // Resolve a company name to its category. `fallback` is used only when the name
@@ -110,6 +149,7 @@ export function categorizeCompany(name: string, fallback: JobCategory = "startup
   if (BIGTECH.has(key)) return "bigtech";
   if (AI.has(key)) return "ai";
   if (QUANT.has(key)) return "quant";
+  if (DEFENSE.has(key)) return "defense";
   if (STARTUP.has(key)) return "startup";
   if (ALIASES[key]) return ALIASES[key];
   return fallback;
