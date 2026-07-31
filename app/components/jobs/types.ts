@@ -4,7 +4,7 @@ export type Country = "US" | "CA";
 export type SortKey = "posted" | "company" | "fit" | "salary";
 export type SinceKey = "24h" | "7d" | "30d" | "all";
 export type ApplicationStatus = "none" | "saved" | "applied" | "interviewing" | "offer" | "rejected" | "dismissed";
-export type SponsorshipValue = "offers" | "none" | "citizenship";
+export type SponsorshipValue = "offers" | "none" | "citizenship" | "unknown";
 export type EmploymentType = "fulltime" | "intern" | "contract";
 
 export interface JobSource {

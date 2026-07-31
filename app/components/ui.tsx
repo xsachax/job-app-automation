@@ -154,7 +154,9 @@ export function ConnectionsBadge({
   );
 }
 
-// Visa-sponsorship badge derived from enrichment (offers | none | citizenship).
+// Visa-sponsorship badge derived from enrichment. Always renders so every card
+// states a sponsorship status; anything we couldn't determine (or a legacy row
+// with no value) falls back to a muted "unknown" tag rather than showing nothing.
 const SPONSOR_LABEL: Record<string, { text: string; color: string }> = {
   offers: {
     text: "sponsors visa",
@@ -168,13 +170,49 @@ const SPONSOR_LABEL: Record<string, { text: string; color: string }> = {
     text: "citizenship req.",
     color: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
   },
+  unknown: {
+    text: "sponsorship unknown",
+    color: "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400",
+  },
 };
 
 export function SponsorshipBadge({ value }: { value: string | null | undefined }) {
-  if (!value || !SPONSOR_LABEL[value]) return null;
-  const { text, color } = SPONSOR_LABEL[value];
+  const key = value && SPONSOR_LABEL[value] ? value : "unknown";
+  const { text, color } = SPONSOR_LABEL[key];
   return (
-    <span className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium ${color}`}>{text}</span>
+    <span
+      className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium ${color}`}
+      title={
+        key === "unknown"
+          ? "Visa sponsorship not stated in this posting"
+          : `Visa sponsorship: ${text}`
+      }
+    >
+      {text}
+    </span>
+  );
+}
+
+// Country flag chip (🇺🇸 / 🇨🇦) — a quick geography anchor on each card. Rendered
+// as an emoji so it stays crisp at any size and matches the app's emoji accents;
+// non-US/CA (or missing) countries render nothing.
+const COUNTRY_FLAG: Record<string, { flag: string; label: string }> = {
+  US: { flag: "🇺🇸", label: "United States" },
+  CA: { flag: "🇨🇦", label: "Canada" },
+};
+
+export function CountryFlag({ country }: { country: string | null | undefined }) {
+  const entry = country ? COUNTRY_FLAG[country.toUpperCase()] : undefined;
+  if (!entry) return null;
+  return (
+    <span
+      role="img"
+      aria-label={entry.label}
+      title={entry.label}
+      className="text-sm leading-none"
+    >
+      {entry.flag}
+    </span>
   );
 }
 
