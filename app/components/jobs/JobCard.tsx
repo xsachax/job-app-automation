@@ -91,9 +91,11 @@ interface JobCardProps {
   job: Job;
   updating: boolean;
   onStatusChange: (jobId: string, status: ApplicationStatus) => Promise<void>;
+  selected?: boolean;
+  onToggleSelect?: (jobId: string) => void;
 }
 
-export function JobCard({ job, updating, onStatusChange }: JobCardProps) {
+export function JobCard({ job, updating, onStatusChange, selected = false, onToggleSelect }: JobCardProps) {
   const status = job.applicationStatus || "none";
   const effectivePostedAt = job.postedAt ?? job.firstSeenAt;
   const isNew = isWithinHours(effectivePostedAt, 48);
@@ -114,10 +116,20 @@ export function JobCard({ job, updating, onStatusChange }: JobCardProps) {
   return (
     <article
       className={`rounded-lg border px-3 py-2.5 shadow-sm transition-colors ${cardTone(status, isNew)} ${
-        isStale && status !== "dismissed" ? "opacity-80" : ""
-      }`}
+        selected ? "ring-2 ring-indigo-500 dark:ring-indigo-400" : ""
+      } ${isStale && status !== "dismissed" ? "opacity-80" : ""}`}
     >
       <div className="flex gap-2.5">
+        {onToggleSelect && (
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={() => onToggleSelect(job.id)}
+            aria-label={`Select ${job.title}`}
+            data-testid="job-select"
+            className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-800"
+          />
+        )}
         <CompanyLogo company={job.company} size={40} />
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
