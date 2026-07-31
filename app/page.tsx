@@ -31,7 +31,7 @@ function timeAgo(d: Date | null): string {
 }
 
 export default async function OverviewPage() {
-  const entryWhere = { isWorkday: false, isEntryLevel: true } as const;
+  const entryWhere = { isEntryLevel: true } as const;
   const [usEntry, caEntry, workdayJobs, lastJob, byCompany, allByCompany] = await Promise.all([
     prisma.job.count({ where: { ...entryWhere, country: "US" } }),
     prisma.job.count({ where: { ...entryWhere, country: "CA" } }),
@@ -82,7 +82,7 @@ export default async function OverviewPage() {
         <Stat label="CA entry-level" value={caEntry} hint="open roles in queue" />
         <Stat label="Companies covered" value={companiesCovered} hint={`${API_COMPANIES.length} API · ${BROWSER_COMPANIES.length} browser`} />
         <Stat label="Last discovery" value={timeAgo(lastJob?.lastSeenAt ?? null)} hint="most recent scrape" />
-        <Stat label="Workday flagged" value={workdayJobs} hint="tracked separately" />
+        <Stat label="Workday flagged" value={workdayJobs} hint="in Jobs — manual apply" />
       </div>
 
       {categoryRows.length > 0 && (

@@ -11,10 +11,11 @@ export const dynamic = "force-dynamic";
 // entry-level discovery rows (skills live in a JSON column SQLite can't group).
 export async function GET() {
   const jobs = await prisma.job.findMany({
-    where: { isWorkday: false, isEntryLevel: true, country: { in: ["US", "CA"] } },
+    where: { isEntryLevel: true, country: { in: ["US", "CA"] } },
     select: {
       skills: true,
       discoverySystem: true,
+      atsType: true,
       company: true,
       sponsorship: true,
       employmentType: true,
@@ -27,6 +28,7 @@ export async function GET() {
 
   const skillCounts = new Map<string, number>();
   const sources = new Map<string, number>();
+  const platforms = new Map<string, number>();
   const categories = new Map<string, number>();
   const sponsorship = new Map<string, number>();
   const employmentType = new Map<string, number>();
@@ -43,6 +45,7 @@ export async function GET() {
 
   for (const j of jobs) {
     bump(sources, j.discoverySystem);
+    bump(platforms, j.atsType || "unknown");
     bump(categories, categorizeCompany(j.company, fallbackForSystem(j.discoverySystem)));
     bump(sponsorship, j.sponsorship ?? "unknown");
     bump(employmentType, j.employmentType);
@@ -73,6 +76,7 @@ export async function GET() {
     })),
     sponsorship: sorted(sponsorship),
     employmentType: sorted(employmentType),
+    platforms: sorted(platforms),
     statuses: sorted(statuses),
     maxSalary,
     withConnections,
