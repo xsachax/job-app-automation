@@ -26,6 +26,47 @@ describe("companyDomain", () => {
     expect(companyDomain("Raytheon")).toBe("rtx.com");
   });
 
+  it("maps recognizable employers whose long name slugifies to a dead host", () => {
+    // Short brand domains that differ from the full legal name's slug.
+    expect(companyDomain("Texas Instruments")).toBe("ti.com");
+    expect(companyDomain("Cadence Design Systems")).toBe("cadence.com");
+    expect(companyDomain("Analog Devices")).toBe("analog.com");
+    expect(companyDomain("PNC Financial Services")).toBe("pnc.com");
+    expect(companyDomain("Renaissance Technologies")).toBe("rentec.com");
+    expect(companyDomain("Steel Dynamics")).toBe("sdi.com");
+    expect(companyDomain("Royal Bank of Canada")).toBe("rbc.com");
+  });
+
+  it("resolves brands that use a non-.com TLD", () => {
+    expect(companyDomain("ElevenLabs")).toBe("elevenlabs.io");
+    expect(companyDomain("Bland AI")).toBe("bland.ai");
+    expect(companyDomain("Bot Auto")).toBe("bot.auto");
+    expect(companyDomain("Socket")).toBe("socket.dev");
+    expect(companyDomain("Mem0")).toBe("mem0.ai");
+    expect(companyDomain("Porter")).toBe("porter.run");
+    expect(companyDomain("LeoLabs")).toBe("leolabs.space");
+  });
+
+  it("matches override keys that contain punctuation", () => {
+    // Overrides are looked up on the raw lower-cased name before slugifying, so
+    // commas, periods, '+', '&', parentheses and a curly apostrophe must match.
+    expect(companyDomain("Uber Technologies, Inc.")).toBe("uber.com");
+    expect(companyDomain("Qualcomm Technologies, Inc.")).toBe("qualcomm.com");
+    expect(companyDomain("Smith+Nephew")).toBe("smith-nephew.com");
+    expect(companyDomain("SS&C")).toBe("ssctech.com");
+    expect(companyDomain("Ritchie Bros.")).toBe("rbauction.com");
+    expect(companyDomain("Sixtyfour (X25)")).toBe("sixtyfour.ai");
+    expect(companyDomain("Cincinnati Children’s Hospital and Medical Center")).toBe(
+      "cincinnatichildrens.org",
+    );
+  });
+
+  it("routes public-sector names to their .edu/.gov/.info domains", () => {
+    expect(companyDomain("Cornell University")).toBe("cornell.edu");
+    expect(companyDomain("The Federal Reserve System")).toBe("federalreserve.gov");
+    expect(companyDomain("Metropolitan Transportation Authority")).toBe("mta.info");
+  });
+
   it("strips parentheticals and leading/trailing entity words", () => {
     expect(companyDomain("London Stock Exchange Group (LSEG)")).toBe("lseg.com"); // override
     expect(companyDomain("The Boeing Company")).toBe("boeing.com");
