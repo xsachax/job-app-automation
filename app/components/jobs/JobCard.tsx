@@ -58,6 +58,35 @@ function titleize(value: string): string {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+type FitTone = { label: string; banner: string };
+
+// Fit tier → banner styling. Thresholds mirror the judge + FitBadge (>=70 / >=40).
+function fitTone(score: number | null | undefined): FitTone | null {
+  if (score == null) return null;
+  if (score >= 70)
+    return {
+      label: "Strong fit",
+      banner: "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200",
+    };
+  if (score >= 40)
+    return {
+      label: "Possible fit",
+      banner: "bg-amber-50 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200",
+    };
+  return {
+    label: "Weak fit",
+    banner: "bg-rose-50 text-rose-800 dark:bg-rose-950/50 dark:text-rose-200",
+  };
+}
+
+// The color + label now carry the tier, so drop a redundant "Strong/Possible/Weak fit:" lead-in.
+function fitReasonText(summary: string | null): string {
+  if (!summary) return "";
+  return summary
+    .replace(/^\s*(strong|possible|good|great|moderate|partial|weak|poor|low)\s+fit\s*[:.\-–—]?\s*/i, "")
+    .trim();
+}
+
 function isWithinHours(iso: string | null, hours: number): boolean {
   const then = parseTime(iso);
   if (!then) return false;
@@ -122,6 +151,8 @@ export function JobCard({
   const subtitleFull = [job.company, ...metaParts, timingText, seenOn].filter(Boolean).join(" · ");
   const shownSkills = job.skills.slice(0, 6);
   const extraSkills = job.skills.length - shownSkills.length;
+  const tone = fitTone(job.fitScore);
+  const fitReason = fitReasonText(job.fitSummary);
 
   return (
     <article
@@ -216,12 +247,15 @@ export function JobCard({
             {extraSkills > 0 && <span className={cls.chip}>+{extraSkills}</span>}
           </div>
 
-          {job.fitSummary && (
+          {tone && (
             <p
-              className="mt-1 line-clamp-1 text-xs text-gray-500 dark:text-gray-400"
-              title={job.fitSummary}
+              className={`mt-1.5 flex items-center gap-1 rounded-md px-2 py-1 text-xs ${tone.banner}`}
+              title={job.fitSummary ?? undefined}
             >
-              {job.fitSummary}
+              <span className="shrink-0 font-semibold">{tone.label}</span>
+              {fitReason && (
+                <span className="min-w-0 truncate font-normal">— {fitReason}</span>
+              )}
             </p>
           )}
 
