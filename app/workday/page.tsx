@@ -2,13 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { api } from "../components/api";
-import { cls, PageHeader } from "../components/ui";
+import { cls, CountryFlag, PageHeader } from "../components/ui";
 
 interface Job {
   id: string;
   title: string;
   company: string;
   location: string | null;
+  country: string | null;
   applyUrl: string;
   postedAt: string | null;
   lastSeenAt: string;
@@ -57,12 +58,17 @@ export default function WorkdayPage() {
               <div key={job.id} className={cls.card}>
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <div className="font-semibold">{job.title}</div>
-                    <div className="text-sm text-gray-600">
+                    <div className="flex items-center gap-1.5 font-semibold">
+                      <CountryFlag country={job.country} />
+                      {job.title}
+                    </div>
+                    <div className="text-sm text-gray-600 dark:text-gray-300">
                       {job.company}
                       {job.location ? ` · ${job.location}` : ""}
                     </div>
-                    <div className="mt-1 text-xs text-gray-400">from {sources.join(", ") || "—"}</div>
+                    {sources.length > 0 && (
+                      <div className="mt-1 text-xs text-gray-400 dark:text-gray-500">from {sources.join(", ")}</div>
+                    )}
                   </div>
                   <a href={job.applyUrl} target="_blank" rel="noreferrer" className={cls.btn}>
                     Open on Workday ↗

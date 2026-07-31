@@ -62,6 +62,10 @@ async function persist(
   const fingerprint = fingerprintFor(p);
   const applyUrl = normalizeUrl(p.applyUrl);
   const atsType = detectAts(applyUrl);
+  // Workday postings are flagged into their own list and never auto-applied.
+  // The apply destination is the reliable signal (a myworkdayjobs.com URL), with
+  // the discovery system as a fallback for native Workday scrapes.
+  const isWorkday = atsType === "workday" || p.system === "workday";
 
   const data = {
     atsType,
@@ -73,7 +77,7 @@ async function persist(
     applyUrl,
     description: p.description || null,
     postedAt: p.postedAt,
-    isWorkday: false, // discovery jobs surface in the main US/CA lists
+    isWorkday, // Workday roles surface only in the flagged Workday list, never the main lists
     country: p.country,
     isEntryLevel: true,
     minYoE,
