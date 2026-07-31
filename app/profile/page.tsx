@@ -275,7 +275,7 @@ export default function ProfilePage() {
     <div className="max-w-5xl">
       <PageHeader
         title="Import your info"
-        subtitle="Add the resume and qualification signals the post-scrape judge should use to rank discovered roles."
+        subtitle="The judge ranks discovered roles from your résumé and résumé-derived signals only. Contact details are saved for your manual applications and never affect scoring."
       >
         <button
           onClick={runJudge}
@@ -299,33 +299,6 @@ export default function ProfilePage() {
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-6">
-          <section className={cls.card}>
-            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold text-gray-950 dark:text-gray-50">Contact details</h2>
-                <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-                  These fields identify you in exports and keep the resume parser from guessing.
-                </p>
-              </div>
-              <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700 dark:bg-gray-800 dark:text-gray-300">
-                Saved locally
-              </span>
-            </div>
-            <div className="grid gap-4 md:grid-cols-2">
-              {CONTACT_FIELDS.map((field) => (
-                <FieldShell key={String(field.name)} label={field.label}>
-                  <input
-                    className={`${cls.input} placeholder:text-gray-500 dark:placeholder:text-gray-400`}
-                    type={field.type ?? "text"}
-                    value={(profile[field.name] as string) ?? ""}
-                    placeholder={field.placeholder}
-                    onChange={(e) => setField(field.name, e.target.value as never)}
-                  />
-                </FieldShell>
-              ))}
-            </div>
-          </section>
-
           <section className={cls.card}>
             <h2 className="text-lg font-semibold text-gray-950 dark:text-gray-50">Resume source</h2>
             <p className="mt-1 max-w-2xl text-sm text-gray-600 dark:text-gray-400">
@@ -404,6 +377,36 @@ export default function ProfilePage() {
                   onChange={(e) => setField("qualifications", e.target.value)}
                 />
               </FieldShell>
+            </div>
+          </section>
+
+          <section className={cls.card}>
+            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-950 dark:text-gray-50">
+                  Contact &amp; application details
+                </h2>
+                <p className="mt-1 max-w-2xl text-sm text-gray-600 dark:text-gray-400">
+                  The judge never reads these. They&apos;re saved only so you can copy them into
+                  manual applications on Greenhouse, Lever, and similar forms.
+                </p>
+              </div>
+              <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                Not used by judge
+              </span>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              {CONTACT_FIELDS.map((field) => (
+                <FieldShell key={String(field.name)} label={field.label}>
+                  <input
+                    className={`${cls.input} placeholder:text-gray-500 dark:placeholder:text-gray-400`}
+                    type={field.type ?? "text"}
+                    value={(profile[field.name] as string) ?? ""}
+                    placeholder={field.placeholder}
+                    onChange={(e) => setField(field.name, e.target.value as never)}
+                  />
+                </FieldShell>
+              ))}
             </div>
           </section>
 
@@ -545,6 +548,10 @@ export default function ProfilePage() {
               <li>• summary, qualifications, and resume text for broader context</li>
               <li>• agent review exports for the strongest deterministic matches</li>
             </ul>
+            <p className="mt-3 border-t border-gray-200 pt-3 text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400">
+              It never reads your name, contact details, or demographic / EEO answers — those
+              never influence a fit score.
+            </p>
           </section>
         </aside>
       </div>
