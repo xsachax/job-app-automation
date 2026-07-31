@@ -29,11 +29,17 @@ test.describe("smoke", () => {
     await expect(page.getByText("Browser-scraped sources")).toBeVisible();
   });
 
-  test("Workday page lists flagged postings only", async ({ page }) => {
-    await page.goto("/workday");
-    await expect(page.getByText("Workday (flagged)")).toBeVisible();
-    await expect(page.getByText("E2E Workday Engineer")).toBeVisible();
-    // Non-workday postings must not leak into this list.
-    await expect(page.getByText("E2E Frontend Engineer")).toHaveCount(0);
+  test("Jobs list includes Workday postings inline with a badge", async ({ page }) => {
+    await page.goto("/jobs");
+    // Workday roles are no longer a separate page — they appear in the unified
+    // queue, badged, alongside the easy-apply ATS postings.
+    await expect(
+      page.getByRole("link", { name: "E2E Workday Engineer", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByTestId("workday-badge").first()).toBeVisible();
+    // And the easy-apply postings are still there in the same list.
+    await expect(
+      page.getByRole("link", { name: "E2E Frontend Engineer", exact: true }),
+    ).toBeVisible();
   });
 });

@@ -31,6 +31,7 @@ function buildJobsUrl(country: Country, filters: FilterState): string {
   if (filters.sponsorship.length > 0) params.set("sponsorship", filters.sponsorship.join(","));
   if (filters.status.length > 0) params.set("status", filters.status.join(","));
   if (filters.employmentType.length > 0) params.set("employmentType", filters.employmentType.join(","));
+  if (filters.platform.length > 0) params.set("platform", filters.platform.join(","));
   if (filters.source.length > 0) params.set("source", filters.source.join(","));
   if (filters.category.length > 0) params.set("category", filters.category.join(","));
   if (filters.remote) params.set("remote", "1");
@@ -49,6 +50,7 @@ function hasActiveFilters(filters: FilterState): boolean {
     filters.skills.length > 0 ||
     filters.sponsorship.length > 0 ||
     filters.employmentType.length > 0 ||
+    filters.platform.length > 0 ||
     filters.source.length > 0 ||
     filters.category.length > 0 ||
     filters.status.length > 0 ||
@@ -311,7 +313,7 @@ export default function JobsPage() {
     <div>
       <PageHeader
         title="Jobs"
-        subtitle="Currently-open entry-level software roles (≤ 2 yrs experience), scraped from company career sites. US and Canada tracked separately."
+        subtitle="Currently-open entry-level software roles (≤ 2 yrs experience), scraped from company career sites — every platform including Workday. Filter by Platform; Workday roles are badged and always applied to manually. US and Canada tracked separately."
       />
 
       <div className="mb-4 flex gap-1 rounded-lg border border-gray-200 bg-gray-50 p-1 dark:border-gray-800 dark:bg-gray-900">

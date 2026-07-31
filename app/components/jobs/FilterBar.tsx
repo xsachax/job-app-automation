@@ -33,6 +33,15 @@ const EMPLOYMENT_LABELS: Record<string, string> = {
   contract: "Contract",
 };
 
+const PLATFORM_LABELS: Record<string, string> = {
+  greenhouse: "Greenhouse",
+  lever: "Lever",
+  ashby: "Ashby",
+  workable: "Workable",
+  workday: "Workday",
+  unknown: "Company site",
+};
+
 const STATUS_LABELS: Record<string, string> = {
   none: "No status",
   saved: "Saved",
@@ -64,6 +73,7 @@ function titleize(value: string): string {
 function formatFacetLabel(filterKey: MultiFilterKey, value: string): string {
   if (filterKey === "sponsorship") return SPONSORSHIP_LABELS[value] ?? titleize(value);
   if (filterKey === "employmentType") return EMPLOYMENT_LABELS[value] ?? titleize(value);
+  if (filterKey === "platform") return PLATFORM_LABELS[value] ?? titleize(value);
   if (filterKey === "status") return STATUS_LABELS[value] ?? titleize(value);
   if (filterKey === "category") return CATEGORY_LABELS[value as keyof typeof CATEGORY_LABELS] ?? titleize(value);
   return titleize(value);
@@ -90,6 +100,7 @@ function activeFilterCount(filters: FilterState): number {
     filters.skills.length +
     filters.sponsorship.length +
     filters.employmentType.length +
+    filters.platform.length +
     filters.source.length +
     filters.category.length +
     filters.status.length +
@@ -130,7 +141,7 @@ function ChipGroup({
   const hiddenItems = unselectedItems.slice(Math.max(0, maxVisible - selectedItems.length));
 
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-1.5" data-testid={`facet-${filterKey}`}>
       <div className="flex items-baseline gap-2">
         <FilterLabel>{label}</FilterLabel>
         {hint && <span className="text-[11px] text-gray-400 dark:text-gray-500">{hint}</span>}
@@ -358,7 +369,16 @@ export function FilterBar({
                 onToggleValue={onToggleValue}
               />
               <ChipGroup
+                label="Platform"
+                hint="where you apply"
+                items={facets?.platforms ?? []}
+                selected={filters.platform}
+                filterKey="platform"
+                onToggleValue={onToggleValue}
+              />
+              <ChipGroup
                 label="Source"
+                hint="where we found it"
                 items={facets?.sources ?? []}
                 selected={filters.source}
                 filterKey="source"

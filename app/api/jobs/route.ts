@@ -18,7 +18,6 @@ function parseList(v: string | null): string[] {
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
-  const view = searchParams.get("view") ?? "discovery";
   const country = searchParams.get("country"); // US | CA
   const q = searchParams.get("q")?.toLowerCase();
   const sort = searchParams.get("sort") ?? "posted"; // posted | company | fit | salary
@@ -29,6 +28,7 @@ export async function GET(req: NextRequest) {
   const status = parseList(searchParams.get("status")); // applicationStatus values
   const employmentType = parseList(searchParams.get("employmentType"));
   const source = parseList(searchParams.get("source")); // discoverySystem
+  const platform = parseList(searchParams.get("platform")); // atsType — greenhouse | lever | ashby | workday | ...
   const category = parseList(searchParams.get("category")); // bigtech | ai | quant | startup | other
   const remoteOnly = searchParams.get("remote") === "1";
   const warmOnly = searchParams.get("connections") === "1"; // only jobs where the user has a connection
@@ -61,20 +61,11 @@ export async function GET(req: NextRequest) {
     };
   };
 
-  if (view === "workday") {
-    const jobs = await prisma.job.findMany({
-      where: { isWorkday: true },
-      orderBy: { lastSeenAt: "desc" },
-      take: 1000,
-      include: { sightings: { include: { source: sourceSelect } } },
-    });
-    return json(jobs.map(decorate));
-  }
-
-  // Discovery view: entry-level US/CA software roles surfaced by the scraper.
+  // Unified queue: entry-level US/CA software roles surfaced by the scraper.
+  // Workday postings are included here (badged + never auto-applied downstream)
+  // rather than living on a separate page — "Platform" is just another facet.
   const jobs = await prisma.job.findMany({
     where: {
-      isWorkday: false,
       isEntryLevel: true,
       ...(country ? { country } : { country: { in: ["US", "CA"] } }),
     },
@@ -103,6 +94,7 @@ export async function GET(req: NextRequest) {
     if (status.length && !status.includes(j.applicationStatus.toLowerCase())) return false;
     if (employmentType.length && !employmentType.includes((j.employmentType ?? "").toLowerCase())) return false;
     if (source.length && !source.includes((j.discoverySystem ?? "").toLowerCase())) return false;
+    if (platform.length && !platform.includes((j.atsType ?? "unknown").toLowerCase())) return false;
     if (category.length && !category.includes(categorizeCompany(j.company, fallbackForSystem(j.discoverySystem)))) return false;
     if (warmOnly && !lookupConnections(connections, j.company)) return false;
     if (fitMin && (j.fitScore ?? -1) < fitMin) return false;

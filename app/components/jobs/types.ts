@@ -35,6 +35,7 @@ export interface Job {
   location: string | null;
   applyUrl: string;
   atsType: string;
+  isWorkday: boolean;
   remote: boolean;
   country: Country | string | null;
   category: JobCategory;
@@ -71,6 +72,7 @@ export interface JobFacets {
   categories: FacetItem[];
   sponsorship: FacetItem[];
   employmentType: FacetItem[];
+  platforms: FacetItem[];
   statuses: FacetItem[];
   maxSalary: number;
   withConnections: number;
@@ -84,6 +86,7 @@ export interface FilterState {
   skills: string[];
   sponsorship: string[];
   employmentType: string[];
+  platform: string[];
   source: string[];
   category: string[];
   status: string[];
@@ -93,7 +96,14 @@ export interface FilterState {
   fitMin: number | null;
 }
 
-export type MultiFilterKey = "skills" | "sponsorship" | "employmentType" | "source" | "category" | "status";
+export type MultiFilterKey =
+  | "skills"
+  | "sponsorship"
+  | "employmentType"
+  | "platform"
+  | "source"
+  | "category"
+  | "status";
 
 export const DEFAULT_FILTERS: FilterState = {
   sort: "posted",
@@ -102,6 +112,7 @@ export const DEFAULT_FILTERS: FilterState = {
   skills: [],
   sponsorship: [],
   employmentType: [],
+  platform: [],
   source: [],
   category: [],
   status: [],

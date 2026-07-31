@@ -10,7 +10,6 @@ const links = [
   { href: "/tiers", label: "Tiers" },
   { href: "/settings", label: "Settings" },
   { href: "/profile", label: "Profile" },
-  { href: "/workday", label: "Workday" },
 ];
 
 export function Nav() {

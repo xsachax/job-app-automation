@@ -139,7 +139,8 @@ const JOBS: Fixture[] = [
     minYoE: null,
     system: "workday",
     isWorkday: true,
-    entryLevel: false,
+    entryLevel: true,
+    skills: ["Java", "Spring"],
   },
 ];
 
@@ -187,8 +188,8 @@ async function main() {
   }
 
   const jobs = await prisma.job.count();
-  const us = await prisma.job.count({ where: { country: "US", isEntryLevel: true, isWorkday: false } });
-  const ca = await prisma.job.count({ where: { country: "CA", isEntryLevel: true, isWorkday: false } });
+  const us = await prisma.job.count({ where: { country: "US", isEntryLevel: true } });
+  const ca = await prisma.job.count({ where: { country: "CA", isEntryLevel: true } });
 
   // Two connections at OpenAI (the "frontend" fixture company) so the warm-intro
   // badge and filter have something to match. AcmeE2E/MapleE2E stay unmatched.

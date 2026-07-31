@@ -93,10 +93,20 @@ interface JobCardProps {
   onStatusChange: (jobId: string, status: ApplicationStatus) => Promise<void>;
   selected?: boolean;
   onToggleSelect?: (jobId: string) => void;
+  /** Overrides the primary open-in-new-tab label. Defaults to Workday-aware text. */
+  openLabel?: string;
 }
 
-export function JobCard({ job, updating, onStatusChange, selected = false, onToggleSelect }: JobCardProps) {
+export function JobCard({
+  job,
+  updating,
+  onStatusChange,
+  selected = false,
+  onToggleSelect,
+  openLabel,
+}: JobCardProps) {
   const status = job.applicationStatus || "none";
+  const resolvedOpenLabel = openLabel ?? (job.isWorkday ? "Open on Workday ↗" : "Open ↗");
   const effectivePostedAt = job.postedAt ?? job.firstSeenAt;
   const isNew = isWithinHours(effectivePostedAt, 48);
   const isStale = isOlderThanDays(effectivePostedAt, 30);
@@ -146,6 +156,15 @@ export function JobCard({ job, updating, onStatusChange, selected = false, onTog
                   {job.title}
                 </a>
                 <CategoryBadge category={job.category} />
+                {job.isWorkday && (
+                  <span
+                    data-testid="workday-badge"
+                    title="Workday posting — apply manually. The pipeline never auto-applies to these."
+                    className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-950 dark:text-amber-200"
+                  >
+                    Workday
+                  </span>
+                )}
                 {job.connections && job.connections.count > 0 && (
                   <ConnectionsBadge count={job.connections.count} contacts={job.connections.contacts} />
                 )}
@@ -179,7 +198,7 @@ export function JobCard({ job, updating, onStatusChange, selected = false, onTog
               rel="noreferrer"
               className={`${primaryAction} shrink-0`}
             >
-              Open ↗
+              {resolvedOpenLabel}
             </a>
           </div>
 
