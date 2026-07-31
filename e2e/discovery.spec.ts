@@ -32,6 +32,19 @@ test.describe("US / CA discovery lists", () => {
     await expect(card.getByText("AI Lab", { exact: true })).toBeVisible();
   });
 
+  test("cards show a company logo (real favicon or monogram fallback)", async ({ page }) => {
+    await page.goto("/jobs");
+    // OpenAI resolves to a real favicon; AcmeE2E has no logo and falls back to a
+    // coloured monogram. Both expose the same accessible name, so one assertion
+    // covers the real-logo and fallback branches.
+    await expect(
+      jobCard(page, "E2E Frontend Engineer").getByRole("img", { name: /logo/i }),
+    ).toBeVisible();
+    await expect(
+      jobCard(page, "E2E Backend Engineer").getByRole("img", { name: /logo/i }),
+    ).toBeVisible();
+  });
+
   test("category filter narrows the US list", async ({ page }) => {
     await page.goto("/jobs");
     await expect(jobCard(page, "E2E Frontend Engineer")).toBeVisible();
