@@ -106,13 +106,14 @@ export function AppliedBadge({ status }: { status: string }) {
   );
 }
 
-// Company-category chip (Big Tech / AI Lab / Quant / Startup / Other). Each
-// bucket gets a distinct hue so a card's kind is legible at a glance; colors are
-// contrast-checked for both themes.
+// Company-category chip (Big Tech / AI Lab / Quant / Defense / Startup / Other).
+// Each bucket gets a distinct hue so a card's kind is legible at a glance;
+// colors are contrast-checked for both themes.
 const CATEGORY_COLORS: Record<JobCategory, string> = {
   bigtech: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-200",
   ai: "bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-200",
   quant: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200",
+  defense: "bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-200",
   startup: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200",
   other: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
 };

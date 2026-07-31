@@ -30,6 +30,10 @@ test.describe("US / CA discovery lists", () => {
     await expect(card).toBeVisible();
     // OpenAI classifies as an AI Lab; AcmeE2E roles are startups.
     await expect(card.getByText("AI Lab", { exact: true })).toBeVisible();
+    // Anduril classifies as Defense.
+    await expect(
+      jobCard(page, "E2E Defense Engineer").getByText("Defense", { exact: true }),
+    ).toBeVisible();
   });
 
   test("cards show a company logo (real favicon or monogram fallback)", async ({ page }) => {
@@ -56,6 +60,20 @@ test.describe("US / CA discovery lists", () => {
     await expect(jobCard(page, "E2E Frontend Engineer")).toBeVisible();
     await expect(
       page.getByRole("link", { name: "E2E Backend Engineer", exact: true }),
+    ).toHaveCount(0);
+  });
+
+  test("Defense category filter keeps only defense employers", async ({ page }) => {
+    await page.goto("/jobs");
+    await expect(jobCard(page, "E2E Defense Engineer")).toBeVisible();
+    await expect(jobCard(page, "E2E Frontend Engineer")).toBeVisible();
+
+    // Filter to Defense: keeps the Anduril role, drops the AI Lab / startup ones.
+    await page.getByRole("button", { name: /^Defense/ }).click();
+
+    await expect(jobCard(page, "E2E Defense Engineer")).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "E2E Frontend Engineer", exact: true }),
     ).toHaveCount(0);
   });
 });
