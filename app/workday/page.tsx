@@ -52,32 +52,34 @@ export default function WorkdayPage() {
       ) : jobs.length === 0 ? (
         <p className="text-sm text-gray-500">No Workday jobs flagged yet.</p>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {jobs.map((job) => {
             const sources = Array.from(new Set(job.sightings.map((s) => s.source.name)));
+            const meta = [job.company, job.location, sources.length ? `from ${sources.join(", ")}` : null]
+              .filter(Boolean)
+              .join(" · ");
             return (
-              <div key={job.id} className={cls.card}>
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="flex min-w-0 gap-3">
-                    <CompanyLogo company={job.company} size={44} />
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5 font-semibold">
-                        <CountryFlag country={job.country} />
-                        {job.title}
-                      </div>
-                      <div className="text-sm text-gray-600 dark:text-gray-300">
-                        {job.company}
-                        {job.location ? ` · ${job.location}` : ""}
-                      </div>
-                      {sources.length > 0 && (
-                        <div className="mt-1 text-xs text-gray-400 dark:text-gray-500">from {sources.join(", ")}</div>
-                      )}
-                    </div>
+              <div key={job.id} className={`${cls.cardTight} flex items-center gap-3`}>
+                <CompanyLogo company={job.company} size={40} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <CountryFlag country={job.country} />
+                    <span className="truncate text-sm font-semibold" title={job.title}>
+                      {job.title}
+                    </span>
                   </div>
-                  <a href={job.applyUrl} target="_blank" rel="noreferrer" className={cls.btn}>
-                    Open on Workday ↗
-                  </a>
+                  <div className="truncate text-xs text-gray-500 dark:text-gray-400" title={meta}>
+                    {meta}
+                  </div>
                 </div>
+                <a
+                  href={job.applyUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="shrink-0 rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium transition-colors hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
+                >
+                  Open on Workday ↗
+                </a>
               </div>
             );
           })}
