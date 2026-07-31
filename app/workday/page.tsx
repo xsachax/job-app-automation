@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "../components/api";
+import { CompanyLogo } from "../components/CompanyLogo";
 import { cls, CountryFlag, PageHeader } from "../components/ui";
 
 interface Job {
@@ -57,18 +58,21 @@ export default function WorkdayPage() {
             return (
               <div key={job.id} className={cls.card}>
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-1.5 font-semibold">
-                      <CountryFlag country={job.country} />
-                      {job.title}
+                  <div className="flex min-w-0 gap-3">
+                    <CompanyLogo company={job.company} size={44} />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 font-semibold">
+                        <CountryFlag country={job.country} />
+                        {job.title}
+                      </div>
+                      <div className="text-sm text-gray-600 dark:text-gray-300">
+                        {job.company}
+                        {job.location ? ` · ${job.location}` : ""}
+                      </div>
+                      {sources.length > 0 && (
+                        <div className="mt-1 text-xs text-gray-400 dark:text-gray-500">from {sources.join(", ")}</div>
+                      )}
                     </div>
-                    <div className="text-sm text-gray-600 dark:text-gray-300">
-                      {job.company}
-                      {job.location ? ` · ${job.location}` : ""}
-                    </div>
-                    {sources.length > 0 && (
-                      <div className="mt-1 text-xs text-gray-400 dark:text-gray-500">from {sources.join(", ")}</div>
-                    )}
                   </div>
                   <a href={job.applyUrl} target="_blank" rel="noreferrer" className={cls.btn}>
                     Open on Workday ↗

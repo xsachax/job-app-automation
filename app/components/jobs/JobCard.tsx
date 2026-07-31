@@ -1,5 +1,6 @@
 "use client";
 
+import { CompanyLogo } from "../CompanyLogo";
 import {
   AppliedBadge,
   CategoryBadge,
@@ -107,6 +108,9 @@ export function JobCard({ job, updating, onStatusChange }: JobCardProps) {
         isStale && status !== "dismissed" ? "opacity-80" : ""
       }`}
     >
+      <div className="flex gap-3">
+        <CompanyLogo company={job.company} size={44} />
+        <div className="min-w-0 flex-1">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-1.5">
@@ -212,6 +216,8 @@ export function JobCard({ job, updating, onStatusChange }: JobCardProps) {
           </button>
         )}
         {updating && <span className="text-xs text-gray-500 dark:text-gray-400">Updating…</span>}
+      </div>
+        </div>
       </div>
     </article>
   );
