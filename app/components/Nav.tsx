@@ -7,6 +7,7 @@ const links = [
   { href: "/", label: "Overview" },
   { href: "/jobs", label: "Jobs" },
   { href: "/companies", label: "Companies" },
+  { href: "/tiers", label: "Tiers" },
   { href: "/settings", label: "Settings" },
   { href: "/profile", label: "Profile" },
   { href: "/workday", label: "Workday" },
