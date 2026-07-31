@@ -192,14 +192,6 @@ export function JobCard({
                 </span>
               </p>
             </div>
-            <a
-              href={job.applyUrl}
-              target="_blank"
-              rel="noreferrer"
-              className={`${primaryAction} shrink-0`}
-            >
-              {resolvedOpenLabel}
-            </a>
           </div>
 
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -233,7 +225,18 @@ export function JobCard({
             </p>
           )}
 
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        </div>
+
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          <a
+            href={job.applyUrl}
+            target="_blank"
+            rel="noreferrer"
+            className={primaryAction}
+          >
+            {resolvedOpenLabel}
+          </a>
+          <div className="flex flex-wrap items-center justify-end gap-1.5">
             <button
               type="button"
               disabled={updating || status === "saved"}
@@ -268,8 +271,8 @@ export function JobCard({
                 Clear
               </button>
             )}
-            {updating && <span className="text-xs text-gray-500 dark:text-gray-400">Updating…</span>}
           </div>
+          {updating && <span className="text-xs text-gray-500 dark:text-gray-400">Updating…</span>}
         </div>
       </div>
     </article>
