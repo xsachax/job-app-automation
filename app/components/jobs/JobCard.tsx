@@ -4,11 +4,11 @@ import { CompanyLogo } from "../CompanyLogo";
 import {
   AppliedBadge,
   CategoryBadge,
+  cls,
   ConnectionsBadge,
   CountryFlag,
   FitBadge,
   SalaryText,
-  SkillChips,
   SponsorshipBadge,
 } from "../ui";
 import type { ApplicationStatus, Job } from "./types";
@@ -100,123 +100,145 @@ export function JobCard({ job, updating, onStatusChange }: JobCardProps) {
   const isStale = isOlderThanDays(effectivePostedAt, 30);
   const sources = uniqueSourceNames(job);
   const sourceLabel = job.discoverySystem ?? job.atsType;
-  const locationParts = [job.company, job.location, job.remote ? "remote" : null].filter(Boolean);
+  const metaParts = [job.location, job.remote ? "remote" : null, titleize(sourceLabel)].filter(
+    Boolean,
+  ) as string[];
+  const timingText = `${job.postedAt ? "Posted" : "First seen"} ${timeAgo(effectivePostedAt)} · last seen ${timeAgo(job.lastSeenAt)}${
+    status === "applied" && job.appliedAt ? ` · applied ${timeAgo(job.appliedAt)}` : ""
+  }`;
+  const seenOn = sources.length > 0 ? `seen on ${sources.join(", ")}` : "";
+  const subtitleFull = [job.company, ...metaParts, timingText, seenOn].filter(Boolean).join(" · ");
+  const shownSkills = job.skills.slice(0, 6);
+  const extraSkills = job.skills.length - shownSkills.length;
 
   return (
     <article
-      className={`rounded-lg border p-3 shadow-sm transition-colors ${cardTone(status, isNew)} ${
+      className={`rounded-lg border px-3 py-2.5 shadow-sm transition-colors ${cardTone(status, isNew)} ${
         isStale && status !== "dismissed" ? "opacity-80" : ""
       }`}
     >
-      <div className="flex gap-3">
-        <CompanyLogo company={job.company} size={44} />
+      <div className="flex gap-2.5">
+        <CompanyLogo company={job.company} size={40} />
         <div className="min-w-0 flex-1">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <CountryFlag country={job.country} />
-            <CategoryBadge category={job.category} />
-            {job.connections && job.connections.count > 0 && (
-              <ConnectionsBadge count={job.connections.count} contacts={job.connections.contacts} />
-            )}
-            {isNew && (
-              <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 dark:bg-indigo-950 dark:text-indigo-200">
-                NEW
-              </span>
-            )}
-            {isStale && (
-              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500 dark:bg-gray-800 dark:text-gray-400">
-                stale
-              </span>
-            )}
-            <AppliedBadge status={status} />
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                <CountryFlag country={job.country} />
+                <a
+                  href={job.applyUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  data-testid="job-title"
+                  className="text-sm font-semibold leading-5 text-gray-950 hover:text-indigo-600 hover:underline dark:text-gray-100 dark:hover:text-indigo-300"
+                >
+                  {job.title}
+                </a>
+                <CategoryBadge category={job.category} />
+                {job.connections && job.connections.count > 0 && (
+                  <ConnectionsBadge count={job.connections.count} contacts={job.connections.contacts} />
+                )}
+                {isNew && (
+                  <span className="rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-950 dark:text-indigo-200">
+                    NEW
+                  </span>
+                )}
+                {isStale && (
+                  <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+                    stale
+                  </span>
+                )}
+                <AppliedBadge status={status} />
+              </div>
+              <p
+                className="mt-0.5 truncate text-xs text-gray-600 dark:text-gray-300"
+                title={subtitleFull}
+              >
+                <span className="font-medium text-gray-800 dark:text-gray-100">{job.company}</span>
+                {metaParts.map((part) => ` · ${part}`).join("")}
+                <span className="text-gray-400 dark:text-gray-500">
+                  {` · ${timingText}`}
+                  {seenOn ? ` · ${seenOn}` : ""}
+                </span>
+              </p>
+            </div>
+            <a
+              href={job.applyUrl}
+              target="_blank"
+              rel="noreferrer"
+              className={`${primaryAction} shrink-0`}
+            >
+              Open ↗
+            </a>
           </div>
-          <a
-            href={job.applyUrl}
-            target="_blank"
-            rel="noreferrer"
-            data-testid="job-title"
-            className="mt-1 block text-sm font-semibold leading-5 text-gray-950 hover:text-indigo-600 hover:underline dark:text-gray-100 dark:hover:text-indigo-300"
-          >
-            {job.title}
-          </a>
-          <p className="mt-0.5 text-xs text-gray-600 dark:text-gray-300">
-            <span className="font-medium text-gray-800 dark:text-gray-100">{locationParts[0]}</span>
-            {locationParts.slice(1).map((part) => ` · ${part}`).join("")}
-          </p>
-        </div>
-        <a href={job.applyUrl} target="_blank" rel="noreferrer" className={primaryAction}>
-          Open posting ↗
-        </a>
-      </div>
 
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        <span className={neutralPill}>{titleize(sourceLabel)}</span>
-        {job.minYoE != null && (
-          <span className="inline-flex items-center rounded bg-indigo-50 px-1.5 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
-            {job.minYoE === 0 ? "No exp. req." : `${job.minYoE}+ yrs`}
-          </span>
-        )}
-        <SalaryText min={job.salaryMin} max={job.salaryMax} currency={job.salaryCurrency} raw={job.salaryRaw} />
-        <SponsorshipBadge value={job.sponsorship} />
-        {job.employmentType && <span className={neutralPill}>{employmentLabels[job.employmentType] ?? titleize(job.employmentType)}</span>}
-        <FitBadge score={job.fitScore} provider={job.fitProvider} />
-      </div>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            {job.minYoE != null && (
+              <span className="inline-flex items-center rounded bg-indigo-50 px-1.5 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
+                {job.minYoE === 0 ? "No exp. req." : `${job.minYoE}+ yrs`}
+              </span>
+            )}
+            <SalaryText min={job.salaryMin} max={job.salaryMax} currency={job.salaryCurrency} raw={job.salaryRaw} />
+            <SponsorshipBadge value={job.sponsorship} />
+            {job.employmentType && (
+              <span className={neutralPill}>
+                {employmentLabels[job.employmentType] ?? titleize(job.employmentType)}
+              </span>
+            )}
+            <FitBadge score={job.fitScore} provider={job.fitProvider} />
+            {shownSkills.map((s) => (
+              <span key={s} className={cls.chip}>
+                {s}
+              </span>
+            ))}
+            {extraSkills > 0 && <span className={cls.chip}>+{extraSkills}</span>}
+          </div>
 
-      {job.fitSummary && <p className="mt-2 text-xs text-gray-600 dark:text-gray-300">{job.fitSummary}</p>}
+          {job.fitSummary && (
+            <p
+              className="mt-1 line-clamp-1 text-xs text-gray-500 dark:text-gray-400"
+              title={job.fitSummary}
+            >
+              {job.fitSummary}
+            </p>
+          )}
 
-      <SkillChips skills={job.skills} limit={7} />
-
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500 dark:text-gray-400">
-        <span title={job.postedAt ? "Posted" : "First seen"}>
-          {job.postedAt ? "Posted " : "First seen "}
-          {timeAgo(effectivePostedAt)} · last seen {timeAgo(job.lastSeenAt)}
-          {status === "applied" && job.appliedAt ? ` · applied ${timeAgo(job.appliedAt)}` : ""}
-        </span>
-        {sources.length > 0 && (
-          <span className="max-w-full truncate" title={sources.join(", ")}>
-            Seen on {sources.join(", ")}
-          </span>
-        )}
-      </div>
-
-      <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-gray-100 pt-2 dark:border-gray-800">
-        <button
-          type="button"
-          disabled={updating || status === "saved"}
-          onClick={() => void onStatusChange(job.id, "saved")}
-          className={secondaryAction}
-        >
-          Save
-        </button>
-        <button
-          type="button"
-          disabled={updating || status === "applied"}
-          onClick={() => void onStatusChange(job.id, "applied")}
-          className={secondaryAction}
-        >
-          Mark applied
-        </button>
-        <button
-          type="button"
-          disabled={updating || status === "dismissed"}
-          onClick={() => void onStatusChange(job.id, "dismissed")}
-          className={dangerAction}
-        >
-          Dismiss
-        </button>
-        {status !== "none" && (
-          <button
-            type="button"
-            disabled={updating}
-            onClick={() => void onStatusChange(job.id, "none")}
-            className={secondaryAction}
-          >
-            Clear
-          </button>
-        )}
-        {updating && <span className="text-xs text-gray-500 dark:text-gray-400">Updating…</span>}
-      </div>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              disabled={updating || status === "saved"}
+              onClick={() => void onStatusChange(job.id, "saved")}
+              className={secondaryAction}
+            >
+              Save
+            </button>
+            <button
+              type="button"
+              disabled={updating || status === "applied"}
+              onClick={() => void onStatusChange(job.id, "applied")}
+              className={secondaryAction}
+            >
+              Mark applied
+            </button>
+            <button
+              type="button"
+              disabled={updating || status === "dismissed"}
+              onClick={() => void onStatusChange(job.id, "dismissed")}
+              className={dangerAction}
+            >
+              Dismiss
+            </button>
+            {status !== "none" && (
+              <button
+                type="button"
+                disabled={updating}
+                onClick={() => void onStatusChange(job.id, "none")}
+                className={secondaryAction}
+              >
+                Clear
+              </button>
+            )}
+            {updating && <span className="text-xs text-gray-500 dark:text-gray-400">Updating…</span>}
+          </div>
         </div>
       </div>
     </article>
