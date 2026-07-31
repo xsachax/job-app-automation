@@ -15,6 +15,17 @@ describe("companyDomain", () => {
     expect(companyDomain("Hudson River Trading")).toBe("hudson-trading.com");
   });
 
+  it("pins defense/aerospace legal names to their real corporate domain", () => {
+    // Without overrides these slugify to the wrong host, e.g.
+    // "L3Harris Technologies" -> l3harristechnologies.com.
+    expect(companyDomain("L3Harris Technologies")).toBe("l3harris.com");
+    expect(companyDomain("Anduril Industries")).toBe("anduril.com");
+    expect(companyDomain("General Dynamics Information Technology")).toBe("gdit.com");
+    expect(companyDomain("General Dynamics Mission Systems")).toBe("gdmissionsystems.com");
+    expect(companyDomain("Booz Allen Hamilton")).toBe("boozallen.com");
+    expect(companyDomain("Raytheon")).toBe("rtx.com");
+  });
+
   it("strips parentheticals and leading/trailing entity words", () => {
     expect(companyDomain("London Stock Exchange Group (LSEG)")).toBe("lseg.com"); // override
     expect(companyDomain("The Boeing Company")).toBe("boeing.com");

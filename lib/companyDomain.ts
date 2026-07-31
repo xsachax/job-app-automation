@@ -47,6 +47,30 @@ const DOMAIN_OVERRIDES: Record<string, string> = {
   granola: "granola.ai",
   perplexity: "perplexity.ai",
   "perplexity ai": "perplexity.ai",
+
+  // Defense / aerospace primes and defense-tech. Their full legal names slugify
+  // to the wrong host ("L3Harris Technologies" -> l3harristechnologies.com), so
+  // pin the real corporate domain.
+  "l3harris technologies": "l3harris.com",
+  l3harris: "l3harris.com",
+  "anduril industries": "anduril.com",
+  anduril: "anduril.com",
+  "general dynamics": "gd.com",
+  "general dynamics information technology": "gdit.com",
+  "general dynamics mission systems": "gdmissionsystems.com",
+  "booz allen hamilton": "boozallen.com",
+  "booz allen": "boozallen.com",
+  "bae systems": "baesystems.com",
+  "raytheon technologies": "rtx.com",
+  raytheon: "rtx.com",
+  "lockheed martin": "lockheedmartin.com",
+  "northrop grumman": "northropgrumman.com",
+  "huntington ingalls": "hii.com",
+  "huntington ingalls industries": "hii.com",
+  "sierra nevada corporation": "sncorp.com",
+  "sierra space": "sierraspace.com",
+  "shield ai": "shield.ai",
+  "applied intuition": "appliedintuition.com",
 };
 
 // TLDs we accept when a company name already looks like a bare domain (e.g.
@@ -109,14 +133,25 @@ export function companyDomain(company: string | null | undefined): string | null
   return `${slug}.com`;
 }
 
-// The icon service we proxy. DuckDuckGo returns a real favicon for known domains
-// and an HTTP 404 for unknown ones. We can't rely on that 404 in the browser
-// though: its body is still a decodable placeholder image, so an <img> renders it
-// happily and onError never fires. The /api/logo proxy inspects the real status
-// server-side and returns a true 404, which lets the client fall back to a
-// monogram. (Clearbit is defunct; Google returns a generic globe.)
+// The primary icon service we proxy. DuckDuckGo returns a real favicon for known
+// domains and an HTTP 404 for unknown ones. We can't rely on that 404 in the
+// browser though: its body is still a decodable placeholder image, so an <img>
+// renders it happily and onError never fires. The /api/logo proxy inspects the
+// real status server-side and returns a true 404, which lets the client fall
+// back to a monogram. When DDG blanks on a valid domain the proxy retries via
+// googleIconUrl() below. (Clearbit is defunct.)
 export function duckDuckGoIconUrl(domain: string): string {
   return `https://icons.duckduckgo.com/ip3/${domain}.ico`;
+}
+
+// Fallback icon source. DuckDuckGo occasionally serves an empty 200 or a tiny
+// placeholder for a perfectly valid domain (e.g. adobe.com comes back 0 bytes),
+// which would otherwise fall through to a monogram. Google's favicon service
+// returns a real 64px icon for those. For a genuinely unknown domain it returns
+// a fixed generic-globe PNG (a stable byte length the /api/logo proxy detects),
+// so the monogram fallback still fires when there's truly no logo.
+export function googleIconUrl(domain: string): string {
+  return `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
 }
 
 // The URL the CompanyLogo <img> points at: our own proxy, so a genuinely missing
