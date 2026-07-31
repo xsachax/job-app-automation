@@ -89,6 +89,7 @@ export default function JobsPage() {
   const [error, setError] = useState<string | null>(null);
   const [facetsError, setFacetsError] = useState<string | null>(null);
   const [updatingIds, setUpdatingIds] = useState<Set<string>>(() => new Set());
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const committedSearch = useRef(DEFAULT_FILTERS.q);
 
@@ -143,6 +144,60 @@ export default function JobsPage() {
       if (searchTimer.current) clearTimeout(searchTimer.current);
     };
   }, []);
+
+  // Selection is stored as a plain id set; we always intersect it with the jobs
+  // currently on screen so a country switch or filter change can never "Open" a
+  // posting that is no longer visible. Stale ids simply go unused.
+  const selectedVisibleIds = useMemo(
+    () => jobs.filter((job) => selectedIds.has(job.id)).map((job) => job.id),
+    [jobs, selectedIds],
+  );
+  const selectedCount = selectedVisibleIds.length;
+  const allSelected = jobs.length > 0 && selectedCount === jobs.length;
+
+  function toggleSelect(jobId: string) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(jobId)) next.delete(jobId);
+      else next.add(jobId);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    setSelectedIds(() => (allSelected ? new Set() : new Set(jobs.map((job) => job.id))));
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+  }
+
+  function openSelected() {
+    const chosen = jobs.filter((job) => selectedIds.has(job.id));
+    if (chosen.length === 0) return;
+    let blocked = 0;
+    for (const job of chosen) {
+      const win = window.open(job.applyUrl, "_blank");
+      if (win) {
+        // Sever the opener reference so the external posting can't script back
+        // into this tab (reverse tabnabbing) while still letting us detect blocks.
+        try {
+          win.opener = null;
+        } catch {
+          /* cross-origin: already isolated */
+        }
+      } else {
+        blocked += 1;
+      }
+    }
+    if (blocked > 0) {
+      setError(
+        `Your browser blocked ${blocked} of ${chosen.length} tab${chosen.length === 1 ? "" : "s"}. Allow pop-ups for this site to open every selected posting at once.`,
+      );
+    } else {
+      setError(null);
+    }
+  }
 
   function startRefresh() {
     setLoading(true);
@@ -284,6 +339,45 @@ export default function JobsPage() {
         )}
       </div>
 
+      {jobs.length > 0 && (
+        <div className="sticky top-2 z-10 mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-gray-200 bg-white/90 px-3 py-2 shadow-sm backdrop-blur dark:border-gray-800 dark:bg-gray-900/90">
+          <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-gray-700 dark:text-gray-200">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={toggleSelectAll}
+              aria-label="Select all postings"
+              data-testid="select-all"
+              className="h-4 w-4 cursor-pointer rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-800"
+            />
+            Select all
+          </label>
+          <span className="text-xs text-gray-500 dark:text-gray-400" data-testid="selected-count">
+            {selectedCount} selected
+          </span>
+          <div className="ml-auto flex items-center gap-2">
+            {selectedCount > 0 && (
+              <button
+                type="button"
+                onClick={clearSelection}
+                className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
+              >
+                Clear
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={openSelected}
+              disabled={selectedCount === 0}
+              data-testid="open-selected"
+              className="inline-flex items-center rounded-md bg-indigo-600 px-3 py-1 text-xs font-semibold text-white transition-colors hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:focus:ring-offset-gray-900"
+            >
+              Open{selectedCount > 0 ? ` ${selectedCount}` : ""} selected ↗
+            </button>
+          </div>
+        </div>
+      )}
+
       {error && (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
           {error}
@@ -301,7 +395,14 @@ export default function JobsPage() {
       ) : (
         <div className="space-y-2">
           {jobs.map((job) => (
-            <JobCard key={job.id} job={job} updating={updatingIds.has(job.id)} onStatusChange={handleStatusChange} />
+            <JobCard
+              key={job.id}
+              job={job}
+              updating={updatingIds.has(job.id)}
+              onStatusChange={handleStatusChange}
+              selected={selectedIds.has(job.id)}
+              onToggleSelect={toggleSelect}
+            />
           ))}
         </div>
       )}
