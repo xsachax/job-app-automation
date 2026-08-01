@@ -11,17 +11,8 @@ test.describe("job card enrichment + applied tracking", () => {
     await expect(card.getByText(/fit 88/)).toBeVisible();
     // Salary enrichment renders on the card face.
     await expect(card.getByText(/\$120k.150k/)).toBeVisible();
-  });
-
-  test("skills live behind the Details expander", async ({ page }) => {
-    await page.goto("/jobs");
-
-    const card = jobCard(page, "E2E Frontend Engineer");
-    // Skills are not on the card face…
+    // Skills are not surfaced on the card.
     await expect(card.getByText("Node.js", { exact: true })).toHaveCount(0);
-    // …until the card is expanded.
-    await card.getByTestId("job-expand").click();
-    await expect(card.getByText("Node.js", { exact: true })).toBeVisible();
   });
 
   test("marking a job applied updates its status, then can be cleared", async ({ page }) => {
