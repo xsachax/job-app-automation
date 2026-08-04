@@ -21,6 +21,14 @@ export function isTier(value: unknown): value is Tier {
   return typeof value === "string" && (TIERS as readonly string[]).includes(value);
 }
 
+// Default penalty applied to a company the user has NOT ranked. Unranked
+// employers should sink slightly below neutral (a ranked "C" scores 0), so
+// taking the time to tier companies is rewarded and unknown names don't
+// out-rank ones you've deliberately placed. Sits between B (+5) and D (-10).
+// Locations are intentionally excluded — most postings are in unranked cities,
+// so penalizing them would crush nearly every score.
+export const UNRANKED_COMPANY_MODIFIER = -8;
+
 // Companies are matched case-insensitively on their trimmed display name.
 export function normalizeCompanyKey(company: string): string {
   return company.trim().toLowerCase();

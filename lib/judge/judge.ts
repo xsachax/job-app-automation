@@ -3,7 +3,7 @@ import { getCriteria, getProfile, type ProfileData } from "../settings";
 import { scoreResumeFit, type ResumeContext } from "../matching/resume";
 import { salaryFit } from "../matching/salary";
 import { normalizeLocation, normalizeLocationKey } from "../locations";
-import { clampScore, isTier, normalizeCompanyKey, TIER_MODIFIER, type Tier } from "../tiers";
+import { clampScore, isTier, normalizeCompanyKey, TIER_MODIFIER, UNRANKED_COMPANY_MODIFIER, type Tier } from "../tiers";
 
 export interface ScoreAllJobsOptions {
   onlyUnscored?: boolean;
@@ -132,13 +132,19 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
     const locTier = canonicalLoc ? tierByLocation.get(normalizeLocationKey(canonicalLoc)) ?? null : null;
     const salary = salaryFit(job, salaryTarget);
 
-    const companyMod = isTier(tier) ? TIER_MODIFIER[tier] : 0;
+    // Unranked companies take a mild default penalty so ranking is worthwhile;
+    // unranked locations stay neutral (see UNRANKED_COMPANY_MODIFIER).
+    const companyMod = isTier(tier) ? TIER_MODIFIER[tier] : UNRANKED_COMPANY_MODIFIER;
     const locationMod = isTier(locTier) ? TIER_MODIFIER[locTier] : 0;
     const adjustedScore = clampScore(result.score + companyMod + locationMod + salary.delta);
 
     const reasons = [...result.reasons];
     if (salary.reason) reasons.push(salary.reason);
-    if (isTier(tier)) reasons.push(`company ${job.company} is tier ${tier}`);
+    if (isTier(tier)) {
+      reasons.push(`company ${job.company} is tier ${tier}`);
+    } else {
+      reasons.push(`company ${job.company} is unranked (${UNRANKED_COMPANY_MODIFIER} fit)`);
+    }
     if (isTier(locTier) && canonicalLoc) reasons.push(`location ${canonicalLoc} is tier ${locTier}`);
 
     await prisma.job.update({

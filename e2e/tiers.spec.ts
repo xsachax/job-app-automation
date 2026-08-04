@@ -17,6 +17,8 @@ test.describe("company tiers", () => {
       await expect(page.getByTestId(`tier-row-${t}`)).toBeVisible();
     }
     await expect(page.getByTestId("tier-pool")).toBeVisible();
+    // Company board warns that unranked employers are penalised by the judge.
+    await expect(page.getByTestId("tier-pool-note")).toContainText("lose 8 points");
   });
 
   test("a pre-seeded ranking lands in the correct tier row", async ({ page }) => {

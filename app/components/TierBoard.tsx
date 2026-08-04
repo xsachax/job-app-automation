@@ -57,6 +57,8 @@ interface TierBoardProps {
   searchPlaceholder: string;
   searchAriaLabel: string;
   countLabel: (count: number) => string;
+  /** Optional note shown beside the Unranked heading (e.g. an unranked penalty). */
+  poolNote?: ReactNode;
 }
 
 type RawItem = { count: number; tier: string | null } & Record<string, unknown>;
@@ -73,6 +75,7 @@ export function TierBoard({
   searchPlaceholder,
   searchAriaLabel,
   countLabel,
+  poolNote,
 }: TierBoardProps) {
   const [items, setItems] = useState<TierItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -273,6 +276,11 @@ export function TierBoard({
                 className={`${cls.input} max-w-xs`}
               />
             </div>
+            {poolNote && (
+              <p data-testid="tier-pool-note" className={cls.muted}>
+                {poolNote}
+              </p>
+            )}
             <div
               data-testid="tier-pool"
               onDragOver={allowDrop("pool")}
