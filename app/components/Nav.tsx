@@ -105,7 +105,7 @@ export function Nav() {
       <Link
         href={profileLink.href}
         aria-current={isActive(profileLink.href) ? "page" : undefined}
-        className={linkClass(isActive(profileLink.href))}
+        className={linkClass(isActive(profileLink.href)) + " mt-auto"}
       >
         {profileLink.label}
       </Link>
@@ -113,7 +113,7 @@ export function Nav() {
       <Link
         href={settingsLink.href}
         aria-current={isActive(settingsLink.href) ? "page" : undefined}
-        className={linkClass(isActive(settingsLink.href)) + " mt-auto"}
+        className={linkClass(isActive(settingsLink.href))}
       >
         {settingsLink.label}
       </Link>

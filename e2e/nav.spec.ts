@@ -28,9 +28,11 @@ test.describe("sidebar nav", () => {
     await expect(nav.getByRole("link", { name: "Location tiers", exact: true })).toBeVisible();
   });
 
-  test("Settings is pinned to the end of the nav", async ({ page }) => {
+  test("Profile and Settings are pinned to the end of the nav", async ({ page }) => {
     await page.goto("/");
-    const labels = await page.getByRole("navigation").getByRole("link").allInnerTexts();
-    expect(labels[labels.length - 1].trim()).toBe("Settings");
+    const labels = (
+      await page.getByRole("navigation").getByRole("link").allInnerTexts()
+    ).map((l) => l.trim());
+    expect(labels.slice(-2)).toEqual(["Profile", "Settings"]);
   });
 });
