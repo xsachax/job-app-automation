@@ -8,6 +8,7 @@ type SaveProfile = typeof import("../lib/settings").saveProfile;
 type SaveCriteria = typeof import("../lib/settings").saveCriteria;
 type JudgeModule = typeof import("../lib/judge/judge");
 type AgentModule = typeof import("../lib/judge/agent");
+type RefreshModule = typeof import("../lib/profile/refresh");
 
 let prisma: Prisma;
 let saveProfile: SaveProfile;
@@ -16,6 +17,7 @@ let buildResumeContext: JudgeModule["buildResumeContext"];
 let scoreAllJobs: JudgeModule["scoreAllJobs"];
 let buildJudgeBatch: AgentModule["buildJudgeBatch"];
 let applyJudgeScores: AgentModule["applyJudgeScores"];
+let refreshProfile: RefreshModule["refreshProfile"];
 
 async function resetDb() {
   await prisma.jobSighting.deleteMany();
@@ -75,6 +77,7 @@ beforeAll(async () => {
   ({ saveProfile, saveCriteria } = await import("../lib/settings"));
   ({ buildResumeContext, scoreAllJobs } = await import("../lib/judge/judge"));
   ({ buildJudgeBatch, applyJudgeScores } = await import("../lib/judge/agent"));
+  ({ refreshProfile } = await import("../lib/profile/refresh"));
 });
 
 beforeEach(async () => {
@@ -99,6 +102,32 @@ describe("buildResumeContext", () => {
     expect(ctx.titles).toEqual(["Software Engineer"]);
     expect(ctx.summary).toContain("Computer Science");
     expect(ctx.text).toContain("Built React");
+  });
+});
+
+describe("refreshProfile", () => {
+  it("does not run the judge — scoring stays a manual, button-triggered action", async () => {
+    await saveProfile({
+      resumeText: "Software engineer skilled in TypeScript and React. Built web apps.",
+    });
+    const job = await makeJob({
+      key: "unscored",
+      title: "Software Engineer I",
+      description: "Build customer features with TypeScript and React.",
+      skills: ["TypeScript", "React"],
+    });
+    expect(job.fitScore).toBeNull();
+
+    const result = await refreshProfile();
+
+    // Refresh still parses the résumé, but must not score any job.
+    expect(result).not.toHaveProperty("resumeScored");
+    expect(result).not.toHaveProperty("jobFitScored");
+
+    const after = await prisma.job.findUniqueOrThrow({ where: { id: job.id } });
+    expect(after.fitScore).toBeNull();
+    expect(after.fitProvider).toBeNull();
+    expect(after.fitScoredAt).toBeNull();
   });
 });
 
