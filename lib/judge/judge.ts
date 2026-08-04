@@ -2,7 +2,8 @@ import { prisma } from "../db";
 import { getCriteria, getProfile, type ProfileData } from "../settings";
 import { scoreResumeFit, type ResumeContext } from "../matching/resume";
 import { salaryFit } from "../matching/salary";
-import { applyTierModifier, clampScore, isTier, normalizeCompanyKey, type Tier } from "../tiers";
+import { normalizeLocation, normalizeLocationKey } from "../locations";
+import { clampScore, isTier, normalizeCompanyKey, TIER_MODIFIER, type Tier } from "../tiers";
 
 export interface ScoreAllJobsOptions {
   onlyUnscored?: boolean;
@@ -91,6 +92,12 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
     if (isTier(row.tier)) tierByCompany.set(normalizeCompanyKey(row.company), row.tier);
   }
 
+  const locationTierRows = await prisma.locationTier.findMany();
+  const tierByLocation = new Map<string, Tier>();
+  for (const row of locationTierRows) {
+    if (isTier(row.tier)) tierByLocation.set(normalizeLocationKey(row.location), row.tier);
+  }
+
   const jobs = await prisma.job.findMany({
     where: {
       isWorkday: false,
@@ -121,10 +128,18 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
     );
 
     const tier = tierByCompany.get(normalizeCompanyKey(job.company)) ?? null;
-    const tierScore = applyTierModifier(result.score, tier);
+    const canonicalLoc = normalizeLocation(job.location);
+    const locTier = canonicalLoc ? tierByLocation.get(normalizeLocationKey(canonicalLoc)) ?? null : null;
     const salary = salaryFit(job, salaryTarget);
-    const adjustedScore = clampScore(tierScore + salary.delta);
-    const reasons = salary.reason ? [...result.reasons, salary.reason] : result.reasons;
+
+    const companyMod = isTier(tier) ? TIER_MODIFIER[tier] : 0;
+    const locationMod = isTier(locTier) ? TIER_MODIFIER[locTier] : 0;
+    const adjustedScore = clampScore(result.score + companyMod + locationMod + salary.delta);
+
+    const reasons = [...result.reasons];
+    if (salary.reason) reasons.push(salary.reason);
+    if (isTier(tier)) reasons.push(`company ${job.company} is tier ${tier}`);
+    if (isTier(locTier) && canonicalLoc) reasons.push(`location ${canonicalLoc} is tier ${locTier}`);
 
     await prisma.job.update({
       where: { id: job.id },

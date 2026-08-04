@@ -1,10 +1,10 @@
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
-// A chip is addressed by its data-company attribute; the tier <select> inside it
+// A chip is addressed by its data-key attribute; the tier <select> inside it
 // is the deterministic (non-DnD) way to assign a tier.
 function chip(page: Page, company: string) {
-  return page.locator(`[data-testid="tier-chip"][data-company="${company}"]`);
+  return page.locator(`[data-testid="tier-chip"][data-key="${company}"]`);
 }
 
 // Tests share one seeded DB (serial, no reseed between tests), so any mutation
@@ -24,36 +24,36 @@ test.describe("company tiers", () => {
     // OpenAI is seeded as tier S.
     await expect(chip(page, "OpenAI")).toBeVisible();
     await expect(
-      page.getByTestId("tier-row-S").locator(`[data-company="OpenAI"]`),
+      page.getByTestId("tier-row-S").locator(`[data-key="OpenAI"]`),
     ).toBeVisible();
   });
 
   test("search filters the unranked pool", async ({ page }) => {
     await page.goto("/tiers");
     const pool = page.getByTestId("tier-pool");
-    await expect(pool.locator(`[data-company="AcmeE2E"]`)).toBeVisible();
+    await expect(pool.locator(`[data-key="AcmeE2E"]`)).toBeVisible();
 
     await page.getByTestId("tier-search").fill("maple");
-    await expect(pool.locator(`[data-company="MapleE2E"]`)).toBeVisible();
-    await expect(pool.locator(`[data-company="AcmeE2E"]`)).toHaveCount(0);
+    await expect(pool.locator(`[data-key="MapleE2E"]`)).toBeVisible();
+    await expect(pool.locator(`[data-key="AcmeE2E"]`)).toHaveCount(0);
   });
 
   test("assigning a tier via the select persists across reload", async ({ page }) => {
     await page.goto("/tiers");
 
     const acme = chip(page, "AcmeE2E");
-    await expect(page.getByTestId("tier-pool").locator(`[data-company="AcmeE2E"]`)).toBeVisible();
+    await expect(page.getByTestId("tier-pool").locator(`[data-key="AcmeE2E"]`)).toBeVisible();
 
     await acme.getByTestId("tier-select").selectOption("A");
-    await expect(page.getByTestId("tier-row-A").locator(`[data-company="AcmeE2E"]`)).toBeVisible();
+    await expect(page.getByTestId("tier-row-A").locator(`[data-key="AcmeE2E"]`)).toBeVisible();
 
     await page.reload();
-    await expect(page.getByTestId("tier-row-A").locator(`[data-company="AcmeE2E"]`)).toBeVisible();
+    await expect(page.getByTestId("tier-row-A").locator(`[data-key="AcmeE2E"]`)).toBeVisible();
     await expect(chip(page, "AcmeE2E").getByTestId("tier-select")).toHaveValue("A");
 
     // Restore to unranked so later tests start clean.
     await chip(page, "AcmeE2E").getByTestId("tier-select").selectOption("");
-    await expect(page.getByTestId("tier-pool").locator(`[data-company="AcmeE2E"]`)).toBeVisible();
+    await expect(page.getByTestId("tier-pool").locator(`[data-key="AcmeE2E"]`)).toBeVisible();
   });
 
   test("clearing a tier returns the company to the pool", async ({ page }) => {
@@ -62,12 +62,12 @@ test.describe("company tiers", () => {
     const maple = chip(page, "MapleE2E");
     await expect(maple).toBeVisible();
     await maple.getByTestId("tier-select").selectOption("B");
-    await expect(page.getByTestId("tier-row-B").locator(`[data-company="MapleE2E"]`)).toBeVisible();
+    await expect(page.getByTestId("tier-row-B").locator(`[data-key="MapleE2E"]`)).toBeVisible();
 
     await chip(page, "MapleE2E").getByTestId("tier-select").selectOption("");
-    await expect(page.getByTestId("tier-pool").locator(`[data-company="MapleE2E"]`)).toBeVisible();
+    await expect(page.getByTestId("tier-pool").locator(`[data-key="MapleE2E"]`)).toBeVisible();
 
     await page.reload();
-    await expect(page.getByTestId("tier-pool").locator(`[data-company="MapleE2E"]`)).toBeVisible();
+    await expect(page.getByTestId("tier-pool").locator(`[data-key="MapleE2E"]`)).toBeVisible();
   });
 });
