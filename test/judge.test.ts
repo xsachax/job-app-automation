@@ -5,11 +5,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 type Prisma = typeof import("../lib/db").prisma;
 type SaveProfile = typeof import("../lib/settings").saveProfile;
+type SaveCriteria = typeof import("../lib/settings").saveCriteria;
 type JudgeModule = typeof import("../lib/judge/judge");
 type AgentModule = typeof import("../lib/judge/agent");
 
 let prisma: Prisma;
 let saveProfile: SaveProfile;
+let saveCriteria: SaveCriteria;
 let buildResumeContext: JudgeModule["buildResumeContext"];
 let scoreAllJobs: JudgeModule["scoreAllJobs"];
 let buildJudgeBatch: AgentModule["buildJudgeBatch"];
@@ -36,6 +38,9 @@ async function makeJob(opts: {
   isWorkday?: boolean;
   fitScore?: number;
   fitProvider?: string;
+  salaryMin?: number;
+  salaryMax?: number;
+  salaryCurrency?: string;
 }) {
   return prisma.job.create({
     data: {
@@ -53,13 +58,16 @@ async function makeJob(opts: {
       fitScore: opts.fitScore,
       fitProvider: opts.fitProvider,
       fitReasons: opts.fitScore == null ? null : JSON.stringify(["existing"]),
+      salaryMin: opts.salaryMin ?? null,
+      salaryMax: opts.salaryMax ?? null,
+      salaryCurrency: opts.salaryCurrency ?? null,
     },
   });
 }
 
 beforeAll(async () => {
   ({ prisma } = await import("../lib/db"));
-  ({ saveProfile } = await import("../lib/settings"));
+  ({ saveProfile, saveCriteria } = await import("../lib/settings"));
   ({ buildResumeContext, scoreAllJobs } = await import("../lib/judge/judge"));
   ({ buildJudgeBatch, applyJudgeScores } = await import("../lib/judge/agent"));
 });
@@ -125,6 +133,66 @@ describe("scoreAllJobs", () => {
     const preserved = await prisma.job.findUniqueOrThrow({ where: { id: agentJob.id } });
     expect(preserved.fitProvider).toBe("agent");
     expect(preserved.fitScore).toBe(91);
+  });
+});
+
+describe("scoreAllJobs salary axis", () => {
+  it("ranks a well-paid posting above an identical low-paid one when a target is set", async () => {
+    await saveProfile({
+      skills: ["TypeScript", "React"],
+      targetRoles: ["Software Engineer"],
+      summary: "Entry-level software engineer shipping web apps.",
+    });
+    await saveCriteria({ salaryTarget: 110000 });
+
+    const desc = "Build customer features with TypeScript and React.";
+    const highJob = await makeJob({
+      key: "high-pay",
+      title: "Software Engineer I",
+      description: desc,
+      skills: ["TypeScript", "React"],
+      salaryMin: 150000,
+      salaryMax: 170000,
+    });
+    const lowJob = await makeJob({
+      key: "low-pay",
+      title: "Software Engineer I",
+      description: desc,
+      skills: ["TypeScript", "React"],
+      salaryMin: 60000,
+      salaryMax: 70000,
+    });
+
+    await scoreAllJobs();
+
+    const high = await prisma.job.findUniqueOrThrow({ where: { id: highJob.id } });
+    const low = await prisma.job.findUniqueOrThrow({ where: { id: lowJob.id } });
+    expect(high.fitScore ?? 0).toBeGreaterThan(low.fitScore ?? 0);
+    expect(JSON.parse(high.fitReasons ?? "[]")).toEqual(
+      expect.arrayContaining([expect.stringContaining("above")]),
+    );
+    expect(JSON.parse(low.fitReasons ?? "[]")).toEqual(
+      expect.arrayContaining([expect.stringContaining("below")]),
+    );
+  });
+
+  it("does not adjust scores when no salary target is configured", async () => {
+    await saveProfile({ skills: ["TypeScript"], targetRoles: ["Software Engineer"] });
+    // no saveCriteria -> salaryTarget stays null
+    const job = await makeJob({
+      key: "no-target",
+      title: "Software Engineer I",
+      description: "TypeScript work.",
+      skills: ["TypeScript"],
+      salaryMin: 40000,
+      salaryMax: 45000,
+    });
+
+    await scoreAllJobs();
+    const scored = await prisma.job.findUniqueOrThrow({ where: { id: job.id } });
+    expect(JSON.parse(scored.fitReasons ?? "[]")).not.toEqual(
+      expect.arrayContaining([expect.stringContaining("target")]),
+    );
   });
 });
 

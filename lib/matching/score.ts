@@ -8,6 +8,7 @@ export interface Criteria {
   excludeKeywords?: string[];
   remoteOnly?: boolean;
   seniority?: string[];
+  salaryTarget?: number | null; // target annual salary (USD); feeds the judge's salary axis
 }
 
 export interface ScoreInput {
