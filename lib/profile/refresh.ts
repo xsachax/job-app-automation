@@ -4,7 +4,6 @@ import { extractResumeText } from "./resume";
 import { fetchResumeText } from "./pdf";
 import { parseResume } from "../llm";
 import type { ParsedResume } from "../llm/types";
-import { scoreAllJobs } from "../judge/judge";
 
 export interface RefreshResult {
   provider: string;
@@ -13,8 +12,6 @@ export interface RefreshResult {
   updatedFields: string[];
   profile: ProfileData;
   resumeVersionId: string;
-  resumeScored: number;
-  jobFitScored: number;
 }
 
 function isBlank(v: unknown): boolean {
@@ -91,13 +88,9 @@ export async function refreshProfile(sourceOverride?: string): Promise<RefreshRe
 
   const updatedProfile = await saveProfile(updates);
 
-  let resumeScored = 0;
-  try {
-    resumeScored = (await scoreAllJobs()).scored;
-  } catch {
-    // best-effort: profile refresh should still succeed if the judge has no jobs yet
-  }
-
+  // The judge no longer runs automatically on résumé refresh — scoring is a
+  // deliberate, button-triggered action (see /judge and the profile "Re-run
+  // judge" control) so a résumé change never silently rewrites every fit score.
   return {
     provider,
     source: source || "profile.resumeText",
@@ -105,7 +98,5 @@ export async function refreshProfile(sourceOverride?: string): Promise<RefreshRe
     updatedFields,
     profile: updatedProfile,
     resumeVersionId: version.id,
-    resumeScored,
-    jobFitScored: resumeScored,
   };
 }

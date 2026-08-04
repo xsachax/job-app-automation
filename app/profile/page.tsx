@@ -20,8 +20,6 @@ interface RefreshResult {
   provider: string;
   source: string;
   updatedFields: string[];
-  resumeScored?: number;
-  jobFitScored?: number;
 }
 
 interface JudgeResult {
@@ -163,8 +161,7 @@ export default function ProfilePage() {
       });
       await reloadProfile();
       const filled = result.updatedFields.length ? ` Updated: ${result.updatedFields.join(", ")}.` : "";
-      const scored = result.jobFitScored ?? result.resumeScored ?? 0;
-      setMessage(`Resume refreshed via ${result.provider}.${filled} Re-scored ${scored} jobs.`);
+      setMessage(`Resume refreshed via ${result.provider}.${filled} Run the judge to re-score jobs with it.`);
     } catch (e) {
       setError((e as Error).message);
     } finally {
