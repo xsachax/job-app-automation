@@ -21,6 +21,8 @@ export interface TierItem {
 // Classic tier-list row colours (warm S → cool F), dark ink on each so the
 // single-letter label clears 4.5:1 everywhere.
 const TIER_ROW: Record<Tier, string> = {
+  "S++": "bg-[#ff7fbf]",
+  "S+": "bg-[#ff7f9f]",
   S: "bg-[#ff7f7f]",
   A: "bg-[#ffbf7f]",
   B: "bg-[#ffdf80]",
@@ -30,6 +32,8 @@ const TIER_ROW: Record<Tier, string> = {
 };
 
 const TIER_HINT: Record<Tier, string> = {
+  "S++": "+25 fit",
+  "S+": "+20 fit",
   S: "+15 fit",
   A: "+10 fit",
   B: "+5 fit",
@@ -131,7 +135,10 @@ export function TierBoard({
   );
 
   const byTier = useMemo(() => {
-    const map: Record<Tier, TierItem[]> = { S: [], A: [], B: [], C: [], D: [], F: [] };
+    const map = Object.fromEntries(TIERS.map((t) => [t, [] as TierItem[]])) as Record<
+      Tier,
+      TierItem[]
+    >;
     for (const c of items) {
       if (c.tier && (TIERS as readonly string[]).includes(c.tier)) {
         map[c.tier as Tier].push(c);

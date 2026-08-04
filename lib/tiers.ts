@@ -1,14 +1,16 @@
-// Company tier list — a user-defined S/A/B/C/D/F ranking of employers. The tier
+// Company tier list — a user-defined S++…F ranking of employers. The tier
 // nudges a company's deterministic fit score so preferred employers float to the
 // top of the queue and avoided ones sink. Shared by the /tiers UI, the /api/tiers
 // route, and the judge so the ordering, labels, and score math never drift.
 
-export const TIERS = ["S", "A", "B", "C", "D", "F"] as const;
+export const TIERS = ["S++", "S+", "S", "A", "B", "C", "D", "F"] as const;
 export type Tier = (typeof TIERS)[number];
 
 // Points added to (or subtracted from) a company's deterministic fit score. The
 // judge clamps the adjusted score back into 0-100.
 export const TIER_MODIFIER: Record<Tier, number> = {
+  "S++": 25,
+  "S+": 20,
   S: 15,
   A: 10,
   B: 5,

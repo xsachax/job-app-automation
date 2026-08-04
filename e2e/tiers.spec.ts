@@ -13,7 +13,7 @@ test.describe("company tiers", () => {
   test("renders tier rows and the unranked pool", async ({ page }) => {
     await page.goto("/tiers");
     await expect(page.getByRole("heading", { name: "Company tiers" })).toBeVisible();
-    for (const t of ["S", "A", "B", "C", "D", "F"]) {
+    for (const t of ["S++", "S+", "S", "A", "B", "C", "D", "F"]) {
       await expect(page.getByTestId(`tier-row-${t}`)).toBeVisible();
     }
     await expect(page.getByTestId("tier-pool")).toBeVisible();
