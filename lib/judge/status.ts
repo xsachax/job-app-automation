@@ -54,8 +54,8 @@ export const JUDGE_AXES: JudgeAxis[] = [
   {
     key: "company",
     name: "Company tier",
-    reads: "Your S–F ranking for the hiring company",
-    effect: "+15 … −25",
+    reads: "Your S–F ranking for the hiring company. Companies you haven't ranked take a small default penalty.",
+    effect: "+15 … −25 (unranked −8)",
   },
   {
     key: "location",

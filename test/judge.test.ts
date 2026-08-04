@@ -35,6 +35,7 @@ async function makeJob(opts: {
   title: string;
   description?: string;
   country?: string;
+  company?: string;
   skills?: string[];
   isEntryLevel?: boolean;
   isWorkday?: boolean;
@@ -51,7 +52,7 @@ async function makeJob(opts: {
       atsType: "greenhouse",
       externalId: opts.key,
       title: opts.title,
-      company: "Acme",
+      company: opts.company ?? "Acme",
       applyUrl: `https://boards.greenhouse.io/acme/jobs/${opts.key}`,
       description: opts.description ?? null,
       country: opts.country ?? "US",
@@ -234,6 +235,51 @@ describe("scoreAllJobs location axis", () => {
     expect(JSON.parse(sfJob.fitReasons ?? "[]")).toEqual(
       expect.arrayContaining([expect.stringContaining("San Francisco, CA is tier S")]),
     );
+  });
+});
+
+describe("scoreAllJobs company axis", () => {
+  it("ranks a job at a tiered company above an identical one at an unranked company", async () => {
+    await saveProfile({
+      skills: ["TypeScript", "React"],
+      targetRoles: ["Software Engineer"],
+      summary: "Entry-level software engineer shipping web apps.",
+    });
+    // "C" is a neutral tier (0 modifier); the unranked company takes the -8
+    // default penalty, so the ranked job must edge out its unranked twin.
+    await prisma.companyTier.create({ data: { company: "Ranked Co", tier: "C" } });
+
+    const desc = "Build customer features with TypeScript and React.";
+    const ranked = await makeJob({
+      key: "ranked-co",
+      title: "Software Engineer I",
+      description: desc,
+      skills: ["TypeScript", "React"],
+      company: "Ranked Co",
+    });
+    const unranked = await makeJob({
+      key: "unranked-co",
+      title: "Software Engineer I",
+      description: desc,
+      skills: ["TypeScript", "React"],
+      company: "Mystery Co",
+    });
+
+    await scoreAllJobs();
+
+    const rankedJob = await prisma.job.findUniqueOrThrow({ where: { id: ranked.id } });
+    const unrankedJob = await prisma.job.findUniqueOrThrow({ where: { id: unranked.id } });
+
+    expect(rankedJob.fitScore ?? 0).toBeGreaterThan(unrankedJob.fitScore ?? 0);
+    expect(JSON.parse(rankedJob.fitReasons ?? "[]")).toEqual(
+      expect.arrayContaining([expect.stringContaining("Ranked Co is tier C")]),
+    );
+
+    const unrankedReasons = JSON.parse(unrankedJob.fitReasons ?? "[]") as string[];
+    expect(unrankedReasons).toEqual(
+      expect.arrayContaining([expect.stringContaining("unranked")]),
+    );
+    expect(unrankedReasons.some((r) => r.includes("is tier"))).toBe(false);
   });
 });
 
