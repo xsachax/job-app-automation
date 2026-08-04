@@ -20,7 +20,7 @@ export default function LocationTiersPage() {
   return (
     <TierBoard
       title="Location tiers"
-      subtitle="Rank places S→F. Tiers nudge the fit score of every job in that location, so postings where you actually want to work rise to the top."
+      subtitle="Rank the places you'd actually work S→F. Tiers nudge the fit score of every job in that location, so those postings rise to the top. The board lists the most popular locations from your discovered jobs."
       endpoint="/api/location-tiers"
       itemsKey="locations"
       field="location"

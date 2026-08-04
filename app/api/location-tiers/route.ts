@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { json, errorResponse } from "@/lib/http";
 import { isTier } from "@/lib/tiers";
+import { limitToPopular, MAX_LOCATION_OPTIONS } from "@/lib/tier-options";
 import { normalizeLocation, normalizeLocationKey } from "@/lib/locations";
 
 export const dynamic = "force-dynamic";
@@ -12,10 +13,12 @@ export interface TierLocation {
   tier: string | null;
 }
 
-// GET /api/location-tiers — every canonical location across the discovered
-// (US/CA entry-level) jobs with its open-role count and current tier. Locations
-// are messy free text, so counts are aggregated in JS over normalizeLocation()
-// rather than a SQL groupBy, matching how the judge buckets them.
+// GET /api/location-tiers — the most popular canonical locations across the
+// discovered (US/CA entry-level) jobs with their open-role count and current
+// tier. Locations are messy free text, so counts are aggregated in JS over
+// normalizeLocation() rather than a SQL groupBy, matching how the judge buckets
+// them. The full set runs to hundreds of one-off cities, so we trim to the
+// top-N most popular (plus anything already ranked) to keep the board usable.
 export async function GET() {
   const [jobs, tierRows] = await Promise.all([
     prisma.job.findMany({
@@ -37,13 +40,15 @@ export async function GET() {
     counts.set(canonical, (counts.get(canonical) ?? 0) + 1);
   }
 
-  const locations: TierLocation[] = [...counts.entries()]
-    .map(([location, count]) => ({
-      location,
-      count,
-      tier: tierByKey.get(normalizeLocationKey(location)) ?? null,
-    }))
-    .sort((a, b) => b.count - a.count || a.location.localeCompare(b.location));
+  const all: TierLocation[] = [...counts.entries()].map(([location, count]) => ({
+    location,
+    count,
+    tier: tierByKey.get(normalizeLocationKey(location)) ?? null,
+  }));
+
+  const locations = limitToPopular(all, MAX_LOCATION_OPTIONS, (l) => l.location).sort(
+    (a, b) => b.count - a.count || a.location.localeCompare(b.location),
+  );
 
   return json({ locations });
 }
