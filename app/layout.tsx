@@ -27,7 +27,7 @@ export default function RootLayout({
       <body className="min-h-full">
         <ThemeProvider>
           <div className="flex min-h-screen">
-            <aside className="hidden w-52 shrink-0 flex-col border-r border-gray-200 bg-white p-4 md:flex dark:border-gray-800 dark:bg-gray-950">
+            <aside className="sticky top-0 hidden h-screen w-52 shrink-0 flex-col overflow-y-auto border-r border-gray-200 bg-white p-4 md:flex dark:border-gray-800 dark:bg-gray-950">
               <div className="mb-6 px-2">
                 <div className="text-lg font-bold tracking-tight">Job Pipeline</div>
                 <div className="text-xs text-gray-500 dark:text-gray-400">entry-level discovery</div>
