@@ -19,6 +19,7 @@ async function wipe() {
   await prisma.criteria.deleteMany();
   await prisma.connectionSet.deleteMany();
   await prisma.companyTier.deleteMany();
+  await prisma.locationTier.deleteMany();
 }
 
 interface Fixture {
@@ -33,6 +34,7 @@ interface Fixture {
   entryLevel?: boolean; // defaults true for non-workday fixtures
   ageDays?: number; // how long ago the job was posted (drives the date filter)
   skills?: string[];
+  location?: string; // raw posting location; defaults by country
   salaryMin?: number;
   salaryMax?: number;
   salaryRaw?: string;
@@ -54,6 +56,7 @@ const JOBS: Fixture[] = [
     system: "greenhouse",
     ageDays: 0,
     skills: ["TypeScript", "React", "Node.js"],
+    location: "San Francisco, CA",
     salaryMin: 120000,
     salaryMax: 150000,
     salaryRaw: "$120,000 - $150,000",
@@ -73,6 +76,7 @@ const JOBS: Fixture[] = [
     system: "ashby",
     ageDays: 0,
     skills: ["TypeScript", "PostgreSQL"],
+    location: "New York, NY",
     fitScore: 64,
     fitProvider: "deterministic",
   },
@@ -86,6 +90,7 @@ const JOBS: Fixture[] = [
     system: "greenhouse",
     ageDays: 2,
     skills: ["Node.js", "Go"],
+    location: "Austin, TX",
     sponsorship: "none",
     fitScore: 41,
     fitProvider: "deterministic",
@@ -159,7 +164,7 @@ async function main() {
         externalId: `e2e-${f.key}`,
         title: f.title,
         company: f.company,
-        location: f.country === "CA" ? "Toronto, Canada" : "Remote, US",
+        location: f.location ?? (f.country === "CA" ? "Toronto, Canada" : "Remote, US"),
         remote: true,
         applyUrl: `https://boards.greenhouse.io/acmee2e/jobs/${f.key}`,
         description: f.description,
@@ -203,6 +208,10 @@ async function main() {
   // Pre-rank one seeded company so the tier list renders an assigned row on load
   // and the persistence e2e has a known starting point.
   await prisma.companyTier.create({ data: { company: "OpenAI", tier: "S" } });
+
+  // Pre-rank one seeded location (the "frontend" fixture is in San Francisco) so
+  // the location tier list renders an assigned row on load.
+  await prisma.locationTier.create({ data: { location: "San Francisco, CA", tier: "S" } });
 
   console.log(`e2e seed: ${jobs} jobs (${us} US entry, ${ca} CA entry, 1 workday flag), 2 connections.`);
 }

@@ -192,3 +192,12 @@ model CompanyTier {
   tier      String // S | A | B | C | D | F
   updatedAt DateTime @updatedAt
 }
+
+// User-defined location tier ranking (S/A/B/C/D/F). Keyed by the canonical
+// "City, ST" | "Remote" string from lib/locations.normalizeLocation; the assigned
+// tier nudges the fit score of every job in that location.
+model LocationTier {
+  location  String   @id
+  tier      String // S | A | B | C | D | F
+  updatedAt DateTime @updatedAt
+}

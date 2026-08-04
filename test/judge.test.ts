@@ -26,6 +26,8 @@ async function resetDb() {
   await prisma.resumeVersion.deleteMany();
   await prisma.profile.deleteMany();
   await prisma.criteria.deleteMany();
+  await prisma.companyTier.deleteMany();
+  await prisma.locationTier.deleteMany();
 }
 
 async function makeJob(opts: {
@@ -41,6 +43,7 @@ async function makeJob(opts: {
   salaryMin?: number;
   salaryMax?: number;
   salaryCurrency?: string;
+  location?: string;
 }) {
   return prisma.job.create({
     data: {
@@ -61,6 +64,7 @@ async function makeJob(opts: {
       salaryMin: opts.salaryMin ?? null,
       salaryMax: opts.salaryMax ?? null,
       salaryCurrency: opts.salaryCurrency ?? null,
+      location: opts.location ?? null,
     },
   });
 }
@@ -192,6 +196,43 @@ describe("scoreAllJobs salary axis", () => {
     const scored = await prisma.job.findUniqueOrThrow({ where: { id: job.id } });
     expect(JSON.parse(scored.fitReasons ?? "[]")).not.toEqual(
       expect.arrayContaining([expect.stringContaining("target")]),
+    );
+  });
+});
+
+describe("scoreAllJobs location axis", () => {
+  it("ranks a job in an S-tier location above an identical one in an F-tier location", async () => {
+    await saveProfile({
+      skills: ["TypeScript", "React"],
+      targetRoles: ["Software Engineer"],
+      summary: "Entry-level software engineer shipping web apps.",
+    });
+    await prisma.locationTier.create({ data: { location: "San Francisco, CA", tier: "S" } });
+    await prisma.locationTier.create({ data: { location: "Austin, TX", tier: "F" } });
+
+    const desc = "Build customer features with TypeScript and React.";
+    const sf = await makeJob({
+      key: "sf",
+      title: "Software Engineer I",
+      description: desc,
+      skills: ["TypeScript", "React"],
+      location: "San Francisco", // normalizes to "San Francisco, CA"
+    });
+    const austin = await makeJob({
+      key: "austin",
+      title: "Software Engineer I",
+      description: desc,
+      skills: ["TypeScript", "React"],
+      location: "Austin, TX",
+    });
+
+    await scoreAllJobs();
+
+    const sfJob = await prisma.job.findUniqueOrThrow({ where: { id: sf.id } });
+    const austinJob = await prisma.job.findUniqueOrThrow({ where: { id: austin.id } });
+    expect(sfJob.fitScore ?? 0).toBeGreaterThan(austinJob.fitScore ?? 0);
+    expect(JSON.parse(sfJob.fitReasons ?? "[]")).toEqual(
+      expect.arrayContaining([expect.stringContaining("San Francisco, CA is tier S")]),
     );
   });
 });
