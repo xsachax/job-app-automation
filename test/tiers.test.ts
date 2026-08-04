@@ -9,14 +9,15 @@ import {
 } from "../lib/tiers";
 
 describe("tiers", () => {
-  it("exposes all six tiers", () => {
-    expect(TIERS).toEqual(["S", "A", "B", "C", "D", "F"]);
+  it("exposes all tiers from S++ down to F", () => {
+    expect(TIERS).toEqual(["S++", "S+", "S", "A", "B", "C", "D", "F"]);
   });
 
   it("recognizes valid tiers and rejects everything else", () => {
     for (const t of TIERS) expect(isTier(t)).toBe(true);
     expect(isTier("s")).toBe(false);
     expect(isTier("G")).toBe(false);
+    expect(isTier("S+++")).toBe(false);
     expect(isTier("")).toBe(false);
     expect(isTier(null)).toBe(false);
     expect(isTier(undefined)).toBe(false);
@@ -36,6 +37,8 @@ describe("tiers", () => {
   });
 
   it("applies each tier modifier and clamps the result", () => {
+    expect(applyTierModifier(50, "S++")).toBe(75);
+    expect(applyTierModifier(50, "S+")).toBe(70);
     expect(applyTierModifier(50, "S")).toBe(65);
     expect(applyTierModifier(50, "A")).toBe(60);
     expect(applyTierModifier(50, "B")).toBe(55);
@@ -45,7 +48,8 @@ describe("tiers", () => {
   });
 
   it("clamps boosted and penalized scores at the boundaries", () => {
-    expect(applyTierModifier(95, "S")).toBe(100);
+    expect(applyTierModifier(95, "S++")).toBe(100);
+    expect(applyTierModifier(90, "S")).toBe(100);
     expect(applyTierModifier(10, "F")).toBe(0);
   });
 
