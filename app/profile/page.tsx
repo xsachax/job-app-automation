@@ -5,15 +5,6 @@ import { api } from "../components/api";
 import { cls, PageHeader } from "../components/ui";
 
 interface Profile {
-  firstName?: string;
-  lastName?: string;
-  email?: string;
-  phone?: string;
-  location?: string;
-  linkedin?: string;
-  github?: string;
-  website?: string;
-  portfolio?: string;
   summary?: string;
   skills?: string[];
   resumeUrl?: string;
@@ -22,7 +13,6 @@ interface Profile {
   qualifications?: string;
   resumeSource?: string;
   resumePath?: string;
-  coverLetterTemplate?: string;
   [key: string]: unknown;
 }
 
@@ -53,17 +43,6 @@ interface ConnectionImportResult extends ConnectionSummary {
   parsedRows: number;
   skippedNoCompany: number;
 }
-
-const CONTACT_FIELDS: { name: keyof Profile; label: string; placeholder?: string; type?: string }[] = [
-  { name: "firstName", label: "First name", placeholder: "Sacha" },
-  { name: "lastName", label: "Last name", placeholder: "Lee" },
-  { name: "email", label: "Email", placeholder: "you@example.com", type: "email" },
-  { name: "phone", label: "Phone", placeholder: "+1 555 0100", type: "tel" },
-  { name: "location", label: "Location", placeholder: "City, country" },
-  { name: "linkedin", label: "LinkedIn", placeholder: "https://linkedin.com/in/..." },
-  { name: "github", label: "GitHub", placeholder: "https://github.com/..." },
-  { name: "portfolio", label: "Portfolio", placeholder: "https://..." },
-];
 
 function splitCsv(value: string): string[] {
   return value
@@ -275,7 +254,7 @@ export default function ProfilePage() {
     <div className="max-w-5xl">
       <PageHeader
         title="Import your info"
-        subtitle="The judge ranks discovered roles from your résumé and résumé-derived signals only. Contact details are saved for your manual applications and never affect scoring."
+        subtitle="The judge ranks discovered roles from your résumé and résumé-derived signals only — skills, target roles, and qualifications. No personal or contact details are collected here."
       >
         <button
           onClick={runJudge}
@@ -302,14 +281,17 @@ export default function ProfilePage() {
           <section className={cls.card}>
             <h2 className="text-lg font-semibold text-gray-950 dark:text-gray-50">Resume source</h2>
             <p className="mt-1 max-w-2xl text-sm text-gray-600 dark:text-gray-400">
-              Paste a direct PDF link when you have one. If parsing is unavailable, paste the resume text below and the judge will use that instead.
+              Paste a GitHub link to your résumé — a normal <span className="font-medium">blob</span> URL
+              (e.g. <code className="text-xs">github.com/you/resume/blob/main/resume.md</code>) works; it&apos;s
+              fetched as raw text automatically. A direct PDF URL works too. If parsing is unavailable,
+              paste the résumé text below and the judge will use that instead.
             </p>
             <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,1fr)_auto]">
-              <FieldShell label="Resume PDF URL" hint="Use a stable sharing URL that the server can fetch.">
+              <FieldShell label="Résumé link (GitHub or PDF URL)" hint="GitHub blob/raw links and gists auto-convert to raw content.">
                 <input
                   className={`${cls.input} placeholder:text-gray-500 dark:placeholder:text-gray-400`}
                   value={profile.resumeUrl ?? ""}
-                  placeholder="https://example.com/resume.pdf"
+                  placeholder="https://github.com/you/resume/blob/main/resume.md"
                   onChange={(e) => setField("resumeUrl", e.target.value)}
                 />
               </FieldShell>
@@ -377,36 +359,6 @@ export default function ProfilePage() {
                   onChange={(e) => setField("qualifications", e.target.value)}
                 />
               </FieldShell>
-            </div>
-          </section>
-
-          <section className={cls.card}>
-            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold text-gray-950 dark:text-gray-50">
-                  Contact &amp; application details
-                </h2>
-                <p className="mt-1 max-w-2xl text-sm text-gray-600 dark:text-gray-400">
-                  The judge never reads these. They&apos;re saved only so you can copy them into
-                  manual applications on Greenhouse, Lever, and similar forms.
-                </p>
-              </div>
-              <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-200">
-                Not used by judge
-              </span>
-            </div>
-            <div className="grid gap-4 md:grid-cols-2">
-              {CONTACT_FIELDS.map((field) => (
-                <FieldShell key={String(field.name)} label={field.label}>
-                  <input
-                    className={`${cls.input} placeholder:text-gray-500 dark:placeholder:text-gray-400`}
-                    type={field.type ?? "text"}
-                    value={(profile[field.name] as string) ?? ""}
-                    placeholder={field.placeholder}
-                    onChange={(e) => setField(field.name, e.target.value as never)}
-                  />
-                </FieldShell>
-              ))}
             </div>
           </section>
 

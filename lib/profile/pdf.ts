@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+import { normalizeResumeUrl } from "./url";
 
 function stripHtml(html: string): string {
   return html
@@ -31,7 +32,7 @@ function loadPdfParse(): PdfParse | null {
 
 export async function fetchResumeText(url: string): Promise<string> {
   try {
-    const src = url.trim();
+    const src = normalizeResumeUrl(url);
     if (!/^https?:\/\//i.test(src)) return "";
 
     const res = await fetch(src);
