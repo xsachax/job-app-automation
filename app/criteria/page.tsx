@@ -11,6 +11,7 @@ interface Criteria {
   excludeKeywords: string[];
   remoteOnly: boolean;
   seniority: string[];
+  salaryTarget: number | null;
 }
 
 const EMPTY: Criteria = {
@@ -20,6 +21,7 @@ const EMPTY: Criteria = {
   excludeKeywords: [],
   remoteOnly: false,
   seniority: [],
+  salaryTarget: null,
 };
 
 const LIST_FIELDS: { name: keyof Criteria; label: string; help: string }[] = [
@@ -104,6 +106,27 @@ export default function CriteriaPage() {
             <p className="mt-1 text-xs text-gray-400">{f.help}</p>
           </div>
         ))}
+
+        <div>
+          <label className={cls.label}>Target salary (USD)</label>
+          <input
+            type="number"
+            min={0}
+            step={1000}
+            inputMode="numeric"
+            placeholder="e.g. 110000"
+            className={cls.input + " mt-1"}
+            value={criteria.salaryTarget ?? ""}
+            onChange={(e) => {
+              const n = parseInt(e.target.value, 10);
+              setCriteria({ ...criteria, salaryTarget: Number.isFinite(n) && n > 0 ? n : null });
+            }}
+          />
+          <p className="mt-1 text-xs text-gray-400">
+            Annual target the judge scores against. Postings that meet or beat it rank higher; those
+            well below rank lower. Jobs without a listed salary are left neutral. Leave blank to ignore pay.
+          </p>
+        </div>
 
         <label className="flex items-center gap-2 text-sm">
           <input

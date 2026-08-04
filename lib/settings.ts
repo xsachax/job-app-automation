@@ -8,6 +8,7 @@ export const DEFAULT_CRITERIA: Criteria = {
   excludeKeywords: [],
   remoteOnly: false,
   seniority: [],
+  salaryTarget: null,
 };
 
 export async function getCriteria(): Promise<Criteria> {

@@ -1,7 +1,8 @@
 import { prisma } from "../db";
-import { getProfile, type ProfileData } from "../settings";
+import { getCriteria, getProfile, type ProfileData } from "../settings";
 import { scoreResumeFit, type ResumeContext } from "../matching/resume";
-import { applyTierModifier, isTier, normalizeCompanyKey, type Tier } from "../tiers";
+import { salaryFit } from "../matching/salary";
+import { applyTierModifier, clampScore, isTier, normalizeCompanyKey, type Tier } from "../tiers";
 
 export interface ScoreAllJobsOptions {
   onlyUnscored?: boolean;
@@ -80,6 +81,8 @@ function deterministicSummary(
 export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<ScoreAllJobsResult> {
   const profile = await getProfile();
   const resume = buildResumeContext(profile);
+  const criteria = await getCriteria();
+  const salaryTarget = typeof criteria.salaryTarget === "number" ? criteria.salaryTarget : null;
   const take = opts.limit && opts.limit > 0 ? Math.min(Math.floor(opts.limit), 1000) : undefined;
 
   const tierRows = await prisma.companyTier.findMany();
@@ -118,14 +121,17 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
     );
 
     const tier = tierByCompany.get(normalizeCompanyKey(job.company)) ?? null;
-    const adjustedScore = applyTierModifier(result.score, tier);
+    const tierScore = applyTierModifier(result.score, tier);
+    const salary = salaryFit(job, salaryTarget);
+    const adjustedScore = clampScore(tierScore + salary.delta);
+    const reasons = salary.reason ? [...result.reasons, salary.reason] : result.reasons;
 
     await prisma.job.update({
       where: { id: job.id },
       data: {
         fitScore: adjustedScore,
-        fitReasons: JSON.stringify(result.reasons.slice(0, 5)),
-        fitSummary: deterministicSummary(adjustedScore, result.reasons, result.missingSignals, tier),
+        fitReasons: JSON.stringify(reasons.slice(0, 5)),
+        fitSummary: deterministicSummary(adjustedScore, reasons, result.missingSignals, tier),
         fitProvider: "deterministic",
         fitScoredAt: now,
       },
