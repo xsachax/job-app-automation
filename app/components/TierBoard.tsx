@@ -21,24 +21,22 @@ export interface TierItem {
 // Classic tier-list row colours (warm S → cool F), dark ink on each so the
 // single-letter label clears 4.5:1 everywhere.
 const TIER_ROW: Record<Tier, string> = {
-  "S++": "bg-[#ff7fbf]",
-  "S+": "bg-[#ff7f9f]",
   S: "bg-[#ff7f7f]",
   A: "bg-[#ffbf7f]",
   B: "bg-[#ffdf80]",
   C: "bg-[#ffff7f]",
   D: "bg-[#bfff7f]",
+  E: "bg-[#7fffff]",
   F: "bg-[#7fbfff]",
 };
 
 const TIER_HINT: Record<Tier, string> = {
-  "S++": "+25 fit",
-  "S+": "+20 fit",
-  S: "+15 fit",
-  A: "+10 fit",
-  B: "+5 fit",
-  C: "no change",
-  D: "−10 fit",
+  S: "+25 fit",
+  A: "+20 fit",
+  B: "+15 fit",
+  C: "+10 fit",
+  D: "+5 fit",
+  E: "no change",
   F: "−25 fit",
 };
 
@@ -268,9 +266,9 @@ export function TierBoard({
           <section className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-                Unranked
+                Unrated
                 <span className="ml-2 font-normal text-gray-400">
-                  {rankedCount} ranked · {unranked.length} unranked
+                  {rankedCount} rated · {unranked.length} neutral
                 </span>
               </h2>
               <input
@@ -299,7 +297,7 @@ export function TierBoard({
             >
               {visiblePool.length === 0 ? (
                 <span className="px-1 py-4 text-sm text-gray-400">
-                  {items.length === 0 ? emptyPool : `No unranked ${noun} match your search.`}
+                  {items.length === 0 ? emptyPool : `No unrated ${noun} match your search.`}
                 </span>
               ) : (
                 visiblePool.map((c) => (

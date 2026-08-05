@@ -41,7 +41,7 @@ export async function GET() {
 }
 
 // PUT /api/tiers — assign (or clear) one company's tier. A null/empty tier
-// removes the ranking so the company returns to the unranked pool.
+// removes the ranking so the company returns to the neutral unrated pool.
 export async function PUT(req: NextRequest) {
   let body: { company?: unknown; tier?: unknown };
   try {

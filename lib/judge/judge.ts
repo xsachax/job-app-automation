@@ -3,7 +3,13 @@ import { getCriteria, getProfile, type ProfileData } from "../settings";
 import { scoreResumeFit, type ResumeContext } from "../matching/resume";
 import { salaryFit } from "../matching/salary";
 import { normalizeLocation, normalizeLocationKey } from "../locations";
-import { clampScore, isTier, normalizeCompanyKey, TIER_MODIFIER, UNRANKED_COMPANY_MODIFIER, type Tier } from "../tiers";
+import {
+  clampScore,
+  isTier,
+  normalizeCompanyKey,
+  tierModifier,
+  type Tier,
+} from "../tiers";
 import { fitAdvice, gapAdvice } from "./advice";
 import { freshnessFit } from "./freshness";
 
@@ -133,10 +139,9 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
     const salary = salaryFit(job, salaryTarget);
     const freshness = freshnessFit(job, now);
 
-    // Unranked companies take a mild default penalty so ranking is worthwhile;
-    // unranked locations stay neutral (see UNRANKED_COMPANY_MODIFIER).
-    const companyMod = isTier(tier) ? TIER_MODIFIER[tier] : UNRANKED_COMPANY_MODIFIER;
-    const locationMod = isTier(locTier) ? TIER_MODIFIER[locTier] : 0;
+    // Unrated companies and locations are neutral, exactly like E.
+    const companyMod = tierModifier(tier);
+    const locationMod = tierModifier(locTier);
     const adjustedScore = clampScore(
       result.score + companyMod + locationMod + salary.delta + freshness.delta,
     );
@@ -174,8 +179,6 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
     if (isTier(tier) && companyMod !== 0) {
       const reason = `${job.company} is company tier ${tier} (${companyMod > 0 ? "+" : ""}${companyMod})`;
       (companyMod > 0 ? strengths : gaps).push(reason);
-    } else if (!isTier(tier)) {
-      gaps.push(`${job.company} is unranked (${UNRANKED_COMPANY_MODIFIER})`);
     }
     if (isTier(locTier) && canonicalLoc && locationMod !== 0) {
       const reason = `${canonicalLoc} is location tier ${locTier} (${locationMod > 0 ? "+" : ""}${locationMod})`;
