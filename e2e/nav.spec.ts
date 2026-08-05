@@ -36,9 +36,35 @@ test.describe("sidebar nav", () => {
     expect(labels.slice(-2)).toEqual(["Profile", "Settings"]);
   });
 
-  test("extension install button opens setup with a Web Store fallback", async ({
-    page,
-  }) => {
+  test("extension install button opens the minimal Chrome setup", async ({ page }) => {
+    const extensionId = "abcdefghijklmnopabcdefghijklmnop";
+    let openRequested = false;
+    await page.route("**/api/chrome-extension/open", async (route) => {
+      openRequested = route.request().method() === "POST";
+      await route.fulfill({ json: { ok: true } });
+    });
+    await page.addInitScript(() => {
+      Object.defineProperty(globalThis, "chrome", {
+        configurable: true,
+        value: {
+          runtime: {
+            sendMessage(
+              id: string,
+              _message: unknown,
+              callback: (response: unknown) => void,
+            ) {
+              callback({
+                ok: true,
+                enabled: true,
+                extensionId: id,
+                version: "0.1.0",
+              });
+            },
+          },
+        },
+      });
+    });
+
     await page.goto("/");
     const nav = page.getByRole("navigation");
     await nav.getByRole("link", { name: "Install extension", exact: true }).click();
@@ -46,11 +72,18 @@ test.describe("sidebar nav", () => {
     await expect(page).toHaveURL(/\/settings#chrome-extension$/);
     const setup = page.locator("#chrome-extension");
     await expect(setup).toBeVisible();
+    await expect(setup.getByRole("button")).toHaveCount(1);
+    await setup.getByRole("button", { name: "Open Chrome extensions" }).click();
+    expect(openRequested).toBe(true);
+
+    await setup.getByLabel("Chrome extension ID").fill(extensionId);
     await expect(
-      setup.getByRole("button", { name: "Copy Chrome setup URL" }),
+      setup.getByText("Connected to extension version 0.1.0."),
     ).toBeVisible();
-    await expect(
-      setup.getByRole("link", { name: "Open Chrome Web Store ↗" }),
-    ).toHaveAttribute("href", /^https:\/\/chromewebstore\.google\.com\//);
+    expect(
+      await page.evaluate(() => localStorage.getItem("jobAutofillExtensionId")),
+    ).toBe(extensionId);
+    await expect(setup).not.toContainText("localhost");
+    await expect(setup).not.toContainText("127.0.0.1");
   });
 });

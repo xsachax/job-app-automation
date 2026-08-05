@@ -195,10 +195,6 @@ unpacked is enough for local use:
    with a progress panel. After reviewing the page, open the extension from Chrome's toolbar
    and click **Autofill current page**.
 
-The setup panel also links to the Chrome Web Store. Until this extension is published, that
-button opens the store home page; set `NEXT_PUBLIC_CHROME_EXTENSION_STORE_URL` to the exact
-listing URL once one exists.
-
 The profile and application progress stay in that Chrome profile via `chrome.storage.local`.
 The assistant skips uploads and consent checkboxes, reports unknown fields, and never presses
 a submit button. Turn it off globally from its browser-owned popup. If it is off,
