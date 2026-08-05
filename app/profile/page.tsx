@@ -3,18 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../components/api";
 import { cls, PageHeader } from "../components/ui";
+import {
+  isGoogleChromeBrowser,
+  syncAutofillProfile,
+} from "@/lib/chromeExtension";
+import type { ProfileData } from "@/lib/settings";
 
-interface Profile {
-  summary?: string;
-  skills?: string[];
-  resumeUrl?: string;
-  resumeText?: string;
-  targetRoles?: string[];
-  qualifications?: string;
-  resumeSource?: string;
-  resumePath?: string;
-  [key: string]: unknown;
-}
+type Profile = ProfileData;
 
 interface RefreshResult {
   provider: string;
@@ -51,6 +46,14 @@ function splitCsv(value: string): string[] {
 
 function joinCsv(value: string[] | undefined): string {
   return (value ?? []).join(", ");
+}
+
+function booleanChoice(value: boolean | null | undefined): string {
+  return value === true ? "yes" : value === false ? "no" : "";
+}
+
+function parseBooleanChoice(value: string): boolean | null {
+  return value === "yes" ? true : value === "no" ? false : null;
 }
 
 function FieldShell({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
@@ -124,8 +127,10 @@ export default function ProfilePage() {
     setProfile((current) => ({ ...current, [key]: value }));
   }
 
-  async function reloadProfile() {
-    setProfile(await api<Profile>("/api/profile"));
+  async function reloadProfile(): Promise<Profile> {
+    const loaded = await api<Profile>("/api/profile");
+    setProfile(loaded);
+    return loaded;
   }
 
   async function persistProfile(): Promise<Profile> {
@@ -135,6 +140,16 @@ export default function ProfilePage() {
     });
   }
 
+  async function syncSavedProfile(saved: Profile): Promise<string> {
+    if (!isGoogleChromeBrowser()) return "";
+    try {
+      await syncAutofillProfile(saved);
+      return " Chrome autofill synced.";
+    } catch {
+      return " Chrome autofill was not connected; jobs sync it automatically when available.";
+    }
+  }
+
   async function saveProfile() {
     setSaving(true);
     setError(null);
@@ -142,7 +157,8 @@ export default function ProfilePage() {
     try {
       const saved = await persistProfile();
       setProfile(saved);
-      setMessage("Profile saved. The judge will use these details on the next run.");
+      const syncMessage = await syncSavedProfile(saved);
+      setMessage(`Profile saved. The judge will use these details on the next run.${syncMessage}`);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -152,19 +168,24 @@ export default function ProfilePage() {
 
   async function refreshResume() {
     setRefreshing(true);
+    setSaving(true);
     setError(null);
     setMessage(null);
     try {
+      const saved = await persistProfile();
+      setProfile(saved);
       const result = await api<RefreshResult>("/api/profile/refresh", {
         method: "POST",
-        body: JSON.stringify({ source: profile.resumeUrl || profile.resumeSource || undefined }),
+        body: JSON.stringify({ source: saved.resumeUrl || saved.resumeSource || undefined }),
       });
-      await reloadProfile();
+      const refreshed = await reloadProfile();
+      const syncMessage = await syncSavedProfile(refreshed);
       const filled = result.updatedFields.length ? ` Updated: ${result.updatedFields.join(", ")}.` : "";
-      setMessage(`Resume refreshed via ${result.provider}.${filled} Run the judge to re-score jobs with it.`);
+      setMessage(`Resume refreshed via ${result.provider}.${filled} Run the judge to re-score jobs with it.${syncMessage}`);
     } catch (e) {
       setError((e as Error).message);
     } finally {
+      setSaving(false);
       setRefreshing(false);
     }
   }
@@ -177,12 +198,13 @@ export default function ProfilePage() {
     try {
       const saved = await persistProfile();
       setProfile(saved);
+      const syncMessage = await syncSavedProfile(saved);
       const result = await api<JudgeResult>("/api/judge/score", {
         method: "POST",
         body: JSON.stringify({}),
       });
       setMessage(
-        `Judge complete: ${result.scored} scored, ${result.preservedAgent} agent scores preserved, ${result.scanned} scanned.`,
+        `Judge complete: ${result.scored} scored, ${result.preservedAgent} agent scores preserved, ${result.scanned} scanned.${syncMessage}`,
       );
     } catch (e) {
       setError((e as Error).message);
@@ -250,8 +272,8 @@ export default function ProfilePage() {
   return (
     <div className="max-w-5xl">
       <PageHeader
-        title="Import your info"
-        subtitle="The judge ranks discovered roles from your résumé and résumé-derived signals only — skills, target roles, and qualifications. No personal or contact details are collected here."
+        title="Your profile"
+        subtitle="Keep résumé, application autofill, and judge signals in one local profile. Contact details are used only for autofill and never influence fit scores."
       >
         <button
           onClick={runJudge}
@@ -275,6 +297,212 @@ export default function ProfilePage() {
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-6">
+          <section className={cls.card}>
+            <h2 className="text-lg font-semibold text-gray-950 dark:text-gray-50">
+              Application autofill
+            </h2>
+            <p className="mt-1 max-w-2xl text-sm text-gray-600 dark:text-gray-400">
+              Saved with your app profile. The Chrome extension syncs automatically when
+              you save or open a job.
+            </p>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-3">
+              <FieldShell label="First name">
+                <input
+                  aria-label="First name"
+                  className={cls.input}
+                  value={profile.firstName ?? ""}
+                  autoComplete="given-name"
+                  onChange={(e) => setField("firstName", e.target.value)}
+                />
+              </FieldShell>
+              <FieldShell label="Preferred name">
+                <input
+                  aria-label="Preferred name"
+                  className={cls.input}
+                  value={profile.preferredName ?? ""}
+                  autoComplete="nickname"
+                  onChange={(e) => setField("preferredName", e.target.value)}
+                />
+              </FieldShell>
+              <FieldShell label="Last name">
+                <input
+                  aria-label="Last name"
+                  className={cls.input}
+                  value={profile.lastName ?? ""}
+                  autoComplete="family-name"
+                  onChange={(e) => setField("lastName", e.target.value)}
+                />
+              </FieldShell>
+            </div>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <FieldShell label="Email">
+                <input
+                  aria-label="Email"
+                  type="email"
+                  className={cls.input}
+                  value={profile.email ?? ""}
+                  autoComplete="email"
+                  onChange={(e) => setField("email", e.target.value)}
+                />
+              </FieldShell>
+              <FieldShell label="Phone">
+                <input
+                  aria-label="Phone"
+                  type="tel"
+                  className={cls.input}
+                  value={profile.phone ?? ""}
+                  autoComplete="tel"
+                  onChange={(e) => setField("phone", e.target.value)}
+                />
+              </FieldShell>
+            </div>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <FieldShell
+                label="Location"
+                hint="General location used for job matching, such as New York, NY."
+              >
+                <input
+                  aria-label="Location"
+                  className={cls.input}
+                  value={profile.location ?? ""}
+                  onChange={(e) => setField("location", e.target.value)}
+                />
+              </FieldShell>
+              <FieldShell label="Street address">
+                <input
+                  aria-label="Street address"
+                  className={cls.input}
+                  value={profile.addressLine1 ?? ""}
+                  autoComplete="address-line1"
+                  onChange={(e) => setField("addressLine1", e.target.value)}
+                />
+              </FieldShell>
+            </div>
+
+            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <FieldShell label="City">
+                <input
+                  aria-label="City"
+                  className={cls.input}
+                  value={profile.city ?? ""}
+                  autoComplete="address-level2"
+                  onChange={(e) => setField("city", e.target.value)}
+                />
+              </FieldShell>
+              <FieldShell label="State / province">
+                <input
+                  aria-label="State / province"
+                  className={cls.input}
+                  value={profile.state ?? ""}
+                  autoComplete="address-level1"
+                  onChange={(e) => setField("state", e.target.value)}
+                />
+              </FieldShell>
+              <FieldShell label="Postal code">
+                <input
+                  aria-label="Postal code"
+                  className={cls.input}
+                  value={profile.postalCode ?? ""}
+                  autoComplete="postal-code"
+                  onChange={(e) => setField("postalCode", e.target.value)}
+                />
+              </FieldShell>
+              <FieldShell label="Country">
+                <input
+                  aria-label="Country"
+                  className={cls.input}
+                  value={profile.country ?? ""}
+                  autoComplete="country-name"
+                  onChange={(e) => setField("country", e.target.value)}
+                />
+              </FieldShell>
+            </div>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-3">
+              <FieldShell label="LinkedIn URL">
+                <input
+                  aria-label="LinkedIn URL"
+                  type="url"
+                  className={cls.input}
+                  value={profile.linkedin ?? ""}
+                  onChange={(e) => setField("linkedin", e.target.value)}
+                />
+              </FieldShell>
+              <FieldShell label="GitHub URL">
+                <input
+                  aria-label="GitHub URL"
+                  type="url"
+                  className={cls.input}
+                  value={profile.github ?? ""}
+                  onChange={(e) => setField("github", e.target.value)}
+                />
+              </FieldShell>
+              <FieldShell label="Portfolio or website URL">
+                <input
+                  aria-label="Portfolio or website URL"
+                  type="url"
+                  className={cls.input}
+                  value={profile.website || profile.portfolio || ""}
+                  onChange={(e) =>
+                    setProfile((current) => ({
+                      ...current,
+                      website: e.target.value,
+                      portfolio: "",
+                    }))
+                  }
+                />
+              </FieldShell>
+            </div>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <FieldShell label="Legally authorized to work">
+                <select
+                  aria-label="Legally authorized to work"
+                  className={cls.input}
+                  value={booleanChoice(profile.workAuthorized)}
+                  onChange={(e) =>
+                    setField("workAuthorized", parseBooleanChoice(e.target.value))
+                  }
+                >
+                  <option value="">Select an answer</option>
+                  <option value="yes">Yes</option>
+                  <option value="no">No</option>
+                </select>
+              </FieldShell>
+              <FieldShell label="Requires visa sponsorship">
+                <select
+                  aria-label="Requires visa sponsorship"
+                  className={cls.input}
+                  value={booleanChoice(profile.requiresSponsorship)}
+                  onChange={(e) =>
+                    setField("requiresSponsorship", parseBooleanChoice(e.target.value))
+                  }
+                >
+                  <option value="">Select an answer</option>
+                  <option value="yes">Yes</option>
+                  <option value="no">No</option>
+                </select>
+              </FieldShell>
+            </div>
+
+            <div className="mt-4">
+              <FieldShell
+                label="Default cover letter"
+                hint="Optional. Review and customize it for every application."
+              >
+                <textarea
+                  aria-label="Default cover letter"
+                  className={`${cls.input} min-h-32`}
+                  value={profile.coverLetterTemplate ?? ""}
+                  onChange={(e) => setField("coverLetterTemplate", e.target.value)}
+                />
+              </FieldShell>
+            </div>
+          </section>
+
           <section className={cls.card}>
             <h2 className="text-lg font-semibold text-gray-950 dark:text-gray-50">Resume source</h2>
             <p className="mt-1 max-w-2xl text-sm text-gray-600 dark:text-gray-400">

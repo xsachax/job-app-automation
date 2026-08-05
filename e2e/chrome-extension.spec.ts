@@ -1,14 +1,19 @@
 import { expect, test } from "@playwright/test";
-import { CHROME_EXTENSION_ID_STORAGE_KEY } from "../lib/chromeExtension";
+import { CHROME_AUTOFILL_EXTENSION_ID } from "../lib/chromeExtension";
 import { jobCard } from "./helpers";
-
-const EXTENSION_ID = "abcdefghijklmnopabcdefghijklmnop";
 
 test("a connected extension launches a job and streams progress", async ({ page }) => {
   await page.addInitScript(
-    ({ extensionId, storageKey }) => {
-      localStorage.setItem(storageKey, extensionId);
-
+    ({ extensionId }) => {
+      Object.defineProperty(navigator, "userAgentData", {
+        configurable: true,
+        value: {
+          brands: [
+            { brand: "Chromium", version: "140" },
+            { brand: "Google Chrome", version: "140" },
+          ],
+        },
+      });
       const host = window as unknown as {
         chrome?: {
           runtime?: {
@@ -73,8 +78,7 @@ test("a connected extension launches a job and streams progress", async ({ page 
       };
     },
     {
-      extensionId: EXTENSION_ID,
-      storageKey: CHROME_EXTENSION_ID_STORAGE_KEY,
+      extensionId: CHROME_AUTOFILL_EXTENSION_ID,
     },
   );
 
@@ -90,17 +94,24 @@ test("a connected extension launches a job and streams progress", async ({ page 
   await expect(page.getByText("2 of 3 answered")).toBeVisible();
   await expect(page.getByText("Why this role?")).toBeVisible();
 
-  const messageTypes = await page.evaluate(
+  const messages = await page.evaluate(
     () =>
       (
         window as unknown as {
-          __extensionMessages: { message: { type?: string } }[];
+          __extensionMessages: {
+            id: string;
+            message: { type?: string; profile?: Record<string, string> };
+          }[];
         }
-      ).__extensionMessages.map((entry) => entry.message.type),
+      ).__extensionMessages,
   );
-  expect(messageTypes).toEqual([
+  expect(messages.map((entry) => entry.message.type)).toEqual([
     "JOB_AUTOFILL_PING",
     "JOB_AUTOFILL_LAUNCH",
     "JOB_AUTOFILL_GET_PROGRESS",
   ]);
+  expect(messages.every((entry) => entry.id === CHROME_AUTOFILL_EXTENSION_ID)).toBe(
+    true,
+  );
+  expect(messages[1]?.message.profile).toBeDefined();
 });

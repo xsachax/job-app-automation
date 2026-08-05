@@ -10,11 +10,12 @@ import { DEFAULT_FILTERS } from "../components/jobs/types";
 import { PageHeader } from "../components/ui";
 import {
   getAutofillProgress,
+  isGoogleChromeBrowser,
   launchAutofillApplication,
   pingAutofillExtension,
-  readChromeExtensionId,
   type AutofillSession,
 } from "@/lib/chromeExtension";
+import type { ProfileData } from "@/lib/settings";
 
 const COUNTRIES: { value: Country; label: string }[] = [
   { value: "US", label: "United States" },
@@ -119,7 +120,6 @@ export default function JobsPage() {
   const [updatingIds, setUpdatingIds] = useState<Set<string>>(() => new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-  const [extensionId, setExtensionId] = useState("");
   const [extensionConnection, setExtensionConnection] =
     useState<ExtensionConnection>("none");
   const [extensionMessage, setExtensionMessage] = useState<string | null>(null);
@@ -178,28 +178,13 @@ export default function JobsPage() {
   }, []);
 
   useEffect(() => {
+    if (!isGoogleChromeBrowser()) return;
+
     let active = true;
     void Promise.resolve().then(async () => {
-      let configuredId: string;
-      try {
-        configuredId = readChromeExtensionId();
-      } catch (caught) {
-        if (!active) return;
-        setExtensionConnection("error");
-        setExtensionMessage(
-          `Could not read the saved Chrome extension ID: ${
-            caught instanceof Error ? caught.message : String(caught)
-          }`,
-        );
-        return;
-      }
-      if (!active) return;
-      setExtensionId(configuredId);
-      if (!configuredId) return;
-
       setExtensionConnection("checking");
       try {
-        const response = await pingAutofillExtension(configuredId);
+        const response = await pingAutofillExtension();
         if (!active) return;
         setExtensionConnection(response.enabled ? "ready" : "off");
       } catch (caught) {
@@ -219,7 +204,7 @@ export default function JobsPage() {
   }, []);
 
   useEffect(() => {
-    if (!extensionId || !activeExtensionSessionId) return;
+    if (!activeExtensionSessionId) return;
 
     const sessionId = activeExtensionSessionId;
     let cancelled = false;
@@ -227,10 +212,7 @@ export default function JobsPage() {
 
     async function poll() {
       try {
-        const response = await getAutofillProgress(
-          extensionId,
-          sessionId,
-        );
+        const response = await getAutofillProgress(sessionId);
         if (cancelled) return;
         setActiveExtensionSession(response.session);
         if (!TERMINAL_EXTENSION_STATUSES.has(response.session.status)) {
@@ -256,7 +238,7 @@ export default function JobsPage() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [activeExtensionSessionId, extensionId]);
+  }, [activeExtensionSessionId]);
 
   useEffect(() => {
     return () => {
@@ -323,12 +305,16 @@ export default function JobsPage() {
   async function openWithExtension(job: Job) {
     setExtensionMessage(null);
     try {
-      const response = await launchAutofillApplication(extensionId, {
-        jobId: job.id,
-        jobTitle: job.title,
-        company: job.company,
-        url: job.applyUrl,
-      });
+      const profile = await api<ProfileData>("/api/profile");
+      const response = await launchAutofillApplication(
+        {
+          jobId: job.id,
+          jobTitle: job.title,
+          company: job.company,
+          url: job.applyUrl,
+        },
+        profile,
+      );
       setActiveExtensionSession(null);
       setActiveExtensionSessionId(response.sessionId);
       setExtensionMessage("Application opened with the autofill extension.");
@@ -473,7 +459,7 @@ export default function JobsPage() {
         onClear={handleClearFilters}
       />
 
-      {extensionId && (
+      {extensionConnection !== "none" && (
         <div
           className={
             "mb-3 rounded-lg border px-3 py-2 text-xs " +

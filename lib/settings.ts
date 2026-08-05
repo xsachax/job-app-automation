@@ -34,10 +34,16 @@ export async function saveCriteria(data: Criteria): Promise<Criteria> {
 // Canonical answers to the questions typically asked on Greenhouse/Lever/Ashby forms.
 export interface ProfileData {
   firstName?: string;
+  preferredName?: string;
   lastName?: string;
   email?: string;
   phone?: string;
   location?: string;
+  addressLine1?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  country?: string;
   linkedin?: string;
   github?: string;
   website?: string;
@@ -49,8 +55,8 @@ export interface ProfileData {
   targetRoles?: string[]; // roles the user wants the discovery judge to favor
   qualifications?: string; // degree, graduation date, projects, constraints
   // Common compliance / eligibility questions.
-  workAuthorized?: boolean;
-  requiresSponsorship?: boolean;
+  workAuthorized?: boolean | null;
+  requiresSponsorship?: boolean | null;
   gender?: string;
   raceEthnicity?: string;
   veteranStatus?: string;
@@ -64,10 +70,16 @@ export interface ProfileData {
 
 export const DEFAULT_PROFILE: ProfileData = {
   firstName: "",
+  preferredName: "",
   lastName: "",
   email: "",
   phone: "",
   location: "",
+  addressLine1: "",
+  city: "",
+  state: "",
+  postalCode: "",
+  country: "",
   linkedin: "",
   github: "",
   website: "",
@@ -78,8 +90,8 @@ export const DEFAULT_PROFILE: ProfileData = {
   resumeText: "",
   targetRoles: [],
   qualifications: "",
-  workAuthorized: undefined,
-  requiresSponsorship: undefined,
+  workAuthorized: null,
+  requiresSponsorship: null,
   gender: "",
   raceEthnicity: "",
   veteranStatus: "",

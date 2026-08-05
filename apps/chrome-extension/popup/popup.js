@@ -1,7 +1,6 @@
 const enabledInput = document.querySelector("[data-enabled]");
 const mode = document.querySelector("[data-mode]");
 const fillButton = document.querySelector("[data-fill]");
-const optionsButton = document.querySelector("[data-options]");
 const notice = document.querySelector("[data-notice]");
 const progress = document.querySelector("[data-progress]");
 
@@ -28,10 +27,8 @@ async function refresh() {
   enabledInput.checked = Boolean(state.enabled);
   mode.textContent = state.enabled ? "Extension is on" : "Extension is off";
   fillButton.disabled = !state.enabled || !tab?.url?.startsWith("http");
-  document.querySelector("[data-extension-id]").textContent = state.extensionId;
-
   if (!state.profileConfigured) {
-    showNotice("Add your profile before filling applications.");
+    showNotice("Add your autofill details in the app profile before filling applications.");
   }
 
   if (state.session?.progress) {
@@ -84,11 +81,6 @@ fillButton.addEventListener("click", async () => {
   }
 });
 
-optionsButton.addEventListener("click", () => {
-  void sendMessage({ type: "JOB_AUTOFILL_OPEN_OPTIONS" });
-});
-
 void refresh().catch((error) => {
   showNotice(error instanceof Error ? error.message : String(error), true);
 });
-

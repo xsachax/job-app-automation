@@ -1,13 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  isChromeExtensionId,
   isGoogleChromeBrowser,
-  normalizeChromeExtensionId,
   pingAutofillExtension,
-  readChromeExtensionId,
-  saveChromeExtensionId,
 } from "@/lib/chromeExtension";
 import { cls } from "../ui";
 
@@ -17,87 +13,52 @@ type ConnectionStatus = {
 };
 
 export function ExtensionSettings() {
-  const [extensionId, setExtensionId] = useState("");
   const [chromeSupported, setChromeSupported] = useState<boolean | null>(null);
   const [opening, setOpening] = useState(false);
   const [checking, setChecking] = useState(false);
   const [status, setStatus] = useState<ConnectionStatus | null>(null);
-  const connectionAttempt = useRef(0);
 
   useEffect(() => {
     let active = true;
+    let handleFocus: (() => void) | null = null;
     void Promise.resolve().then(() => {
       if (!active) return;
       const supported = isGoogleChromeBrowser();
       setChromeSupported(supported);
       if (!supported) return;
-      try {
-        setExtensionId(readChromeExtensionId());
-      } catch (caught) {
-        setStatus({
-          tone: "error",
-          message: caught instanceof Error ? caught.message : String(caught),
-        });
+
+      async function checkConnection() {
+        setChecking(true);
+        try {
+          const response = await pingAutofillExtension();
+          if (!active) return;
+          setStatus({
+            tone: response.enabled ? "success" : "muted",
+            message: response.enabled
+              ? `Connected to extension version ${response.version}.`
+              : `Connected to version ${response.version}, but the extension is turned off.`,
+          });
+        } catch {
+          if (!active) return;
+          setStatus({
+            tone: "muted",
+            message: "Extension not installed or waiting to be reloaded.",
+          });
+        } finally {
+          if (active) setChecking(false);
+        }
       }
+
+      handleFocus = () => void checkConnection();
+      void checkConnection();
+      window.addEventListener("focus", handleFocus);
     });
+
     return () => {
       active = false;
+      if (handleFocus) window.removeEventListener("focus", handleFocus);
     };
   }, []);
-
-  async function connectExtension(normalizedId: string, attempt: number) {
-    setChecking(true);
-    setStatus(null);
-    try {
-      const savedId = saveChromeExtensionId(normalizedId);
-      const response = await pingAutofillExtension(savedId);
-      if (connectionAttempt.current !== attempt) return;
-      setStatus({
-        tone: response.enabled ? "success" : "muted",
-        message: response.enabled
-          ? `Connected to extension version ${response.version}.`
-          : `Connected to version ${response.version}, but the extension is turned off.`,
-      });
-    } catch (caught) {
-      if (connectionAttempt.current !== attempt) return;
-      setStatus({
-        tone: "error",
-        message: caught instanceof Error ? caught.message : String(caught),
-      });
-    } finally {
-      if (connectionAttempt.current === attempt) setChecking(false);
-    }
-  }
-
-  function updateExtensionId(value: string) {
-    if (!chromeSupported) return;
-    setExtensionId(value);
-    const normalizedId = normalizeChromeExtensionId(value);
-    const attempt = ++connectionAttempt.current;
-
-    if (!isChromeExtensionId(normalizedId)) {
-      setChecking(false);
-      try {
-        saveChromeExtensionId("");
-        setStatus(
-          normalizedId.length >= 32
-            ? {
-                tone: "error",
-                message: "Enter a valid 32-character Chrome extension ID.",
-              }
-            : null,
-        );
-      } catch (caught) {
-        setStatus({
-          tone: "error",
-          message: caught instanceof Error ? caught.message : String(caught),
-        });
-      }
-      return;
-    }
-
-    void connectExtension(normalizedId, attempt);
-  }
 
   async function openChromeExtensions() {
     if (!chromeSupported) return;
@@ -147,24 +108,9 @@ export function ExtensionSettings() {
 
       <p className="mt-4 text-sm text-gray-600 dark:text-gray-400">
         Enable Developer mode, choose <strong>Load unpacked</strong>, select{" "}
-        <code>apps/chrome-extension</code>, then paste the extension ID below.
+        <code>apps/chrome-extension</code>, then return to this dashboard. It connects
+        automatically.
       </p>
-
-      <div className="mt-4">
-        <label htmlFor="chromeExtensionId" className={cls.label}>
-          Chrome extension ID
-        </label>
-        <input
-          id="chromeExtensionId"
-          className={cls.input + " mt-2 font-mono"}
-          value={extensionId}
-          onChange={(event) => updateExtensionId(event.target.value)}
-          placeholder="Paste extension ID"
-          autoComplete="off"
-          spellCheck={false}
-          disabled={chromeSupported !== true}
-        />
-      </div>
 
       {chromeSupported === false && (
         <p
@@ -174,7 +120,7 @@ export function ExtensionSettings() {
           Unsupported browser. Open this dashboard in Google Chrome.
         </p>
       )}
-      {checking && <p className="mt-3 text-sm text-gray-500">Connecting…</p>}
+      {checking && !status && <p className="mt-3 text-sm text-gray-500">Checking…</p>}
       {status && <p className={`mt-3 text-sm ${statusClass}`}>{status.message}</p>}
     </section>
   );

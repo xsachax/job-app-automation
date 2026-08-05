@@ -1,34 +1,37 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
-  CHROME_EXTENSION_ID_STORAGE_KEY,
+  buildAutofillProfile,
+  CHROME_AUTOFILL_EXTENSION_ID,
   getAutofillProgress,
-  isChromeExtensionId,
   isGoogleChromeBrowser,
   launchAutofillApplication,
   pingAutofillExtension,
-  readChromeExtensionId,
-  saveChromeExtensionId,
   sendChromeExtensionMessage,
+  syncAutofillProfile,
   type ChromeRuntimeLike,
 } from "../lib/chromeExtension";
+import type { ProfileData } from "../lib/settings";
 
-const EXTENSION_ID = "abcdefghijklmnopabcdefghijklmnop";
-
-class MemoryStorage {
-  private readonly values = new Map<string, string>();
-
-  getItem(key: string): string | null {
-    return this.values.get(key) ?? null;
-  }
-
-  setItem(key: string, value: string): void {
-    this.values.set(key, value);
-  }
-
-  removeItem(key: string): void {
-    this.values.delete(key);
-  }
-}
+const PROFILE = {
+  firstName: " Jane ",
+  preferredName: " JJ ",
+  lastName: " Doe ",
+  email: " jane@example.com ",
+  phone: " +1 555 0100 ",
+  addressLine1: " 123 Main Street ",
+  city: " San Francisco ",
+  state: " California ",
+  postalCode: " 94105 ",
+  country: " United States ",
+  linkedin: " https://www.linkedin.com/in/jane ",
+  github: " https://github.com/jane ",
+  website: " https://jane.dev ",
+  workAuthorized: true,
+  requiresSponsorship: false,
+  coverLetterTemplate: " Hello hiring team.\n\nThank you. ",
+} satisfies ProfileData;
 
 function fakeRuntime(
   responder: (extensionId: string, message: unknown) => unknown,
@@ -46,24 +49,60 @@ function fakeRuntime(
   return { runtime, calls };
 }
 
-describe("Chrome extension ID storage", () => {
-  it("normalizes, stores, reads, and removes a valid ID", () => {
-    const storage = new MemoryStorage();
-    expect(saveChromeExtensionId(`  ${EXTENSION_ID.toUpperCase()}  `, storage)).toBe(
-      EXTENSION_ID,
-    );
-    expect(storage.getItem(CHROME_EXTENSION_ID_STORAGE_KEY)).toBe(EXTENSION_ID);
-    expect(readChromeExtensionId(storage)).toBe(EXTENSION_ID);
-    expect(saveChromeExtensionId("", storage)).toBe("");
-    expect(readChromeExtensionId(storage)).toBe("");
+describe("Chrome extension identity and profile mapping", () => {
+  it("derives the dashboard extension ID from the manifest key", () => {
+    const manifest = JSON.parse(
+      readFileSync(
+        new URL("../apps/chrome-extension/manifest.json", import.meta.url),
+        "utf8",
+      ),
+    ) as { key: string };
+    const digest = createHash("sha256")
+      .update(Buffer.from(manifest.key, "base64"))
+      .digest()
+      .subarray(0, 16);
+    const extensionId = [...digest]
+      .flatMap((byte) => [byte >> 4, byte & 15])
+      .map((nibble) => String.fromCharCode(97 + nibble))
+      .join("");
+
+    expect(extensionId).toBe(CHROME_AUTOFILL_EXTENSION_ID);
   });
 
-  it("rejects malformed IDs", () => {
-    expect(isChromeExtensionId(EXTENSION_ID)).toBe(true);
-    expect(isChromeExtensionId("z".repeat(32))).toBe(false);
-    expect(() => saveChromeExtensionId("too-short", new MemoryStorage())).toThrow(
-      /32 letters/,
-    );
+  it("maps the app profile to the extension schema", () => {
+    expect(buildAutofillProfile(PROFILE)).toEqual({
+      firstName: "Jane",
+      preferredName: "JJ",
+      lastName: "Doe",
+      email: "jane@example.com",
+      phone: "+1 555 0100",
+      addressLine1: "123 Main Street",
+      city: "San Francisco",
+      state: "California",
+      postalCode: "94105",
+      country: "United States",
+      linkedinUrl: "https://www.linkedin.com/in/jane",
+      githubUrl: "https://github.com/jane",
+      portfolioUrl: "https://jane.dev",
+      workAuthorization: "yes",
+      requiresSponsorship: "no",
+      coverLetter: "Hello hiring team.\n\nThank you.",
+    });
+  });
+
+  it("supports legacy portfolio URLs and cleared eligibility answers", () => {
+    expect(
+      buildAutofillProfile({
+        website: "",
+        portfolio: "https://legacy.example",
+        workAuthorized: null,
+        requiresSponsorship: null,
+      }),
+    ).toMatchObject({
+      portfolioUrl: "https://legacy.example",
+      workAuthorization: "",
+      requiresSponsorship: "",
+    });
   });
 });
 
@@ -113,16 +152,19 @@ describe("Chrome browser support", () => {
 });
 
 describe("Chrome extension messaging", () => {
-  it("sends ping, launch, and progress requests to the configured extension", async () => {
+  it("uses the built-in ID and sends the app profile on sync and launch", async () => {
     const { runtime, calls } = fakeRuntime((_extensionId, message) => {
       const type = (message as { type?: string }).type;
       if (type === "JOB_AUTOFILL_PING") {
         return {
           ok: true,
           enabled: true,
-          extensionId: EXTENSION_ID,
-          version: "0.1.0",
+          extensionId: CHROME_AUTOFILL_EXTENSION_ID,
+          version: "0.2.0",
         };
+      }
+      if (type === "JOB_AUTOFILL_SET_PROFILE") {
+        return { ok: true, profileConfigured: true };
       }
       if (type === "JOB_AUTOFILL_LAUNCH") {
         return { ok: true, sessionId: "session-1" };
@@ -151,38 +193,41 @@ describe("Chrome extension messaging", () => {
       };
     });
 
-    await expect(pingAutofillExtension(EXTENSION_ID, runtime)).resolves.toMatchObject({
+    await expect(pingAutofillExtension(runtime)).resolves.toMatchObject({
       enabled: true,
-      version: "0.1.0",
+      version: "0.2.0",
+    });
+    await expect(syncAutofillProfile(PROFILE, runtime)).resolves.toMatchObject({
+      profileConfigured: true,
     });
     await expect(
       launchAutofillApplication(
-        EXTENSION_ID,
         {
           jobId: "job-1",
           jobTitle: "Engineer",
           company: "Acme",
           url: "https://example.com/apply",
         },
+        PROFILE,
         runtime,
       ),
     ).resolves.toMatchObject({ sessionId: "session-1" });
-    await expect(
-      getAutofillProgress(EXTENSION_ID, "session-1", runtime),
-    ).resolves.toMatchObject({
+    await expect(getAutofillProgress("session-1", runtime)).resolves.toMatchObject({
       session: { id: "session-1", progress: { needsAttention: 1 } },
     });
 
-    expect(calls.map((call) => call.extensionId)).toEqual([
-      EXTENSION_ID,
-      EXTENSION_ID,
-      EXTENSION_ID,
-    ]);
+    expect(calls.every((call) => call.extensionId === CHROME_AUTOFILL_EXTENSION_ID)).toBe(
+      true,
+    );
     expect(calls.map((call) => (call.message as { type: string }).type)).toEqual([
       "JOB_AUTOFILL_PING",
+      "JOB_AUTOFILL_SET_PROFILE",
       "JOB_AUTOFILL_LAUNCH",
       "JOB_AUTOFILL_GET_PROGRESS",
     ]);
+    expect(calls[2]?.message).toMatchObject({
+      profile: buildAutofillProfile(PROFILE),
+    });
   });
 
   it("surfaces extension and Chrome runtime errors", async () => {
@@ -191,17 +236,17 @@ describe("Chrome extension messaging", () => {
       error: "Extension is turned off.",
     }));
     await expect(
-      sendChromeExtensionMessage(EXTENSION_ID, { type: "TEST" }, extensionFailure.runtime),
+      sendChromeExtensionMessage({ type: "TEST" }, extensionFailure.runtime),
     ).rejects.toThrow("Extension is turned off.");
 
     const runtimeFailure = fakeRuntime(() => undefined);
     runtimeFailure.runtime.lastError = { message: "Receiving end does not exist." };
     await expect(
-      sendChromeExtensionMessage(EXTENSION_ID, { type: "TEST" }, runtimeFailure.runtime),
+      sendChromeExtensionMessage({ type: "TEST" }, runtimeFailure.runtime),
     ).rejects.toThrow("Receiving end does not exist.");
 
     await expect(
-      sendChromeExtensionMessage(EXTENSION_ID, { type: "TEST" }, null),
+      sendChromeExtensionMessage({ type: "TEST" }, null),
     ).rejects.toThrow("Chrome did not expose extension messaging");
   });
 });

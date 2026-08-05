@@ -1,5 +1,6 @@
-importScripts("lib/session-scope.js");
+importScripts("lib/profile-schema.js", "lib/session-scope.js");
 
+const profileSchema = globalThis.JobAutofillProfile;
 const sessionScope = globalThis.JobAutofillSessionScope;
 const STORAGE_DEFAULTS = {
   enabled: true,
@@ -29,6 +30,16 @@ function isHttpUrl(value) {
   } catch {
     return false;
   }
+}
+
+function sanitizeProfile(rawProfile) {
+  return profileSchema.sanitizeStoredProfile(rawProfile);
+}
+
+async function replaceProfile(rawProfile) {
+  const profile = sanitizeProfile(rawProfile);
+  await chrome.storage.local.set({ profile });
+  return profile;
 }
 
 async function ensureDefaults() {
@@ -452,6 +463,9 @@ async function launchApplication(payload) {
   if (!isHttpUrl(context.url)) {
     throw new Error("The application URL must use HTTP or HTTPS.");
   }
+  if (Object.prototype.hasOwnProperty.call(payload, "profile")) {
+    await replaceProfile(payload.profile);
+  }
 
   const tab = await chrome.tabs.create({ url: context.url, active: true });
   if (!tab.id) {
@@ -651,9 +665,6 @@ async function handleInternalMessage(message, sender) {
     }
     case "JOB_AUTOFILL_SET_ENABLED":
       return setEnabled(message.enabled);
-    case "JOB_AUTOFILL_OPEN_OPTIONS":
-      await chrome.runtime.openOptionsPage();
-      return { ok: true };
     case "JOB_AUTOFILL_START_TAB":
       return startCurrentTab(message);
     case "JOB_AUTOFILL_PROGRESS": {
@@ -706,6 +717,13 @@ async function handleExternalMessage(message) {
     }
     case "JOB_AUTOFILL_LAUNCH":
       return launchApplication(message);
+    case "JOB_AUTOFILL_SET_PROFILE": {
+      const profile = await replaceProfile(message.profile);
+      return {
+        ok: true,
+        profileConfigured: Object.values(profile).some(Boolean)
+      };
+    }
     case "JOB_AUTOFILL_GET_PROGRESS": {
       const { applicationSessions = {} } = await chrome.storage.local.get(
         "applicationSessions"
