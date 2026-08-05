@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   isChromeExtensionId,
+  isGoogleChromeBrowser,
   normalizeChromeExtensionId,
   pingAutofillExtension,
   readChromeExtensionId,
@@ -17,6 +18,7 @@ type ConnectionStatus = {
 
 export function ExtensionSettings() {
   const [extensionId, setExtensionId] = useState("");
+  const [chromeSupported, setChromeSupported] = useState<boolean | null>(null);
   const [opening, setOpening] = useState(false);
   const [checking, setChecking] = useState(false);
   const [status, setStatus] = useState<ConnectionStatus | null>(null);
@@ -26,6 +28,9 @@ export function ExtensionSettings() {
     let active = true;
     void Promise.resolve().then(() => {
       if (!active) return;
+      const supported = isGoogleChromeBrowser();
+      setChromeSupported(supported);
+      if (!supported) return;
       try {
         setExtensionId(readChromeExtensionId());
       } catch (caught) {
@@ -65,6 +70,7 @@ export function ExtensionSettings() {
   }
 
   function updateExtensionId(value: string) {
+    if (!chromeSupported) return;
     setExtensionId(value);
     const normalizedId = normalizeChromeExtensionId(value);
     const attempt = ++connectionAttempt.current;
@@ -94,6 +100,7 @@ export function ExtensionSettings() {
   }
 
   async function openChromeExtensions() {
+    if (!chromeSupported) return;
     setOpening(true);
     setStatus(null);
     try {
@@ -122,16 +129,26 @@ export function ExtensionSettings() {
   return (
     <section id="chrome-extension" className={cls.card + " mb-6 scroll-mt-6"}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold">Chrome autofill extension</h2>
+        <div>
+          <h2 className="text-lg font-semibold">Chrome autofill extension</h2>
+          <p className="mt-1 text-xs font-medium text-gray-500 dark:text-gray-400">
+            Supported only in Google Chrome.
+          </p>
+        </div>
         <button
           type="button"
           className={cls.btnPrimary}
           onClick={() => void openChromeExtensions()}
-          disabled={opening}
+          disabled={opening || chromeSupported !== true}
         >
           {opening ? "Opening…" : "Open Chrome extensions"}
         </button>
       </div>
+
+      <p className="mt-4 text-sm text-gray-600 dark:text-gray-400">
+        Enable Developer mode, choose <strong>Load unpacked</strong>, select{" "}
+        <code>apps/chrome-extension</code>, then paste the extension ID below.
+      </p>
 
       <div className="mt-4">
         <label htmlFor="chromeExtensionId" className={cls.label}>
@@ -145,9 +162,18 @@ export function ExtensionSettings() {
           placeholder="Paste extension ID"
           autoComplete="off"
           spellCheck={false}
+          disabled={chromeSupported !== true}
         />
       </div>
 
+      {chromeSupported === false && (
+        <p
+          role="alert"
+          className="mt-3 text-sm font-medium text-red-700 dark:text-red-300"
+        >
+          Unsupported browser. Open this dashboard in Google Chrome.
+        </p>
+      )}
       {checking && <p className="mt-3 text-sm text-gray-500">Connecting…</p>}
       {status && <p className={`mt-3 text-sm ${statusClass}`}>{status.message}</p>}
     </section>

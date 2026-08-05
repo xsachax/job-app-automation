@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { NextRequest } from "next/server";
+import { isGoogleChromeBrowser } from "@/lib/chromeExtension";
 import { errorResponse, json } from "@/lib/http";
 
 export const runtime = "nodejs";
@@ -53,6 +54,13 @@ function isSameOrigin(request: NextRequest): boolean {
 export async function POST(request: NextRequest) {
   if (!isSameOrigin(request)) {
     return errorResponse("same-origin request required", 403);
+  }
+  if (
+    !isGoogleChromeBrowser({
+      userAgent: request.headers.get("user-agent") ?? "",
+    })
+  ) {
+    return errorResponse("Google Chrome is required", 400);
   }
 
   try {

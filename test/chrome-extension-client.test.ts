@@ -3,6 +3,7 @@ import {
   CHROME_EXTENSION_ID_STORAGE_KEY,
   getAutofillProgress,
   isChromeExtensionId,
+  isGoogleChromeBrowser,
   launchAutofillApplication,
   pingAutofillExtension,
   readChromeExtensionId,
@@ -63,6 +64,51 @@ describe("Chrome extension ID storage", () => {
     expect(() => saveChromeExtensionId("too-short", new MemoryStorage())).toThrow(
       /32 letters/,
     );
+  });
+});
+
+describe("Chrome browser support", () => {
+  it("accepts desktop Google Chrome", () => {
+    expect(
+      isGoogleChromeBrowser({
+        userAgentData: {
+          brands: [
+            { brand: "Chromium", version: "140" },
+            { brand: "Google Chrome", version: "140" },
+          ],
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isGoogleChromeBrowser({
+        userAgent:
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36",
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects non-Chrome and mobile browsers", () => {
+    expect(
+      isGoogleChromeBrowser({
+        userAgentData: {
+          brands: [
+            { brand: "Chromium", version: "140" },
+            { brand: "Microsoft Edge", version: "140" },
+          ],
+        },
+      }),
+    ).toBe(false);
+    expect(
+      isGoogleChromeBrowser({
+        userAgent:
+          "Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 CriOS/140.0.0.0 Mobile/15E148 Safari/604.1",
+      }),
+    ).toBe(false);
+    expect(
+      isGoogleChromeBrowser({
+        userAgent: "Mozilla/5.0 AppleWebKit/605.1.15 Version/18.0 Safari/605.1.15",
+      }),
+    ).toBe(false);
   });
 });
 

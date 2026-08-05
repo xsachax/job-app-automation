@@ -381,7 +381,7 @@ npm run e2e       # Playwright: dashboard flows against an isolated seeded DB
 ```
 
 Unit tests run against an isolated `prisma/test.db` (migrated fresh each run) and mock all
-network calls, so the suite is offline and deterministic (350 tests, incl. the fit judge,
+network calls, so the suite is offline and deterministic (352 tests, incl. the fit judge,
 enrichment, and configurable-classifier coverage).
 
 ### End-to-end (Playwright)

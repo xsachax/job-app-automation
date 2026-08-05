@@ -44,6 +44,15 @@ test.describe("sidebar nav", () => {
       await route.fulfill({ json: { ok: true } });
     });
     await page.addInitScript(() => {
+      Object.defineProperty(navigator, "userAgentData", {
+        configurable: true,
+        value: {
+          brands: [
+            { brand: "Chromium", version: "140" },
+            { brand: "Google Chrome", version: "140" },
+          ],
+        },
+      });
       Object.defineProperty(globalThis, "chrome", {
         configurable: true,
         value: {
@@ -85,5 +94,23 @@ test.describe("sidebar nav", () => {
     ).toBe(extensionId);
     await expect(setup).not.toContainText("localhost");
     await expect(setup).not.toContainText("127.0.0.1");
+  });
+
+  test("extension setup is clearly unsupported outside Google Chrome", async ({
+    page,
+  }) => {
+    await page.goto("/settings#chrome-extension");
+    const setup = page.locator("#chrome-extension");
+
+    await expect(
+      setup.getByText("Supported only in Google Chrome."),
+    ).toBeVisible();
+    await expect(
+      setup.getByText("Unsupported browser. Open this dashboard in Google Chrome."),
+    ).toBeVisible();
+    await expect(
+      setup.getByRole("button", { name: "Open Chrome extensions" }),
+    ).toBeDisabled();
+    await expect(setup.getByLabel("Chrome extension ID")).toBeDisabled();
   });
 });

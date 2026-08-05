@@ -2,6 +2,14 @@ export const CHROME_EXTENSION_ID_STORAGE_KEY = "jobAutofillExtensionId";
 
 const CHROME_EXTENSION_ID_PATTERN = /^[a-p]{32}$/;
 
+export interface BrowserIdentityLike {
+  userAgent?: string;
+  userAgentData?: {
+    brands?: { brand: string; version?: string }[];
+  };
+  brave?: unknown;
+}
+
 export interface ChromeRuntimeLike {
   lastError?: { message?: string };
   sendMessage(
@@ -80,6 +88,29 @@ export function normalizeChromeExtensionId(value: string): string {
 
 export function isChromeExtensionId(value: string): boolean {
   return CHROME_EXTENSION_ID_PATTERN.test(normalizeChromeExtensionId(value));
+}
+
+export function isGoogleChromeBrowser(
+  identity?: BrowserIdentityLike,
+): boolean {
+  const browserIdentity =
+    identity ??
+    (typeof navigator === "undefined"
+      ? undefined
+      : (navigator as unknown as BrowserIdentityLike));
+  if (!browserIdentity || browserIdentity.brave) return false;
+
+  const brands = browserIdentity.userAgentData?.brands ?? [];
+  if (brands.length) {
+    return brands.some(({ brand }) => brand === "Google Chrome");
+  }
+
+  const userAgent = browserIdentity.userAgent ?? "";
+  return (
+    /\bChrome\/\d+/i.test(userAgent) &&
+    !/\b(?:Edg|OPR|CriOS)\//i.test(userAgent) &&
+    !/\bMobile\b/i.test(userAgent)
+  );
 }
 
 export function readChromeExtensionId(storage?: Pick<Storage, "getItem">): string {
