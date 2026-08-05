@@ -4,13 +4,15 @@ A local-first pipeline that **discovers currently-open entry-level software role
 (SWE, DevOps, ML, and related) at ~40 big-tech / well-known / VC-backed companies and
 surfaces them in a dashboard as two separate queues — **United States** and **Canada** —
 sorted newest-first with date filters. Each card links straight to the real posting; you
-apply yourself. Nothing is auto-filled or submitted.
+apply yourself, or optionally launch a local Chrome extension that fills known fields and
+highlights anything needing your answer. Nothing is submitted automatically.
 
 The queue targets roles that are **entry-level or ask for ≤ 2 years of experience**, at
 **bachelor's-degree-or-below** level (Masters/PhD-required roles are filtered out).
 
-> **Focus:** the project is **discovery-only** — it finds jobs and links out; nothing is
-> ever auto-filled or submitted. On top of discovery it now adds a **configurable pipeline**
+> **Focus:** discovery remains the core workflow. The optional local Chrome extension assists
+> with form filling only after you open a posting; it never submits. On top of discovery the
+> project adds a **configurable pipeline**
 > (Settings), **enriched, filterable job cards**, **applied-status tracking**, **dark mode**,
 > **personal-info import**, and a **post-scrape fit judge** that ranks discovered roles
 > against your résumé. Legacy auto-apply fillers are retained but unused (see
@@ -89,6 +91,9 @@ npm run discover -- "Y Combinator"
   migration; the Overview shows a per-category roll-up.
 - **Applied tracking** — mark a job `saved` / `applied` / `dismissed` (etc.) right on the
   card; **new** (< 48h) and **stale** (> 30d) postings are styled distinctly.
+- **Optional Chrome autofill assistant** — open a posting from the Jobs page, fill recognized
+  fields from a profile stored in Chrome, track progress in both the posting and dashboard,
+  and list every unknown or manual field. It has a global off switch and never submits.
 - **Warm-intro tagging** — import your LinkedIn **Connections.csv** on the Profile page and
   every card at a company where you already know someone gets a 🤝 badge (with names/roles in
   the tooltip). A **Warm intro** filter narrows the queue to just those. Matching is local and
@@ -103,7 +108,9 @@ npm run discover -- "Y Combinator"
   company site and an aggregator board collapses into one card). See [below](#dedup--never-apply-twice).
 - **Entry-level gate** — software role, not senior, ≤ 2 years experience, no advanced
   degree required. "No experience specified" passes. (Tunable in Settings.)
-- **Link-out only** — every card opens the real posting; you fill the application.
+- **Safe application handoff** — every card opens the real posting. Without the optional
+  extension it is a normal link; with the extension connected, the assistant opens beside the
+  form and waits for you to start autofill from Chrome's browser-owned extension popup.
 - **Workday flagging** — surfaced in a separate list.
 - **Clean dashboard** — Overview, Jobs (US/CA), Companies, Settings, Profile, Workday.
 
@@ -152,6 +159,9 @@ npm run dev
 # and hit "Re-run judge"
 ```
 
+The Chrome extension is optional and needs no build or Web Store publication. Follow
+[Chrome autofill extension](#chrome-autofill-extension-optional) after the dashboard starts.
+
 ---
 
 ## Dashboard tour
@@ -159,11 +169,33 @@ npm run dev
 | Page | What you do there |
 | --- | --- |
 | **Overview** | Discovery stats, US/CA entry-level counts, companies covered, by-category and by-company breakdowns. |
-| **Jobs** | Time-sorted US / CA queues of discovered postings. Filter by category, date, skills, sponsorship, employment type, source, min salary, min fit, remote, warm intro and applied status; sort by newest / company / best fit / salary. Each card links out and lets you mark status. |
+| **Jobs** | Time-sorted US / CA queues of discovered postings. Filter by category, date, skills, sponsorship, employment type, source, min salary, min fit, remote, warm intro and applied status; sort by newest / company / best fit / salary. Each card links out or launches the optional autofill assistant, tracks its progress, and lets you mark status. |
 | **Companies** | Coverage of every API and browser-scraped source. |
-| **Settings** | Edit the discovery configuration — countries, max YoE, degree/internship gates, keywords, scraper query terms, per-source enable/disable. |
+| **Settings** | Connect/test the optional Chrome extension and edit discovery configuration — countries, max YoE, degree/internship gates, keywords, scraper query terms, per-source enable/disable. |
 | **Profile** | Import your contact details, résumé PDF URL (or pasted text), target roles, skills and qualifications, and your LinkedIn Connections.csv (for warm-intro tagging), then run the fit judge. |
 | **Workday** | Read-only list of flagged Workday jobs with apply links. |
+
+---
+
+## Chrome autofill extension (optional)
+
+The Manifest V3 extension is plain JavaScript under `apps/chrome-extension`; loading it
+unpacked is enough for local use:
+
+1. Start the dashboard with `npm run dev` and open `http://localhost:3000`.
+   The sidebar's **Install extension** button jumps directly to this setup panel.
+2. Open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select
+   this repository's `apps/chrome-extension` directory.
+3. Open the extension's options page, fill the local profile, and copy its extension ID.
+4. Paste the ID in dashboard **Settings → Chrome autofill extension**.
+5. On **Jobs**, click a posting title or **Open** action. The extension opens the application
+   with a progress panel. After reviewing the page, open the extension from Chrome's toolbar
+   and click **Autofill current page**.
+
+The profile and application progress stay in that Chrome profile via `chrome.storage.local`.
+The assistant skips uploads and consent checkboxes, reports unknown fields, and never presses
+a submit button. Turn it off globally from its browser-owned popup. If it is off,
+disconnected, or not configured, dashboard job links behave as normal external links.
 
 ---
 
@@ -210,7 +242,7 @@ first saw the job), split into **United States** and **Canada** tabs. Controls:
   sponsorship, employment type, source, applied status — each showing live counts — plus
   **min salary**, **min fit**, **remote only**, **warm intro** (jobs where you have a LinkedIn
   connection, shown only once connections are imported) and free-text search on title/company.
-- **Card actions** — `Open posting ↗` (link-out) and status buttons (`Save`,
+- **Card actions** — `Open posting ↗` (normal link or extension-assisted handoff) and status buttons (`Save`,
   `Mark applied`, `Dismiss`, `Clear`). **New** (< 48h) cards and **stale** (> 30d) cards
   are styled distinctly.
 
@@ -346,7 +378,7 @@ npm run e2e       # Playwright: dashboard flows against an isolated seeded DB
 ```
 
 Unit tests run against an isolated `prisma/test.db` (migrated fresh each run) and mock all
-network calls, so the suite is offline and deterministic (96 tests, incl. the fit judge,
+network calls, so the suite is offline and deterministic (353 tests, incl. the fit judge,
 enrichment, and configurable-classifier coverage).
 
 ### End-to-end (Playwright)
@@ -383,7 +415,10 @@ app/                 Next.js dashboard (pages) + API routes under app/api
   profile/           "Import your info" — résumé + judge signals
   workday/           Workday flag-only list
   api/               jobs (+ facets, [id]), config, judge (score/review), profile, …
+apps/
+  chrome-extension/  unpacked Manifest V3 extension (popup, options, form panel, icons)
 lib/
+  chromeExtension.ts typed dashboard ↔ Chrome extension messaging client
   discovery/         catalog, adapters.ts (API fetchers), browser.ts (Playwright),
                      entryLevel.ts (config-driven classifiers), enrich.ts, config.ts, run.ts
   judge/             judge.ts (deterministic Job fit), agent.ts (export/apply)
@@ -395,7 +430,7 @@ lib/
 prisma/              schema, migrations, seed
 scripts/             discover (API / --browser), judge, verify-queries, e2e-seed
 test/                vitest suite
-e2e/                 Playwright specs (smoke, queue, discovery, jobs-actions)
+e2e/                 Playwright specs (smoke, queue, discovery, jobs-actions, extension)
 ```
 
 
@@ -405,6 +440,9 @@ e2e/                 Playwright specs (smoke, queue, discovery, jobs-actions)
 
 - **Local-first.** Your data and keys live in `.env` / the local SQLite DB and are never
   committed (`.env*` and `*.db` are gitignored).
+- The optional extension profile and live application progress use `chrome.storage.local`.
+  Chrome restricts dashboard communication to the loopback URL patterns declared in the
+  extension manifest, and the extension never submits an application.
 - Prefers **official ATS APIs** over scraping.
 - **Workday** is flag-only by design.
 - **Discord (deferred):** scraping a Discord channel you're only a member of would require

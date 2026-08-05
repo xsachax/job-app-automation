@@ -18,6 +18,10 @@ const tierLinks = [
 
 const profileLink = { href: "/profile", label: "Profile" };
 const settingsLink = { href: "/settings", label: "Settings" };
+const extensionSetupLink = {
+  href: "/settings#chrome-extension",
+  label: "Install extension",
+};
 
 function linkClass(active: boolean, indented = false) {
   return (
@@ -103,9 +107,21 @@ export function Nav() {
       </div>
 
       <Link
+        href={extensionSetupLink.href}
+        className={
+          linkClass(false) +
+          " mt-auto flex items-center justify-between border border-indigo-200 text-indigo-700 dark:border-indigo-900 dark:text-indigo-300"
+        }
+        title="Install or connect the Chrome autofill extension"
+      >
+        <span>{extensionSetupLink.label}</span>
+        <span aria-hidden>+</span>
+      </Link>
+
+      <Link
         href={profileLink.href}
         aria-current={isActive(profileLink.href) ? "page" : undefined}
-        className={linkClass(isActive(profileLink.href)) + " mt-auto"}
+        className={linkClass(isActive(profileLink.href))}
       >
         {profileLink.label}
       </Link>

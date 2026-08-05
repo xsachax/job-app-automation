@@ -1,5 +1,6 @@
 "use client";
 
+import type { MouseEvent } from "react";
 import { CompanyLogo } from "../CompanyLogo";
 import {
   AppliedBadge,
@@ -123,6 +124,7 @@ interface JobCardProps {
   onToggleSelect?: (jobId: string) => void;
   /** Overrides the primary open-in-new-tab label. Defaults to Workday-aware text. */
   openLabel?: string;
+  onOpen?: (job: Job) => Promise<void> | void;
 }
 
 export function JobCard({
@@ -132,6 +134,7 @@ export function JobCard({
   selected = false,
   onToggleSelect,
   openLabel,
+  onOpen,
 }: JobCardProps) {
   const status = job.applicationStatus || "none";
   const resolvedOpenLabel = openLabel ?? (job.isWorkday ? "Open on Workday ↗" : "Open ↗");
@@ -155,6 +158,21 @@ export function JobCard({
   const employmentText = job.employmentType
     ? employmentLabels[job.employmentType] ?? titleize(job.employmentType)
     : null;
+
+  function handleOpen(event: MouseEvent<HTMLAnchorElement>) {
+    if (
+      !onOpen ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return;
+    }
+    event.preventDefault();
+    void onOpen(job);
+  }
 
   return (
     <article
@@ -183,6 +201,7 @@ export function JobCard({
                   href={job.applyUrl}
                   target="_blank"
                   rel="noreferrer"
+                  onClick={handleOpen}
                   data-testid="job-title"
                   className="text-sm font-semibold leading-5 text-gray-950 hover:text-indigo-600 hover:underline dark:text-gray-100 dark:hover:text-indigo-300"
                 >
@@ -273,6 +292,7 @@ export function JobCard({
             href={job.applyUrl}
             target="_blank"
             rel="noreferrer"
+            onClick={handleOpen}
             className={primaryAction}
           >
             {resolvedOpenLabel}

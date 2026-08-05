@@ -35,4 +35,82 @@ test.describe("sidebar nav", () => {
     ).map((l) => l.trim());
     expect(labels.slice(-2)).toEqual(["Profile", "Settings"]);
   });
+
+  test("extension install button opens the minimal Chrome setup", async ({ page }) => {
+    const extensionId = "abcdefghijklmnopabcdefghijklmnop";
+    let openRequested = false;
+    await page.route("**/api/chrome-extension/open", async (route) => {
+      openRequested = route.request().method() === "POST";
+      await route.fulfill({ json: { ok: true } });
+    });
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "userAgentData", {
+        configurable: true,
+        value: {
+          brands: [
+            { brand: "Chromium", version: "140" },
+            { brand: "Google Chrome", version: "140" },
+          ],
+        },
+      });
+      Object.defineProperty(globalThis, "chrome", {
+        configurable: true,
+        value: {
+          runtime: {
+            sendMessage(
+              id: string,
+              _message: unknown,
+              callback: (response: unknown) => void,
+            ) {
+              callback({
+                ok: true,
+                enabled: true,
+                extensionId: id,
+                version: "0.1.0",
+              });
+            },
+          },
+        },
+      });
+    });
+
+    await page.goto("/");
+    const nav = page.getByRole("navigation");
+    await nav.getByRole("link", { name: "Install extension", exact: true }).click();
+
+    await expect(page).toHaveURL(/\/settings#chrome-extension$/);
+    const setup = page.locator("#chrome-extension");
+    await expect(setup).toBeVisible();
+    await expect(setup.getByRole("button")).toHaveCount(1);
+    await setup.getByRole("button", { name: "Open Chrome extensions" }).click();
+    expect(openRequested).toBe(true);
+
+    await setup.getByLabel("Chrome extension ID").fill(extensionId);
+    await expect(
+      setup.getByText("Connected to extension version 0.1.0."),
+    ).toBeVisible();
+    expect(
+      await page.evaluate(() => localStorage.getItem("jobAutofillExtensionId")),
+    ).toBe(extensionId);
+    await expect(setup).not.toContainText("localhost");
+    await expect(setup).not.toContainText("127.0.0.1");
+  });
+
+  test("extension setup is clearly unsupported outside Google Chrome", async ({
+    page,
+  }) => {
+    await page.goto("/settings#chrome-extension");
+    const setup = page.locator("#chrome-extension");
+
+    await expect(
+      setup.getByText("Supported only in Google Chrome."),
+    ).toBeVisible();
+    await expect(
+      setup.getByText("Unsupported browser. Open this dashboard in Google Chrome."),
+    ).toBeVisible();
+    await expect(
+      setup.getByRole("button", { name: "Open Chrome extensions" }),
+    ).toBeDisabled();
+    await expect(setup.getByLabel("Chrome extension ID")).toBeDisabled();
+  });
 });
