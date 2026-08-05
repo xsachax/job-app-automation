@@ -11,13 +11,14 @@ describe("Chrome extension panel security", () => {
     expect(panelSource).toContain('attachShadow({ mode: "closed" })');
   });
 
-  it("does not expose an autofill trigger inside page-owned DOM", () => {
-    expect(panelSource).not.toContain("data-fill");
+  it("keeps the panel autofill trigger inside the closed shadow root", () => {
+    expect(panelSource).toContain('data-autofill type="button"');
+    expect(panelSource).toContain(
+      '.querySelector("[data-autofill]")',
+    );
+    expect(panelSource).toContain("await fillKnownFields();");
     expect(panelSource).not.toContain("data-off");
     expect(panelSource).not.toContain("data-profile");
-    expect(panelSource).toContain(
-      "Open the extension from Chrome's toolbar and choose Autofill current page.",
-    );
   });
 
   it("allows failed controls to be retried on the next explicit fill", () => {
