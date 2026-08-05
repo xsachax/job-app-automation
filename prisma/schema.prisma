@@ -133,6 +133,20 @@ model Profile {
   updatedAt DateTime @updatedAt
 }
 
+// The actual PDF downloaded from the user's configured GitHub or Google Drive
+// link. Keeping bytes in SQLite makes the local profile portable and lets the
+// Chrome extension attach a real File instead of trying to assign a URL.
+model ResumeAsset {
+  id        String   @id @default("me")
+  source    String
+  fileName  String   @default("resume.pdf")
+  mimeType  String   @default("application/pdf")
+  data      Bytes
+  size      Int
+  sha256    String
+  updatedAt DateTime @updatedAt
+}
+
 // Singleton search criteria used for matching.
 model Criteria {
   id        String   @id @default("default")

@@ -76,57 +76,24 @@
       placeholder: "+1 555 555 0123"
     },
     {
-      key: "addressLine1",
-      label: "Street address",
+      key: "location",
+      label: "Current location",
       group: "contact",
       input: "text",
-      autocomplete: ["street-address", "address-line1"],
       aliases: [
-        "street address",
-        "address line 1",
-        "address 1",
-        "home address",
-        "mailing address"
+        "location",
+        "current location",
+        "where are you located",
+        "where do you live"
       ],
       controls: ["text"],
-      placeholder: "123 Main Street"
-    },
-    {
-      key: "city",
-      label: "City",
-      group: "contact",
-      input: "text",
-      autocomplete: ["address-level2"],
-      aliases: ["city", "town", "locality"],
-      controls: ["text"],
-      placeholder: "San Francisco"
-    },
-    {
-      key: "state",
-      label: "State / province",
-      group: "contact",
-      input: "text",
-      autocomplete: ["address-level1"],
-      aliases: ["state", "province", "state province", "region"],
-      exactAliases: ["state", "region"],
-      excludeAliases: ["statement"],
-      controls: ["text", "select"],
-      placeholder: "California"
-    },
-    {
-      key: "postalCode",
-      label: "Postal code",
-      group: "contact",
-      input: "text",
-      autocomplete: ["postal-code"],
-      aliases: ["postal code", "zip code", "zipcode", "zip"],
-      controls: ["text"],
-      placeholder: "94105"
+      placeholder: "Toronto, ON"
     },
     {
       key: "country",
       label: "Country",
       group: "contact",
+      stored: false,
       input: "text",
       autocomplete: ["country", "country-name"],
       aliases: ["country", "country region", "country of residence"],
@@ -212,6 +179,30 @@
       ]
     },
     {
+      key: "resumeFile",
+      label: "Resume PDF",
+      group: "eligibility",
+      stored: false,
+      aliases: [
+        "resume",
+        "resume pdf",
+        "resume file",
+        "upload resume",
+        "resume cv",
+        "cv",
+        "curriculum vitae"
+      ],
+      excludeAliases: [
+        "cover letter",
+        "transcript",
+        "portfolio",
+        "work sample",
+        "writing sample",
+        "supporting document"
+      ],
+      controls: ["file"]
+    },
+    {
       key: "coverLetter",
       label: "Default cover letter",
       group: "eligibility",
@@ -239,11 +230,18 @@
   function buildEffectiveProfile(profile = {}, context = {}) {
     const firstName = String(profile.firstName || "").trim();
     const lastName = String(profile.lastName || "").trim();
+    const country = String(context.country || "").trim().toLowerCase();
 
     return {
       ...profile,
       preferredName: String(profile.preferredName || firstName).trim(),
       fullName: [firstName, lastName].filter(Boolean).join(" "),
+      country:
+        country === "ca" || country === "canada"
+          ? "Canada"
+          : country === "us" || country === "united states"
+            ? "United States"
+            : "",
       coverLetter: renderCoverLetter(profile.coverLetter, context, profile)
     };
   }

@@ -8,6 +8,7 @@ interface MatchDefinition {
 
 interface Matcher {
   normalizeText(value: string): string;
+  scoreChoice(savedValue: string, optionValue: string, optionLabel: string): number;
   findBestDefinition(
     context: {
       autocomplete?: string;
@@ -22,7 +23,12 @@ interface ProfileSchema {
   fields: unknown[];
   buildEffectiveProfile(
     profile: Record<string, string>,
-    context?: { company?: string; jobTitle?: string; title?: string },
+    context?: {
+      company?: string;
+      jobTitle?: string;
+      title?: string;
+      country?: string;
+    },
   ): Record<string, string>;
   formatControlValue(value: string, controlKind: string): string;
   sanitizeStoredProfile(profile: unknown): Record<string, string>;
@@ -78,6 +84,17 @@ describe("Chrome extension profile storage", () => {
         { jobTitle: "Software Engineer" },
       ).coverLetter,
     ).toBe("");
+  });
+
+  it("derives the application country without storing an address", () => {
+    expect(
+      profileSchema.buildEffectiveProfile({}, { country: "CA" }).country,
+    ).toBe("Canada");
+    expect(
+      profileSchema.buildEffectiveProfile({}, { country: "US" }).country,
+    ).toBe("United States");
+    expect(profileSchema.sanitizeStoredProfile({ addressLine1: "secret" })).not
+      .toHaveProperty("addressLine1");
   });
 });
 
@@ -151,7 +168,6 @@ describe("Chrome extension field matching", () => {
     }
 
     const legitimateLabels = [
-      ["State / Province", "state"],
       ["Phone number", "phone"],
       ["Country of residence", "country"],
     ];
@@ -302,6 +318,42 @@ describe("Chrome extension field matching", () => {
         profileSchema.fields,
       )?.definition.key,
     ).toBe("requiresSponsorship");
+    expect(
+      matcher.findBestDefinition(
+        {
+          signals: [
+            {
+              text: "Are you legally authorized to work? Yes / No",
+              weight: 1,
+            },
+          ],
+          controlKind: "choice",
+        },
+        profileSchema.fields,
+      )?.definition.key,
+    ).toBe("workAuthorization");
+  });
+
+  it("recognizes only resume-specific file uploads", () => {
+    expect(
+      matcher.findBestDefinition(
+        {
+          signals: [{ text: "Upload resume or CV", weight: 1 }],
+          controlKind: "file",
+        },
+        profileSchema.fields,
+      )?.definition.key,
+    ).toBe("resumeFile");
+    expect(
+      matcher.findBestDefinition(
+        {
+          signals: [{ text: "Upload cover letter", weight: 1 }],
+          controlKind: "file",
+        },
+        profileSchema.fields,
+      ),
+    ).toBeNull();
+    expect(matcher.scoreChoice("no", "none", "None")).toBe(0);
   });
 
   it("preserves textarea paragraphs while normalizing single-line controls", () => {

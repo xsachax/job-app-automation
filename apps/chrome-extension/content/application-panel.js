@@ -2,6 +2,7 @@
   if (root.__jobAutofillPanelInstalled) {
     return;
   }
+
   root.__jobAutofillPanelInstalled = true;
 
   const profileSchema = root.JobAutofillProfile;
@@ -65,12 +66,29 @@
       return false;
     }
     const style = getComputedStyle(element);
-    return (
+    const directlyVisible =
       style.display !== "none" &&
       style.visibility !== "hidden" &&
       style.opacity !== "0" &&
-      element.getClientRects().length > 0
-    );
+      element.getClientRects().length > 0;
+    if (directlyVisible) {
+      return true;
+    }
+    if (
+      element instanceof HTMLInputElement &&
+      ["radio", "checkbox", "file"].includes(element.type)
+    ) {
+      return Array.from(element.labels || []).some((label) => {
+        const labelStyle = getComputedStyle(label);
+        return (
+          labelStyle.display !== "none" &&
+          labelStyle.visibility !== "hidden" &&
+          labelStyle.opacity !== "0" &&
+          label.getClientRects().length > 0
+        );
+      });
+    }
+    return false;
   }
 
   function isCandidateControl(element) {
@@ -246,6 +264,9 @@
       if (element.type === "radio" || element.type === "checkbox") {
         return element.checked && filledValue === String(element.value);
       }
+      if (element.type === "file") {
+        return element.files?.[0]?.name === filledValue;
+      }
       return text(element.value) === text(filledValue);
     });
   }
@@ -323,12 +344,17 @@
         },
         profileSchema.fields
       );
-      const matchedValue = match
-        ? profileSchema.formatControlValue(
-            effectiveProfile[match.definition.key],
-            kind
-          )
-        : "";
+      const matchedValue =
+        match && kind === "file"
+          ? match.definition.key === "resumeFile"
+            ? effectiveProfile.resumeFile
+            : null
+          : match
+            ? profileSchema.formatControlValue(
+                effectiveProfile[match.definition.key],
+                kind
+              )
+            : "";
       const answered = isAnswered(elements);
       const required = elements.some(
         (element) =>
@@ -342,9 +368,6 @@
       if (answered) {
         status = "answered";
         reason = "";
-      } else if (kind === "file") {
-        status = "manual";
-        reason = "Upload a file manually.";
       } else if (elements[0].type === "checkbox") {
         status = "manual";
         reason = "Review this checkbox manually.";
@@ -356,7 +379,13 @@
         reason = "";
       } else if (match) {
         status = "missing-profile";
-        reason = `Add ${match.definition.label.toLowerCase()} to your profile.`;
+        reason =
+          kind === "file"
+            ? "Save a resume PDF in your profile."
+            : `Add ${match.definition.label.toLowerCase()} to your profile.`;
+      } else if (kind === "file") {
+        status = "manual";
+        reason = "Upload this file manually.";
       }
 
       questions.push({
@@ -525,13 +554,19 @@
           score: matcher.scoreChoice(value, option.value, option.textContent)
         }))
         .sort((left, right) => right.score - left.score);
-      if (!ranked[0]?.score) {
+      if (
+        !ranked[0]?.score ||
+        (ranked[1]?.score && ranked[0].score === ranked[1].score)
+      ) {
         return false;
       }
       setNativeProperty(first, "value", ranked[0].option.value);
       dispatchValueEvents(first);
-      state.extensionValues.set(first, String(first.value));
-      return true;
+      const selected = String(first.value) === String(ranked[0].option.value);
+      if (selected) {
+        state.extensionValues.set(first, String(first.value));
+      }
+      return selected;
     }
 
     if (first.type === "radio") {
@@ -541,16 +576,25 @@
           score: matcher.scoreChoice(value, element.value, optionText(element))
         }))
         .sort((left, right) => right.score - left.score);
-      if (!ranked[0]?.score) {
+      if (
+        !ranked[0]?.score ||
+        (ranked[1]?.score && ranked[0].score === ranked[1].score)
+      ) {
         return false;
       }
-      setNativeProperty(ranked[0].element, "checked", true);
-      dispatchValueEvents(ranked[0].element);
-      state.extensionValues.set(
-        ranked[0].element,
-        String(ranked[0].element.value)
-      );
-      return true;
+      ranked[0].element.click();
+      if (!ranked[0].element.checked) {
+        setNativeProperty(ranked[0].element, "checked", true);
+        dispatchValueEvents(ranked[0].element);
+      }
+      const selected = ranked[0].element.checked;
+      if (selected) {
+        state.extensionValues.set(
+          ranked[0].element,
+          String(ranked[0].element.value)
+        );
+      }
+      return selected;
     }
 
     return false;
@@ -570,6 +614,39 @@
     dispatchValueEvents(element);
     state.extensionValues.set(element, String(element.value));
     return text(element.value) === text(value);
+  }
+
+  function fillFile(question, savedFile) {
+    const element = question.elements[0];
+    if (
+      !(element instanceof HTMLInputElement) ||
+      element.type !== "file" ||
+      !savedFile ||
+      savedFile.mimeType !== "application/pdf" ||
+      typeof savedFile.base64 !== "string"
+    ) {
+      return false;
+    }
+
+    try {
+      const binary = atob(savedFile.base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) {
+        bytes[index] = binary.charCodeAt(index);
+      }
+      const file = new File([bytes], savedFile.fileName || "resume.pdf", {
+        type: "application/pdf",
+        lastModified: Date.now()
+      });
+      const transfer = new DataTransfer();
+      transfer.items.add(file);
+      setNativeProperty(element, "files", transfer.files);
+      dispatchValueEvents(element);
+      state.extensionValues.set(element, file.name);
+      return element.files?.[0]?.name === file.name;
+    } catch {
+      return false;
+    }
   }
 
   function highlight(elements) {
@@ -606,7 +683,10 @@
     if (!response?.ok) {
       throw new Error(response?.error || "The extension profile is unavailable.");
     }
-    state.profile = response.profile || {};
+    state.profile = {
+      ...(response.profile || {}),
+      resumeFile: response.resumeFile || null
+    };
 
     state.fillIssues.clear();
     const questions = collectQuestions();
@@ -618,7 +698,9 @@
       }
 
       const succeeded =
-        question.kind === "choice" || question.kind === "select"
+        question.kind === "file"
+          ? fillFile(question, question.matchedValue)
+          : question.kind === "choice" || question.kind === "select"
           ? fillChoice(question, question.matchedValue)
           : fillText(question, question.matchedValue);
 
@@ -933,7 +1015,10 @@
     }
     state.sessionGeneration += 1;
     state.session = message.session;
-    state.profile = message.profile || {};
+    state.profile = {
+      ...(message.profile || {}),
+      resumeFile: message.resumeFile || null
+    };
     state.progressSignature = "";
     mountPanel();
 

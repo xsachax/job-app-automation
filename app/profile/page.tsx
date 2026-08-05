@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../components/api";
 import { cls, PageHeader } from "../components/ui";
 import {
@@ -83,6 +83,75 @@ function Chips({ items, empty }: { items: string[] | undefined; empty: string })
   );
 }
 
+function CountryAutofillSection({
+  title,
+  countryLabel,
+  locationLabel,
+  locationPlaceholder,
+  location,
+  workAuthorized,
+  requiresSponsorship,
+  onLocationChange,
+  onAuthorizationChange,
+  onSponsorshipChange,
+}: {
+  title: string;
+  countryLabel: string;
+  locationLabel: string;
+  locationPlaceholder: string;
+  location?: string;
+  workAuthorized?: boolean | null;
+  requiresSponsorship?: boolean | null;
+  onLocationChange: (value: string) => void;
+  onAuthorizationChange: (value: boolean | null) => void;
+  onSponsorshipChange: (value: boolean | null) => void;
+}) {
+  return (
+    <section className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
+      <h3 className="text-sm font-semibold">{title}</h3>
+      <div className="mt-4 grid gap-4">
+        <FieldShell label={locationLabel}>
+          <input
+            aria-label={locationLabel}
+            className={cls.input}
+            value={location ?? ""}
+            placeholder={locationPlaceholder}
+            onChange={(event) => onLocationChange(event.target.value)}
+          />
+        </FieldShell>
+        <FieldShell label={`${countryLabel} work authorization`}>
+          <select
+            aria-label={`${countryLabel} work authorization`}
+            className={cls.input}
+            value={booleanChoice(workAuthorized)}
+            onChange={(event) =>
+              onAuthorizationChange(parseBooleanChoice(event.target.value))
+            }
+          >
+            <option value="">Select an answer</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+        </FieldShell>
+        <FieldShell label={`${countryLabel} visa sponsorship`}>
+          <select
+            aria-label={`${countryLabel} visa sponsorship`}
+            className={cls.input}
+            value={booleanChoice(requiresSponsorship)}
+            onChange={(event) =>
+              onSponsorshipChange(parseBooleanChoice(event.target.value))
+            }
+          >
+            <option value="">Select an answer</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+        </FieldShell>
+      </div>
+    </section>
+  );
+}
+
 export default function ProfilePage() {
   const [profile, setProfile] = useState<Profile>({});
   const [loading, setLoading] = useState(true);
@@ -120,8 +189,6 @@ export default function ProfilePage() {
       active = false;
     };
   }, []);
-
-  const resumeTextCount = useMemo(() => (profile.resumeText ?? "").trim().length, [profile.resumeText]);
 
   function setField<K extends keyof Profile>(key: K, value: Profile[K]) {
     setProfile((current) => ({ ...current, [key]: value }));
@@ -181,7 +248,7 @@ export default function ProfilePage() {
       const refreshed = await reloadProfile();
       const syncMessage = await syncSavedProfile(refreshed);
       const filled = result.updatedFields.length ? ` Updated: ${result.updatedFields.join(", ")}.` : "";
-      setMessage(`Resume refreshed via ${result.provider}.${filled} Run the judge to re-score jobs with it.${syncMessage}`);
+      setMessage(`Resume PDF saved locally.${filled} Run the judge to re-score jobs with it.${syncMessage}`);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -359,68 +426,6 @@ export default function ProfilePage() {
               </FieldShell>
             </div>
 
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <FieldShell
-                label="Location"
-                hint="General location used for job matching, such as New York, NY."
-              >
-                <input
-                  aria-label="Location"
-                  className={cls.input}
-                  value={profile.location ?? ""}
-                  onChange={(e) => setField("location", e.target.value)}
-                />
-              </FieldShell>
-              <FieldShell label="Street address">
-                <input
-                  aria-label="Street address"
-                  className={cls.input}
-                  value={profile.addressLine1 ?? ""}
-                  autoComplete="address-line1"
-                  onChange={(e) => setField("addressLine1", e.target.value)}
-                />
-              </FieldShell>
-            </div>
-
-            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <FieldShell label="City">
-                <input
-                  aria-label="City"
-                  className={cls.input}
-                  value={profile.city ?? ""}
-                  autoComplete="address-level2"
-                  onChange={(e) => setField("city", e.target.value)}
-                />
-              </FieldShell>
-              <FieldShell label="State / province">
-                <input
-                  aria-label="State / province"
-                  className={cls.input}
-                  value={profile.state ?? ""}
-                  autoComplete="address-level1"
-                  onChange={(e) => setField("state", e.target.value)}
-                />
-              </FieldShell>
-              <FieldShell label="Postal code">
-                <input
-                  aria-label="Postal code"
-                  className={cls.input}
-                  value={profile.postalCode ?? ""}
-                  autoComplete="postal-code"
-                  onChange={(e) => setField("postalCode", e.target.value)}
-                />
-              </FieldShell>
-              <FieldShell label="Country">
-                <input
-                  aria-label="Country"
-                  className={cls.input}
-                  value={profile.country ?? ""}
-                  autoComplete="country-name"
-                  onChange={(e) => setField("country", e.target.value)}
-                />
-              </FieldShell>
-            </div>
-
             <div className="mt-4 grid gap-4 md:grid-cols-3">
               <FieldShell label="LinkedIn URL">
                 <input
@@ -457,35 +462,39 @@ export default function ProfilePage() {
               </FieldShell>
             </div>
 
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <FieldShell label="Legally authorized to work">
-                <select
-                  aria-label="Legally authorized to work"
-                  className={cls.input}
-                  value={booleanChoice(profile.workAuthorized)}
-                  onChange={(e) =>
-                    setField("workAuthorized", parseBooleanChoice(e.target.value))
-                  }
-                >
-                  <option value="">Select an answer</option>
-                  <option value="yes">Yes</option>
-                  <option value="no">No</option>
-                </select>
-              </FieldShell>
-              <FieldShell label="Requires visa sponsorship">
-                <select
-                  aria-label="Requires visa sponsorship"
-                  className={cls.input}
-                  value={booleanChoice(profile.requiresSponsorship)}
-                  onChange={(e) =>
-                    setField("requiresSponsorship", parseBooleanChoice(e.target.value))
-                  }
-                >
-                  <option value="">Select an answer</option>
-                  <option value="yes">Yes</option>
-                  <option value="no">No</option>
-                </select>
-              </FieldShell>
+            <div className="mt-6 grid gap-4 lg:grid-cols-2">
+              <CountryAutofillSection
+                title="Jobs in the United States"
+                countryLabel="United States"
+                locationLabel="US location"
+                locationPlaceholder="New York, NY or Remote"
+                location={profile.usLocation}
+                workAuthorized={profile.usWorkAuthorized}
+                requiresSponsorship={profile.usRequiresSponsorship}
+                onLocationChange={(value) => setField("usLocation", value)}
+                onAuthorizationChange={(value) =>
+                  setField("usWorkAuthorized", value)
+                }
+                onSponsorshipChange={(value) =>
+                  setField("usRequiresSponsorship", value)
+                }
+              />
+              <CountryAutofillSection
+                title="Jobs in Canada"
+                countryLabel="Canada"
+                locationLabel="Canada location"
+                locationPlaceholder="Toronto, ON or Remote"
+                location={profile.caLocation}
+                workAuthorized={profile.caWorkAuthorized}
+                requiresSponsorship={profile.caRequiresSponsorship}
+                onLocationChange={(value) => setField("caLocation", value)}
+                onAuthorizationChange={(value) =>
+                  setField("caWorkAuthorized", value)
+                }
+                onSponsorshipChange={(value) =>
+                  setField("caRequiresSponsorship", value)
+                }
+              />
             </div>
 
             <div className="mt-4">
@@ -506,17 +515,20 @@ export default function ProfilePage() {
           <section className={cls.card}>
             <h2 className="text-lg font-semibold text-gray-950 dark:text-gray-50">Resume source</h2>
             <p className="mt-1 max-w-2xl text-sm text-gray-600 dark:text-gray-400">
-              Paste a GitHub link to your résumé — a normal <span className="font-medium">blob</span> URL
-              (e.g. <code className="text-xs">github.com/you/resume/blob/main/resume.md</code>) works; it&apos;s
-              fetched as raw text automatically. A direct PDF URL works too. If parsing is unavailable,
-              paste the résumé text below and the judge will use that instead.
+              Add a public GitHub PDF file or Google Drive PDF share link. The
+              PDF is downloaded and stored locally for résumé uploads, while
+              its parsed text remains available to the judge.
             </p>
             <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,1fr)_auto]">
-              <FieldShell label="Résumé link (GitHub or PDF URL)" hint="GitHub blob/raw links and gists auto-convert to raw content.">
+              <FieldShell
+                label="Résumé PDF link"
+                hint="Only public GitHub and Google Drive PDF links are accepted."
+              >
                 <input
                   className={`${cls.input} placeholder:text-gray-500 dark:placeholder:text-gray-400`}
+                  type="url"
                   value={profile.resumeUrl ?? ""}
-                  placeholder="https://github.com/you/resume/blob/main/resume.md"
+                  placeholder="https://github.com/you/resume/blob/main/resume.pdf"
                   onChange={(e) => setField("resumeUrl", e.target.value)}
                 />
               </FieldShell>
@@ -526,19 +538,9 @@ export default function ProfilePage() {
                   disabled={refreshing}
                   className={`${cls.btn} h-10 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700`}
                 >
-                  {refreshing ? "Refreshing…" : "Fetch text"}
+                  {refreshing ? "Saving PDF…" : "Save resume PDF"}
                 </button>
               </div>
-            </div>
-            <div className="mt-4">
-              <FieldShell label="Pasted or parsed resume text" hint={`${resumeTextCount.toLocaleString()} characters available to the judge.`}>
-                <textarea
-                  className={`${cls.input} min-h-48 placeholder:text-gray-500 dark:placeholder:text-gray-400`}
-                  value={profile.resumeText ?? ""}
-                  placeholder="Paste plain text from your resume if the PDF URL cannot be parsed."
-                  onChange={(e) => setField("resumeText", e.target.value)}
-                />
-              </FieldShell>
             </div>
           </section>
 

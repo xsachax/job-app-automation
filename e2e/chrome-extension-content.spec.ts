@@ -13,11 +13,17 @@ async function installContentPanel(
   {
     html,
     profile,
+    resumeFile,
     deferProfile = false,
     revealPanel = false,
   }: {
     html: string;
     profile: Record<string, string>;
+    resumeFile?: {
+      fileName: string;
+      mimeType: "application/pdf";
+      base64: string;
+    };
     deferProfile?: boolean;
     revealPanel?: boolean;
   },
@@ -33,7 +39,7 @@ async function installContentPanel(
     });
   }
   await page.evaluate(
-    ({ savedProfile, deferred }) => {
+    ({ savedProfile, savedResumeFile, deferred }) => {
       type Message = { type: string; sessionId?: string };
       type Listener = (
         message: Message & {
@@ -50,7 +56,11 @@ async function installContentPanel(
       ) => boolean;
 
       let resolveProfile: ((response: unknown) => void) | undefined;
-      const profileResponse = { ok: true, profile: savedProfile };
+      const profileResponse = {
+        ok: true,
+        profile: savedProfile,
+        resumeFile: savedResumeFile,
+      };
       const profilePromise = deferred
         ? new Promise((resolve) => {
             resolveProfile = resolve;
@@ -95,7 +105,11 @@ async function installContentPanel(
         configurable: true,
       });
     },
-    { savedProfile: profile, deferred: deferProfile },
+    {
+      savedProfile: profile,
+      savedResumeFile: resumeFile ?? null,
+      deferred: deferProfile,
+    },
   );
 
   for (const path of extensionScripts) {
@@ -218,6 +232,78 @@ test("negated sponsorship questions remain unanswered", async ({ page }) => {
   await expect(
     page.locator('input[name="requires_sponsorship"]:checked'),
   ).toHaveCount(0);
+});
+
+test("fills styled yes or no radios through the native click path", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `
+      <style>.choice input { opacity: 0; position: absolute; }</style>
+      <fieldset>
+        <legend>Are you legally authorized to work? Yes / No</legend>
+        <label class="choice"><input type="radio" name="authorized" value="yes"> Yes</label>
+        <label class="choice"><input type="radio" name="authorized" value="no"> No</label>
+      </fieldset>
+    `,
+    profile: { workAuthorization: "yes" },
+  });
+
+  const result = await page.evaluate(() =>
+    (
+      globalThis as unknown as {
+        __panelHarness: {
+          invoke(message: unknown): Promise<unknown>;
+        };
+      }
+    ).__panelHarness.invoke({ type: "JOB_AUTOFILL_FILL" }),
+  );
+
+  expect(result).toMatchObject({ ok: true, filled: 1 });
+  await expect(
+    page.locator('input[name="authorized"][value="yes"]'),
+  ).toBeChecked();
+});
+
+test("uploads the saved PDF only to a recognized resume input", async ({ page }) => {
+  await installContentPanel(page, {
+    html: `
+      <label>Resume / CV <input id="resume" type="file" style="display:none"></label>
+      <label>Cover letter <input id="cover-letter" type="file"></label>
+    `,
+    profile: {},
+    resumeFile: {
+      fileName: "jane-resume.pdf",
+      mimeType: "application/pdf",
+      base64: "JVBERi0xLjQKJUVPRg==",
+    },
+  });
+
+  const result = await page.evaluate(() =>
+    (
+      globalThis as unknown as {
+        __panelHarness: {
+          invoke(message: unknown): Promise<unknown>;
+        };
+      }
+    ).__panelHarness.invoke({ type: "JOB_AUTOFILL_FILL" }),
+  );
+
+  expect(result).toMatchObject({ ok: true, filled: 1 });
+  expect(
+    await page.locator("#resume").evaluate((input: HTMLInputElement) => ({
+      name: input.files?.[0]?.name,
+      type: input.files?.[0]?.type,
+    })),
+  ).toEqual({
+    name: "jane-resume.pdf",
+    type: "application/pdf",
+  });
+  expect(
+    await page
+      .locator("#cover-letter")
+      .evaluate((input: HTMLInputElement) => input.files?.length || 0),
+  ).toBe(0);
 });
 
 test("panel fits a narrow viewport and autofills from its own button", async ({

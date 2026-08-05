@@ -2,7 +2,16 @@ import { expect, test } from "@playwright/test";
 import { CHROME_AUTOFILL_EXTENSION_ID } from "../lib/chromeExtension";
 import { jobCard } from "./helpers";
 
-test("a connected extension launches a job and streams progress", async ({ page }) => {
+test("a connected extension launches a job without duplicating panel progress", async ({
+  page,
+}) => {
+  await page.route("**/api/profile/resume", async (route) => {
+    await route.fulfill({
+      body: "%PDF-1.4\n%%EOF\n",
+      contentType: "application/pdf",
+      headers: { "X-Resume-Filename": "saved-resume.pdf" },
+    });
+  });
   await page.addInitScript(
     ({ extensionId }) => {
       Object.defineProperty(navigator, "userAgentData", {
@@ -89,10 +98,24 @@ test("a connected extension launches a job and streams progress", async ({ page 
     .getByRole("link", { name: "Open ↗", exact: true })
     .click();
 
-  await expect(page.getByText("Application opened with the autofill extension.")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "E2E Frontend Engineer at Acme E2E" })).toBeVisible();
-  await expect(page.getByText("2 of 3 answered")).toBeVisible();
-  await expect(page.getByText("Why this role?")).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (
+          window as unknown as {
+            __extensionMessages: { message: { type?: string } }[];
+          }
+        ).__extensionMessages.map((entry) => entry.message.type),
+      ),
+    )
+    .toContain("JOB_AUTOFILL_LAUNCH");
+  await expect(
+    page.getByText("Application opened with the autofill extension."),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "E2E Frontend Engineer at Acme E2E" }),
+  ).toHaveCount(0);
+  await expect(page.getByText("2 of 3 answered")).toHaveCount(0);
 
   const messages = await page.evaluate(
     () =>
@@ -100,7 +123,11 @@ test("a connected extension launches a job and streams progress", async ({ page 
         window as unknown as {
           __extensionMessages: {
             id: string;
-            message: { type?: string; profile?: Record<string, string> };
+            message: {
+              type?: string;
+              profile?: Record<string, string>;
+              resumeFile?: { fileName?: string; base64?: string };
+            };
           }[];
         }
       ).__extensionMessages,
@@ -109,7 +136,6 @@ test("a connected extension launches a job and streams progress", async ({ page 
     "JOB_AUTOFILL_PING",
     "JOB_AUTOFILL_PING",
     "JOB_AUTOFILL_LAUNCH",
-    "JOB_AUTOFILL_GET_PROGRESS",
   ]);
   expect(messages.every((entry) => entry.id === CHROME_AUTOFILL_EXTENSION_ID)).toBe(
     true,
@@ -118,4 +144,11 @@ test("a connected extension launches a job and streams progress", async ({ page 
     messages.find((entry) => entry.message.type === "JOB_AUTOFILL_LAUNCH")
       ?.message.profile,
   ).toBeDefined();
+  expect(
+    messages.find((entry) => entry.message.type === "JOB_AUTOFILL_LAUNCH")
+      ?.message.resumeFile,
+  ).toMatchObject({
+    fileName: "saved-resume.pdf",
+    base64: expect.stringMatching(/^JVBERi0/),
+  });
 });

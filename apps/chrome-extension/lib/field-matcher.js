@@ -124,9 +124,14 @@
     const hasNegation = normalizedSignals.some((normalized) => {
       const signalTokens = tokens(normalized);
       return (
-        signalTokens.some((token) =>
-          ["no", "not", "never", "without", "cannot"].includes(token)
-        ) ||
+        signalTokens.some((token, index) => {
+          if (token !== "no") {
+            return ["not", "never", "without", "cannot"].includes(token);
+          }
+          return ![signalTokens[index - 1], signalTokens[index + 1]].includes(
+            "yes"
+          );
+        }) ||
         signalTokens.some(
           (token, index) =>
             token === "t" &&
@@ -286,7 +291,10 @@
     if (saved === value || saved === label) {
       return 100;
     }
-    if (value.startsWith(saved) || label.startsWith(saved)) {
+    if (
+      ["yes", "no"].includes(saved) &&
+      (tokens(value)[0] === saved || tokens(label)[0] === saved)
+    ) {
       return 70;
     }
     return 0;
