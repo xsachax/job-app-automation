@@ -20,7 +20,7 @@ export function ExtensionSettings() {
   const [extensionId, setExtensionId] = useState("");
   const [dashboardOrigin, setDashboardOrigin] = useState("");
   const [checking, setChecking] = useState(false);
-  const [copied, setCopied] = useState<"folder" | "setup-url" | null>(null);
+  const [setupUrlCopied, setSetupUrlCopied] = useState(false);
   const [status, setStatus] = useState<ConnectionStatus | null>(null);
 
   useEffect(() => {
@@ -82,13 +82,10 @@ export function ExtensionSettings() {
     }
   }
 
-  async function copyInstallValue(
-    value: string,
-    target: "folder" | "setup-url",
-  ) {
+  async function copyChromeSetupUrl() {
     try {
-      await navigator.clipboard.writeText(value);
-      setCopied(target);
+      await navigator.clipboard.writeText(CHROME_EXTENSIONS_PAGE);
+      setSetupUrlCopied(true);
       setStatus(null);
     } catch (caught) {
       setStatus({
@@ -145,27 +142,14 @@ export function ExtensionSettings() {
           <button
             type="button"
             className={cls.btn}
-            onClick={() =>
-              void copyInstallValue(CHROME_EXTENSIONS_PAGE, "setup-url")
-            }
+            onClick={() => void copyChromeSetupUrl()}
           >
-            {copied === "setup-url"
-              ? "Copied Chrome setup URL"
-              : "Copy Chrome setup URL"}
-          </button>
-          <button
-            type="button"
-            className={cls.btn}
-            onClick={() =>
-              void copyInstallValue(CHROME_EXTENSION_LOCAL_PATH, "folder")
-            }
-          >
-            {copied === "folder" ? "Copied extension folder" : "Copy extension folder"}
+            {setupUrlCopied ? "Copied Chrome setup URL" : "Copy Chrome setup URL"}
           </button>
           <span className="text-xs text-gray-500 dark:text-gray-400">
-            Paste <code>{CHROME_EXTENSIONS_PAGE}</code> into Chrome, then choose{" "}
-            <strong>Load unpacked</strong> and select{" "}
-            <code>{CHROME_EXTENSION_LOCAL_PATH}</code>.
+            Paste <code>{CHROME_EXTENSIONS_PAGE}</code> into Chrome and choose{" "}
+            <strong>Load unpacked</strong>. In the folder picker, open this project,
+            then select <code>{CHROME_EXTENSION_LOCAL_PATH}</code>.
           </span>
         </div>
       </div>
