@@ -1,12 +1,17 @@
 import type { NextRequest } from "next/server";
 import {
   DiscoveryRefreshInProgressError,
+  getDiscoveryRefreshProgress,
   runDiscoveryRefresh,
 } from "@/lib/discovery/refresh";
 import { errorResponse, isSameOriginRequest, json } from "@/lib/http";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+export function GET() {
+  return json(getDiscoveryRefreshProgress());
+}
 
 export async function POST(request: NextRequest) {
   if (!isSameOriginRequest(request)) {

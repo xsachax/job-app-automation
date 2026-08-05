@@ -100,7 +100,6 @@ export async function buildJudgeBatch(opts: BuildJudgeBatchOptions = {}): Promis
 
   const jobs = await prisma.job.findMany({
     where: {
-      isWorkday: false,
       isEntryLevel: true,
       fitProvider: "deterministic",
       fitScore: { not: null },
