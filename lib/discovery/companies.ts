@@ -58,7 +58,7 @@ export type BrowserSystem =
 // ignore their own location filter, or hard-block headless clients (Akamai /
 // PerimeterX), so we surface their pinned human search URL instead of scraping
 // unreliable data. Keep this in sync with RULES in browser.ts.
-export const SCRAPABLE_BROWSER_SYSTEMS: BrowserSystem[] = ["apple"];
+export const SCRAPABLE_BROWSER_SYSTEMS: BrowserSystem[] = ["apple", "shopify"];
 
 export interface ApiCompany {
   name: string;
@@ -229,9 +229,9 @@ export const BROWSER_COMPANIES: BrowserCompany[] = [
   },
   {
     name: "Shopify", method: "browser", system: "shopify",
-    searchUrlUS: "https://www.shopify.com/careers/search?keywords=software%20engineer&location=United%20States",
-    searchUrlCA: "https://www.shopify.com/careers/search?keywords=software%20engineer&location=Canada",
-    reason: "careers search is client-rendered; SmartRecruiters slug returns 0.",
+    searchUrlUS: "https://www.shopify.com/careers/disciplines/engineering-data",
+    searchUrlCA: "https://www.shopify.com/careers/disciplines/engineering-data",
+    reason: "the official discipline page lazily renders craft-specific roles; Playwright expands those panels.",
   },
   {
     name: "Meta", method: "browser", system: "meta",

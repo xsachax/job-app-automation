@@ -119,7 +119,7 @@ const SOFTWARE_TITLE = new RegExp(
     "\\bsre\\b", "site reliability", "machine learning", "\\bml\\b",
     "\\bai\\b", "deep learning", "data engineer", "back[ -]?end", "front[ -]?end",
     "full[ -]?stack", "platform engineer", "infrastructure engineer",
-    "systems engineer", "distributed systems", "cloud engineer",
+    "systems engineer", "distributed systems", "cloud engineer", "search relevance",
     "mobile engineer", "\\bios\\b", "android", "web developer",
     "applied scientist", "research engineer", "research scientist",
     "compiler", "firmware", "embedded software",
