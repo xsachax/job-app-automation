@@ -7,11 +7,12 @@ import {
   CategoryBadge,
   ConnectionsBadge,
   CountryFlag,
-  FitBadge,
   SalaryText,
   SponsorshipBadge,
 } from "../ui";
 import type { ApplicationStatus, Job } from "./types";
+import { splitJudgeAdvice } from "@/lib/judge/advice";
+import { bucketScore, type FitBand } from "@/lib/judge/status";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -58,33 +59,50 @@ function titleize(value: string): string {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-type FitTone = { label: string; banner: string };
+type FitTone = {
+  label: string;
+  card: string;
+  score: string;
+  badge: string;
+};
 
-// Fit tier → banner styling. Thresholds mirror the judge + FitBadge (>=70 / >=40).
-function fitTone(score: number | null | undefined): FitTone | null {
-  if (score == null) return null;
-  if (score >= 70)
-    return {
-      label: "Strong fit",
-      banner: "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200",
-    };
-  if (score >= 40)
-    return {
-      label: "Possible fit",
-      banner: "bg-amber-50 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200",
-    };
-  return {
+const FIT_TONES: Record<FitBand | "unscored", FitTone> = {
+  strong: {
+    label: "Strong fit",
+    card:
+      "border-emerald-300 bg-emerald-50/60 shadow-emerald-100/80 dark:border-emerald-800 dark:bg-emerald-950/25 dark:shadow-none",
+    score:
+      "border-emerald-300 bg-emerald-100 text-emerald-950 dark:border-emerald-700 dark:bg-emerald-900/70 dark:text-emerald-100",
+    badge:
+      "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-100",
+  },
+  possible: {
+    label: "Possible fit",
+    card:
+      "border-amber-300 bg-amber-50/50 shadow-amber-100/70 dark:border-amber-800 dark:bg-amber-950/20 dark:shadow-none",
+    score:
+      "border-amber-300 bg-amber-100 text-amber-950 dark:border-amber-700 dark:bg-amber-900/70 dark:text-amber-100",
+    badge: "bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100",
+  },
+  weak: {
     label: "Weak fit",
-    banner: "bg-rose-50 text-rose-800 dark:bg-rose-950/50 dark:text-rose-200",
-  };
-}
+    card:
+      "border-rose-200 bg-rose-50/35 dark:border-rose-900 dark:bg-rose-950/15",
+    score:
+      "border-rose-200 bg-rose-100 text-rose-950 dark:border-rose-800 dark:bg-rose-950/70 dark:text-rose-100",
+    badge: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-100",
+  },
+  unscored: {
+    label: "Not scored",
+    card: "border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900",
+    score:
+      "border-gray-200 bg-gray-100 text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200",
+    badge: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200",
+  },
+};
 
-// The color + label now carry the tier, so drop a redundant "Strong/Possible/Weak fit:" lead-in.
-function fitReasonText(summary: string | null): string {
-  if (!summary) return "";
-  return summary
-    .replace(/^\s*(strong|possible|good|great|moderate|partial|weak|poor|low)\s+fit\s*[:.\-–—]?\s*/i, "")
-    .trim();
+function fitTone(score: number | null | undefined): FitTone {
+  return FIT_TONES[bucketScore(score)];
 }
 
 function isWithinHours(iso: string | null, hours: number): boolean {
@@ -103,17 +121,143 @@ function uniqueSourceNames(job: Job): string[] {
   return Array.from(new Set(job.sightings.map((sighting) => sighting.source.name).filter(Boolean)));
 }
 
-function cardTone(status: ApplicationStatus, isNew: boolean): string {
+function cardTone(status: ApplicationStatus, isNew: boolean, tone: FitTone): string {
   if (status === "dismissed") {
     return "border-gray-200 bg-gray-50 opacity-60 dark:border-gray-800 dark:bg-gray-950";
   }
-  if (status === "applied") {
-    return "border-green-300 bg-green-50/50 dark:border-green-900 dark:bg-green-950/20";
-  }
-  if (isNew) {
-    return "border-indigo-300 bg-indigo-50/40 shadow-indigo-100/70 dark:border-indigo-800 dark:bg-indigo-950/20 dark:shadow-none";
-  }
-  return "border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900";
+  const statusTone =
+    status === "applied"
+      ? "ring-1 ring-green-400 dark:ring-green-700"
+      : isNew
+        ? "shadow-md"
+        : "";
+  return `${tone.card} ${statusTone}`;
+}
+
+function JudgeScore({
+  score,
+  provider,
+  tone,
+}: {
+  score: number | null;
+  provider: Job["fitProvider"];
+  tone: FitTone;
+}) {
+  const providerLabel =
+    score == null ? "Run judge" : provider === "agent" ? "Agent" : "Baseline";
+  return (
+    <div
+      aria-label={
+        score == null ? "Judge score not available" : `Judge score ${score} out of 100`
+      }
+      data-testid="judge-score"
+      className={`flex w-[72px] shrink-0 flex-col items-center rounded-lg border px-1.5 py-2 text-center ${tone.score}`}
+    >
+      <span className="text-[9px] font-bold uppercase tracking-[0.16em] opacity-70">
+        Judge
+      </span>
+      <span className="mt-0.5 leading-none">
+        <span className="text-2xl font-black tabular-nums">{score ?? "--"}</span>
+        {score != null && <span className="text-[10px] font-semibold opacity-65">/100</span>}
+      </span>
+      <span className="mt-1 text-[10px] font-bold leading-3">{tone.label}</span>
+      <span className="mt-0.5 text-[9px] font-medium uppercase tracking-wide opacity-60">
+        {providerLabel}
+      </span>
+    </div>
+  );
+}
+
+function AdviceList({
+  title,
+  items,
+  empty,
+  tone,
+}: {
+  title: string;
+  items: string[];
+  empty: string;
+  tone: "fit" | "gap";
+}) {
+  const visible = items.slice(0, 3);
+  const hidden = items.slice(visible.length);
+  const dot =
+    tone === "fit" ? "bg-emerald-500" : "bg-rose-500";
+  const item = (value: string) => (
+    <li key={value} className="flex gap-1.5">
+      <span
+        aria-hidden="true"
+        className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${dot}`}
+      />
+      <span>{value}</span>
+    </li>
+  );
+  return (
+    <section
+      aria-label={title}
+      className="rounded-md border border-white/80 bg-white/70 px-2.5 py-2 dark:border-gray-700/80 dark:bg-gray-950/35"
+    >
+      <h4
+        className={`text-[10px] font-bold uppercase tracking-wide ${
+          tone === "fit"
+            ? "text-emerald-700 dark:text-emerald-300"
+            : "text-rose-700 dark:text-rose-300"
+        }`}
+      >
+        {title}
+      </h4>
+      <ul className="mt-1 space-y-1 text-xs leading-4 text-gray-700 dark:text-gray-200">
+        {visible.length ? (
+          visible.map(item)
+        ) : (
+          <li className="text-gray-500 dark:text-gray-400">{empty}</li>
+        )}
+      </ul>
+      {hidden.length > 0 && (
+        <details className="mt-1.5 text-xs text-gray-600 dark:text-gray-300">
+          <summary className="cursor-pointer text-[10px] font-semibold">
+            Show {hidden.length} more signal{hidden.length === 1 ? "" : "s"}
+          </summary>
+          <ul className="mt-1 space-y-1 leading-4">{hidden.map(item)}</ul>
+        </details>
+      )}
+    </section>
+  );
+}
+
+function FitAdvice({ job, tone }: { job: Job; tone: FitTone }) {
+  if (job.fitScore == null) return null;
+  const advice = splitJudgeAdvice(job.fitReasons, job.fitSummary);
+  return (
+    <div
+      data-testid="fit-advice"
+      className="mt-2 rounded-lg border border-black/5 bg-white/45 p-2 dark:border-white/10 dark:bg-black/10"
+    >
+      <p className="text-xs leading-4 text-gray-700 dark:text-gray-200">
+        <span
+          className={`mr-1.5 inline-flex rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${tone.badge}`}
+        >
+          {tone.label}
+        </span>
+        {" "}
+        {advice.summary}
+      </p>
+      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+        <AdviceList
+          title="Why it fits"
+          items={advice.fits}
+          empty="No strong résumé evidence identified yet."
+          tone="fit"
+        />
+        <AdviceList
+          title="Gaps"
+          items={advice.gaps}
+          empty="No specific gaps identified yet."
+          tone="gap"
+        />
+      </div>
+    </div>
+  );
 }
 
 interface JobCardProps {
@@ -152,7 +296,6 @@ export function JobCard({
   const seenOn = sources.length > 0 ? `seen on ${sources.join(", ")}` : "";
   const subtitleFull = [job.company, ...metaParts, timingText, seenOn].filter(Boolean).join(" · ");
   const tone = fitTone(job.fitScore);
-  const fitReason = fitReasonText(job.fitSummary);
   const yoeText =
     job.minYoE == null ? null : job.minYoE === 0 ? "No exp. req." : `${job.minYoE}+ yrs`;
   const employmentText = job.employmentType
@@ -176,11 +319,12 @@ export function JobCard({
 
   return (
     <article
-      className={`rounded-lg border px-3 py-2.5 shadow-sm transition-colors ${cardTone(status, isNew)} ${
+      className={`rounded-lg border px-3 py-2.5 shadow-sm transition-colors ${cardTone(status, isNew, tone)} ${
         selected ? "ring-2 ring-indigo-500 dark:ring-indigo-400" : ""
       } ${isStale && status !== "dismissed" ? "opacity-80" : ""}`}
     >
-      <div className="flex gap-2.5">
+      <div className="flex flex-wrap gap-2.5">
+        <JudgeScore score={job.fitScore} provider={job.fitProvider} tone={tone} />
         {onToggleSelect && (
           <input
             type="checkbox"
@@ -191,8 +335,10 @@ export function JobCard({
             className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-800"
           />
         )}
-        <CompanyLogo company={job.company} size={40} />
-        <div className="min-w-0 flex-1">
+        <div className="hidden sm:block">
+          <CompanyLogo company={job.company} size={40} />
+        </div>
+        <div className="min-w-[220px] flex-1">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
@@ -231,7 +377,6 @@ export function JobCard({
                   </span>
                 )}
                 <AppliedBadge status={status} />
-                <FitBadge score={job.fitScore} provider={job.fitProvider} />
               </div>
               <p
                 className="mt-0.5 truncate text-xs text-gray-600 dark:text-gray-300"
@@ -274,20 +419,9 @@ export function JobCard({
             )}
           </div>
 
-          {tone && (
-            <p
-              className={`mt-1.5 flex items-center gap-1 rounded-md px-2 py-1 text-xs ${tone.banner}`}
-              title={job.fitSummary ?? undefined}
-            >
-              <span className="shrink-0 font-semibold">{tone.label}</span>
-              {fitReason && (
-                <span className="min-w-0 truncate font-normal">— {fitReason}</span>
-              )}
-            </p>
-          )}
         </div>
 
-        <div className="flex shrink-0 flex-col items-end gap-1.5">
+        <div className="flex w-full shrink-0 flex-row flex-wrap items-center justify-end gap-1.5 sm:w-auto sm:flex-col sm:items-end">
           <a
             href={job.applyUrl}
             target="_blank"
@@ -334,6 +468,9 @@ export function JobCard({
             )}
           </div>
           {updating && <span className="text-xs text-gray-500 dark:text-gray-400">Updating…</span>}
+        </div>
+        <div className="basis-full">
+          <FitAdvice job={job} tone={tone} />
         </div>
       </div>
     </article>

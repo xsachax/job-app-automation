@@ -45,7 +45,7 @@ describe("scoreResumeFit", () => {
     expect(miss.matchedSkills).not.toContain("machine learning");
   });
 
-  it("surfaces prominent posting keywords absent from the resume", () => {
+  it("does not turn repeated prose into a hard-skill gap", () => {
     const r = scoreResumeFit(
       {
         title: "Backend Engineer",
@@ -53,13 +53,28 @@ describe("scoreResumeFit", () => {
       },
       resume,
     );
-    expect(r.missingSignals).toEqual(expect.arrayContaining(["kubernetes"]));
+    expect(r.missingSignals).toEqual([]);
+  });
+
+  it("surfaces structured posting skills that are absent from the résumé", () => {
+    const r = scoreResumeFit(
+      {
+        title: "Platform Engineer",
+        description: "Build reliable infrastructure.",
+        skills: ["Kubernetes", "Terraform", "AWS"],
+      },
+      resume,
+    );
+    expect(r.missingSignals).toEqual(
+      expect.arrayContaining(["Kubernetes", "Terraform"]),
+    );
+    expect(r.missingSignals).not.toContain("AWS");
   });
 
   it("clamps into 0..100 and handles an empty resume", () => {
     const r = scoreResumeFit({ title: "Software Engineer" }, {});
     expect(r.score).toBeGreaterThanOrEqual(0);
     expect(r.score).toBeLessThanOrEqual(100);
-    expect(r.reasons.join(" ")).toMatch(/title-based/i);
+    expect(r.reasons.join(" ")).toMatch(/no résumé skills/i);
   });
 });

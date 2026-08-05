@@ -32,9 +32,15 @@ describe("judge status vocabulary", () => {
     expect(FIT_BANDS.find((b) => b.key === "possible")?.min).toBe(POSSIBLE_MIN);
   });
 
-  it("documents all four scoring axes", () => {
-    expect(JUDGE_AXES).toHaveLength(4);
-    expect(JUDGE_AXES.map((a) => a.key)).toEqual(["resume", "company", "location", "salary"]);
+  it("documents every scoring axis", () => {
+    expect(JUDGE_AXES).toHaveLength(5);
+    expect(JUDGE_AXES.map((a) => a.key)).toEqual([
+      "resume",
+      "freshness",
+      "company",
+      "location",
+      "salary",
+    ]);
     for (const axis of JUDGE_AXES) {
       expect(axis.name.length).toBeGreaterThan(0);
       expect(axis.reads.length).toBeGreaterThan(0);
