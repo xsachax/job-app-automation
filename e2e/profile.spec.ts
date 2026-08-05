@@ -8,12 +8,57 @@ test.describe("profile page", () => {
     await expect(
       page.getByPlaceholder("https://github.com/you/resume/blob/main/resume.pdf"),
     ).toBeVisible();
+    const linkBox = await page
+      .getByPlaceholder("https://github.com/you/resume/blob/main/resume.pdf")
+      .boundingBox();
+    const saveBox = await page
+      .getByRole("button", { name: "Save resume PDF" })
+      .boundingBox();
+    expect(linkBox).not.toBeNull();
+    expect(saveBox).not.toBeNull();
+    expect(Math.abs(linkBox!.y - saveBox!.y)).toBeLessThanOrEqual(1);
+    await expect(page.getByText("No PDF saved", { exact: true })).toBeVisible();
     // The judge signals the profile actually feeds.
     await expect(page.getByRole("heading", { name: "Judge signals" })).toBeVisible();
     await expect(
       page.getByPlaceholder("Software Engineer, Full-stack Developer"),
     ).toBeVisible();
     await expect(page.getByPlaceholder("TypeScript, React, Python, SQL")).toBeVisible();
+  });
+
+  test("confirms and previews the saved resume PDF", async ({ page }) => {
+    const source =
+      "https://github.com/example/resume/blob/main/resume.pdf";
+    await page.route("**/api/profile/resume*", async (route) => {
+      if (route.request().method() === "HEAD") {
+        await route.fulfill({
+          status: 200,
+          headers: {
+            "X-Resume-Filename": "saved-resume.pdf",
+            "X-Resume-Size": "204800",
+            "X-Resume-Source": encodeURIComponent(source),
+            "X-Resume-Updated-At": "2026-08-04T22:00:00.000Z",
+          },
+        });
+        return;
+      }
+      await route.fulfill({
+        body: "%PDF-1.4\n%%EOF\n",
+        contentType: "application/pdf",
+      });
+    });
+
+    await page.goto("/profile");
+    await page
+      .getByPlaceholder("https://github.com/you/resume/blob/main/resume.pdf")
+      .fill(source);
+
+    await expect(page.getByText("PDF saved", { exact: true })).toBeVisible();
+    await expect(page.getByText("saved-resume.pdf", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Preview PDF" }).click();
+    const preview = page.getByTitle("Saved resume PDF preview");
+    await expect(preview).toBeVisible();
+    await expect(preview).toHaveAttribute("src", /preview=1/);
   });
 
   test("keeps application autofill details in the app profile", async ({ page }) => {
@@ -114,6 +159,18 @@ test.describe("profile page", () => {
     expect(await (await clearResponse).json()).toMatchObject({
       usRequiresSponsorship: null,
     });
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (
+              globalThis as unknown as {
+                __profileExtensionMessages: unknown[];
+              }
+            ).__profileExtensionMessages.length,
+        ),
+      )
+      .toBe(2);
     const clearedRequest = await page.evaluate(() => {
       const messages = (
         globalThis as unknown as {

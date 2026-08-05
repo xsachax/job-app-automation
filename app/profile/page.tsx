@@ -17,6 +17,13 @@ interface RefreshResult {
   updatedFields: string[];
 }
 
+interface ResumeAssetStatus {
+  fileName: string;
+  size: number;
+  source: string;
+  updatedAt: string;
+}
+
 interface JudgeResult {
   scanned: number;
   scored: number;
@@ -35,6 +42,43 @@ interface ConnectionImportResult extends ConnectionSummary {
   imported: number;
   parsedRows: number;
   skippedNoCompany: number;
+}
+
+async function loadResumeAssetStatus(): Promise<ResumeAssetStatus | null> {
+  const response = await fetch("/api/profile/resume", {
+    method: "HEAD",
+    cache: "no-store",
+  });
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw new Error(`Could not read the saved resume PDF (${response.status}).`);
+  }
+
+  const fileName = response.headers.get("x-resume-filename");
+  const size = Number(response.headers.get("x-resume-size"));
+  const source = response.headers.get("x-resume-source");
+  const updatedAt = response.headers.get("x-resume-updated-at");
+  if (!fileName || !Number.isFinite(size) || !source || !updatedAt) {
+    throw new Error("The saved resume PDF metadata is incomplete.");
+  }
+
+  return {
+    fileName,
+    size,
+    source: decodeURIComponent(source),
+    updatedAt,
+  };
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatSavedAt(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
 function splitCsv(value: string): string[] {
@@ -161,6 +205,9 @@ export default function ProfilePage() {
   const [judging, setJudging] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [resumeAsset, setResumeAsset] = useState<ResumeAssetStatus | null>(null);
+  const [resumeStatusLoaded, setResumeStatusLoaded] = useState(false);
+  const [resumePreviewOpen, setResumePreviewOpen] = useState(false);
 
   const [connSummary, setConnSummary] = useState<ConnectionSummary | null>(null);
   const [connText, setConnText] = useState("");
@@ -186,6 +233,16 @@ export default function ProfilePage() {
         /* connections are optional; ignore load failure */
       }
     })();
+    (async () => {
+      try {
+        const asset = await loadResumeAssetStatus();
+        if (active) setResumeAsset(asset);
+      } catch (e) {
+        if (active) setError((e as Error).message);
+      } finally {
+        if (active) setResumeStatusLoaded(true);
+      }
+    })();
     return () => {
       active = false;
     };
@@ -201,11 +258,21 @@ export default function ProfilePage() {
     return loaded;
   }
 
+  async function reloadResumeAssetStatus(): Promise<ResumeAssetStatus | null> {
+    const asset = await loadResumeAssetStatus();
+    setResumeAsset(asset);
+    setResumeStatusLoaded(true);
+    if (!asset) setResumePreviewOpen(false);
+    return asset;
+  }
+
   async function persistProfile(): Promise<Profile> {
-    return api<Profile>("/api/profile", {
+    const saved = await api<Profile>("/api/profile", {
       method: "PUT",
       body: JSON.stringify(profile),
     });
+    await reloadResumeAssetStatus();
+    return saved;
   }
 
   async function syncSavedProfile(saved: Profile): Promise<string> {
@@ -247,6 +314,7 @@ export default function ProfilePage() {
         body: JSON.stringify({ source: saved.resumeUrl || saved.resumeSource || undefined }),
       });
       const refreshed = await reloadProfile();
+      await reloadResumeAssetStatus();
       const syncMessage = await syncSavedProfile(refreshed);
       const filled = result.updatedFields.length ? ` Updated: ${result.updatedFields.join(", ")}.` : "";
       setMessage(`Resume PDF saved locally.${filled} Run the judge to re-score jobs with it.${syncMessage}`);
@@ -336,6 +404,10 @@ export default function ProfilePage() {
   if (loading) {
     return <p className="text-sm text-gray-600 dark:text-gray-400">Loading profile…</p>;
   }
+
+  const resumeSourceMatches =
+    resumeAsset &&
+    (profile.resumeUrl ?? "").trim() === resumeAsset.source.trim();
 
   return (
     <div className="max-w-5xl">
@@ -519,10 +591,7 @@ export default function ProfilePage() {
               its parsed text remains available to the judge.
             </p>
             <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,1fr)_auto]">
-              <FieldShell
-                label="Résumé PDF link"
-                hint="Only public GitHub and Google Drive PDF links are accepted."
-              >
+              <FieldShell label="Résumé PDF link">
                 <input
                   className={`${cls.input} placeholder:text-gray-500 dark:placeholder:text-gray-400`}
                   type="url"
@@ -535,12 +604,99 @@ export default function ProfilePage() {
                 <button
                   onClick={refreshResume}
                   disabled={refreshing}
-                  className={`${cls.btn} h-10 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700`}
+                  className={`${cls.btn} h-[38px] dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700`}
                 >
                   {refreshing ? "Saving PDF…" : "Save resume PDF"}
                 </button>
               </div>
             </div>
+            <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
+              Only public GitHub and Google Drive PDF links are accepted.
+            </p>
+
+            {resumeStatusLoaded && (
+              <div
+                className={`mt-4 rounded-xl border p-4 ${
+                  resumeAsset
+                    ? resumeSourceMatches
+                      ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/40"
+                      : "border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/40"
+                    : "border-dashed border-gray-300 bg-gray-50 dark:border-gray-700 dark:bg-gray-950"
+                }`}
+              >
+                {resumeAsset ? (
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p
+                        className={`text-sm font-semibold ${
+                          resumeSourceMatches
+                            ? "text-emerald-800 dark:text-emerald-200"
+                            : "text-amber-800 dark:text-amber-200"
+                        }`}
+                      >
+                        {resumeSourceMatches ? "PDF saved" : "PDF on file"}
+                      </p>
+                      <p className="mt-1 truncate text-sm text-gray-800 dark:text-gray-200">
+                        {resumeAsset.fileName}
+                      </p>
+                      <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                        {formatFileSize(resumeAsset.size)} | Saved{" "}
+                        {formatSavedAt(resumeAsset.updatedAt)}
+                      </p>
+                      {!resumeSourceMatches && (
+                        <p className="mt-2 text-xs text-amber-800 dark:text-amber-200">
+                          This PDF is from the previously saved link. Save the new
+                          link to replace it.
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className={cls.btn}
+                        onClick={() => setResumePreviewOpen((open) => !open)}
+                      >
+                        {resumePreviewOpen ? "Hide preview" : "Preview PDF"}
+                      </button>
+                      <a className={cls.btn} href="/api/profile/resume" download>
+                        Download
+                      </a>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+                      No PDF saved
+                    </p>
+                    <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                      Add a link above and select Save resume PDF.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {resumeAsset && resumePreviewOpen && (
+              <div className="mt-4 overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950">
+                <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-800">
+                  <h3 className="text-sm font-semibold">Saved resume preview</h3>
+                  <button
+                    type="button"
+                    className={cls.btn}
+                    onClick={() => setResumePreviewOpen(false)}
+                  >
+                    Close
+                  </button>
+                </div>
+                <iframe
+                  className="h-[36rem] w-full bg-white"
+                  src={`/api/profile/resume?preview=1&updated=${encodeURIComponent(
+                    resumeAsset.updatedAt,
+                  )}`}
+                  title="Saved resume PDF preview"
+                />
+              </div>
+            )}
           </section>
 
           <section className={cls.card}>
