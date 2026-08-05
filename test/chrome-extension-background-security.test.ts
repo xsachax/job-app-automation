@@ -5,6 +5,16 @@ const backgroundSource = readFileSync(
   new URL("../apps/chrome-extension/background.js", import.meta.url),
   "utf8",
 );
+const manifest = JSON.parse(
+  readFileSync(
+    new URL("../apps/chrome-extension/manifest.json", import.meta.url),
+    "utf8",
+  ),
+) as { externally_connectable?: { matches?: string[] } };
+const optionsSource = readFileSync(
+  new URL("../apps/chrome-extension/options/options.js", import.meta.url),
+  "utf8",
+);
 
 describe("Chrome extension background security", () => {
   it("revalidates enablement and the live tab before autofill", () => {
@@ -39,5 +49,17 @@ describe("Chrome extension background security", () => {
     expect(backgroundSource).toMatch(
       /async function applyEnabledState[\s\S]*enablementVersion !== expectedEnablementVersion[\s\S]*\["dismissed", "closed", "left-application"\]\.includes\(session\.status\)/,
     );
+  });
+
+  it("uses Chrome's manifest allowlist without a second configured origin", () => {
+    expect(manifest.externally_connectable?.matches).toEqual([
+      "http://localhost/*",
+      "https://localhost/*",
+      "http://127.0.0.1/*",
+      "https://127.0.0.1/*",
+    ]);
+    expect(backgroundSource).not.toContain("dashboardOrigin");
+    expect(backgroundSource).not.toContain("isAllowedDashboardSender");
+    expect(optionsSource).not.toContain("dashboardOrigin");
   });
 });

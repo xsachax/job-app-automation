@@ -186,11 +186,8 @@ unpacked is enough for local use:
    The sidebar's **Install extension** button jumps directly to this setup panel.
 2. Open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select
    this repository's `apps/chrome-extension` directory.
-3. Open the extension's options page. Fill the local profile and keep **Allowed dashboard
-   origin** set to `http://localhost:3000` (or the exact `localhost` / `127.0.0.1` origin
-   where your dashboard runs).
-4. Copy the extension ID shown there. In dashboard **Settings → Chrome autofill extension**,
-   paste it and click **Save and test**.
+3. Open the extension's options page, fill the local profile, and copy its extension ID.
+4. Paste the ID in dashboard **Settings → Chrome autofill extension**.
 5. On **Jobs**, click a posting title or **Open** action. The extension opens the application
    with a progress panel. After reviewing the page, open the extension from Chrome's toolbar
    and click **Autofill current page**.
@@ -381,7 +378,7 @@ npm run e2e       # Playwright: dashboard flows against an isolated seeded DB
 ```
 
 Unit tests run against an isolated `prisma/test.db` (migrated fresh each run) and mock all
-network calls, so the suite is offline and deterministic (352 tests, incl. the fit judge,
+network calls, so the suite is offline and deterministic (353 tests, incl. the fit judge,
 enrichment, and configurable-classifier coverage).
 
 ### End-to-end (Playwright)
@@ -444,8 +441,8 @@ e2e/                 Playwright specs (smoke, queue, discovery, jobs-actions, ex
 - **Local-first.** Your data and keys live in `.env` / the local SQLite DB and are never
   committed (`.env*` and `*.db` are gitignored).
 - The optional extension profile and live application progress use `chrome.storage.local`.
-  Dashboard communication is restricted to the exact localhost origin configured in the
-  extension options, and the extension never submits an application.
+  Chrome restricts dashboard communication to the loopback URL patterns declared in the
+  extension manifest, and the extension never submits an application.
 - Prefers **official ATS APIs** over scraping.
 - **Workday** is flag-only by design.
 - **Discord (deferred):** scraping a Discord channel you're only a member of would require

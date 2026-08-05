@@ -56,8 +56,7 @@ async function load() {
   renderFields();
   const stored = await chrome.storage.local.get({
     profile: {},
-    enabled: true,
-    dashboardOrigin: "http://localhost:3000"
+    enabled: true
   });
 
   for (const field of schema.fields) {
@@ -75,25 +74,11 @@ async function load() {
     ? "Extension on"
     : "Extension off";
   document.querySelector("[data-extension-id]").textContent = chrome.runtime.id;
-  document.querySelector("[data-dashboard-origin]").value =
-    stored.dashboardOrigin;
 }
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const profile = {};
-  const dashboardOriginInput = document.querySelector("[data-dashboard-origin]");
-  let dashboardUrl;
-
-  try {
-    dashboardUrl = new URL(dashboardOriginInput.value);
-  } catch {
-    status.textContent = "Enter a valid dashboard origin.";
-    dashboardOriginInput.focus();
-    return;
-  }
-
-  const dashboardOrigin = dashboardUrl.origin;
 
   for (const field of schema.fields) {
     if (field.stored === false) {
@@ -102,17 +87,7 @@ form.addEventListener("submit", async (event) => {
     profile[field.key] = String(form.elements.namedItem(field.key)?.value || "").trim();
   }
 
-  if (
-    !["http:", "https:"].includes(dashboardUrl.protocol) ||
-    !["localhost", "127.0.0.1"].includes(dashboardUrl.hostname)
-  ) {
-    status.textContent =
-      "The MVP dashboard origin must use localhost or 127.0.0.1.";
-    return;
-  }
-
-  dashboardOriginInput.value = dashboardOrigin;
-  await chrome.storage.local.set({ profile, dashboardOrigin });
+  await chrome.storage.local.set({ profile });
   status.textContent = "Profile saved locally.";
   setTimeout(() => {
     status.textContent = "";

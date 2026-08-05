@@ -1,15 +1,11 @@
 importScripts("lib/session-scope.js");
 
 const sessionScope = globalThis.JobAutofillSessionScope;
-const STORAGE_SCHEMA_VERSION = 2;
 const STORAGE_DEFAULTS = {
   enabled: true,
   profile: {},
-  dashboardOrigin: "http://localhost:3000",
-  applicationSessions: {},
-  storageSchemaVersion: STORAGE_SCHEMA_VERSION
+  applicationSessions: {}
 };
-const LEGACY_DASHBOARD_ORIGIN = "http://localhost:4173";
 
 const PANEL_FILES = [
   "lib/session-scope.js",
@@ -35,14 +31,6 @@ function isHttpUrl(value) {
   }
 }
 
-function isAllowedDashboardSender(sender, dashboardOrigin) {
-  try {
-    return new URL(sender.url).origin === new URL(dashboardOrigin).origin;
-  } catch {
-    return false;
-  }
-}
-
 async function ensureDefaults() {
   const stored = await chrome.storage.local.get(Object.keys(STORAGE_DEFAULTS));
   const updates = {};
@@ -51,16 +39,6 @@ async function ensureDefaults() {
     if (stored[key] === undefined) {
       updates[key] = value;
     }
-  }
-  const storedSchemaVersion = Number(stored.storageSchemaVersion) || 0;
-  if (
-    storedSchemaVersion < STORAGE_SCHEMA_VERSION &&
-    stored.dashboardOrigin === LEGACY_DASHBOARD_ORIGIN
-  ) {
-    updates.dashboardOrigin = STORAGE_DEFAULTS.dashboardOrigin;
-  }
-  if (storedSchemaVersion < STORAGE_SCHEMA_VERSION) {
-    updates.storageSchemaVersion = STORAGE_SCHEMA_VERSION;
   }
 
   if (Object.keys(updates).length) {
@@ -715,14 +693,7 @@ async function handleInternalMessage(message, sender) {
   }
 }
 
-async function handleExternalMessage(message, sender) {
-  const { dashboardOrigin } = await chrome.storage.local.get({
-    dashboardOrigin: STORAGE_DEFAULTS.dashboardOrigin
-  });
-  if (!isAllowedDashboardSender(sender, dashboardOrigin)) {
-    throw new Error("This dashboard origin is not allowed.");
-  }
-
+async function handleExternalMessage(message) {
   switch (message.type) {
     case "JOB_AUTOFILL_PING": {
       const { enabled } = await chrome.storage.local.get({ enabled: true });
@@ -769,7 +740,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
-  handleExternalMessage(message || {}, sender)
+  handleExternalMessage(message || {})
     .then(sendResponse)
     .catch((error) => sendResponse({ ok: false, error: errorMessage(error) }));
   return true;
