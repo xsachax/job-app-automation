@@ -32,6 +32,23 @@ function remember(updates: ProfileData, updatedFields: string[], key: keyof Prof
   updatedFields.push(String(key));
 }
 
+function mergeSkills(existing: unknown, parsed: unknown): string[] {
+  const merged: string[] = [];
+  const seen = new Set<string>();
+  for (const value of [
+    ...(Array.isArray(existing) ? existing : []),
+    ...(Array.isArray(parsed) ? parsed : []),
+  ]) {
+    if (typeof value !== "string") continue;
+    const skill = value.trim();
+    const key = skill.toLowerCase();
+    if (!skill || seen.has(key)) continue;
+    seen.add(key);
+    merged.push(skill);
+  }
+  return merged;
+}
+
 /**
  * "Refresh Profile": read the resume URL/source when available, parse it into
  * structured fields, save a ResumeVersion, and non-destructively fill blank
@@ -65,11 +82,19 @@ export async function refreshProfile(sourceOverride?: string): Promise<RefreshRe
   const updatedFields: string[] = [];
   const candidate: Record<string, unknown> = { ...parsed };
   for (const [key, value] of Object.entries(candidate)) {
+    if (key === "skills") continue;
     if (isBlank(value)) continue;
     if (isBlank(profile[key])) {
       updates[key] = value;
       updatedFields.push(key);
     }
+  }
+  const mergedSkills = mergeSkills(profile.skills, parsed.skills);
+  if (
+    mergedSkills.length > 0 &&
+    JSON.stringify(mergedSkills) !== JSON.stringify(profile.skills ?? [])
+  ) {
+    remember(updates, updatedFields, "skills", mergedSkills);
   }
 
   if (text && (profile.resumeText !== text || isBlank(profile.resumeText))) {

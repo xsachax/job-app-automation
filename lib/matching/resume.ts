@@ -8,7 +8,7 @@
 // A richer, judgement-based score is produced separately by the Copilot agent
 // (see lib/matching/agent.ts) and overrides this baseline when available.
 
-import { SKILL_VOCAB } from "../discovery/enrich";
+import { SKILL_VOCAB, skillVariants } from "../discovery/enrich";
 
 export interface ResumeContext {
   skills?: string[]; // parsed skills from the resume
@@ -101,11 +101,14 @@ function normalizePhrase(s: string): string {
 }
 
 function phraseAppears(text: string, phrase: string): boolean {
-  const normalized = normalizePhrase(phrase);
-  if (!normalized) return false;
-  return normalized.includes(" ")
-    ? text.includes(normalized)
-    : new Set(tokenize(text)).has(normalized);
+  const tokens = new Set(tokenize(text));
+  return skillVariants(phrase).some((variant) => {
+    const normalized = normalizePhrase(variant);
+    if (!normalized) return false;
+    return normalized.includes(" ")
+      ? text.includes(normalized)
+      : tokens.has(normalized);
+  });
 }
 
 function humanList(values: string[]): string {

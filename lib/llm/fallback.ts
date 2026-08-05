@@ -69,7 +69,12 @@ export function parseWithFallback(text: string): ParsedResume {
   const skillsBlock = extractSection(text, ["skills", "technical skills", "technologies"]);
   if (skillsBlock) {
     const skills = skillsBlock
-      .split(/[,•|\n\u2022]+/)
+      .split(/\r?\n/)
+      .flatMap((line) =>
+        line
+          .replace(/^[^:,]{1,40}:\s*/, "")
+          .split(/[,•|\u2022]+/),
+      )
       .map((s) => s.replace(/^[-*]\s*/, "").trim())
       .filter((s) => s.length > 0 && s.length < 40);
     if (skills.length) out.skills = Array.from(new Set(skills)).slice(0, 40);
