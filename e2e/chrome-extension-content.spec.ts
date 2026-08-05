@@ -14,14 +14,24 @@ async function installContentPanel(
     html,
     profile,
     deferProfile = false,
+    revealPanel = false,
   }: {
     html: string;
     profile: Record<string, string>;
     deferProfile?: boolean;
+    revealPanel?: boolean;
   },
 ) {
   await page.goto("/jobs");
   await page.setContent(html);
+  if (revealPanel) {
+    await page.evaluate(() => {
+      const attachShadow = Element.prototype.attachShadow;
+      Element.prototype.attachShadow = function attachOpenShadow(init) {
+        return attachShadow.call(this, { ...init, mode: "open" });
+      };
+    });
+  }
   await page.evaluate(
     ({ savedProfile, deferred }) => {
       type Message = { type: string; sessionId?: string };
@@ -208,4 +218,40 @@ test("negated sponsorship questions remain unanswered", async ({ page }) => {
   await expect(
     page.locator('input[name="requires_sponsorship"]:checked'),
   ).toHaveCount(0);
+});
+
+test("panel fits a narrow viewport and autofills from its own button", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 360, height: 640 });
+  await installContentPanel(page, {
+    html: `<label>Email address <input id="applicant-email" autocomplete="email"></label>`,
+    profile: { email: "applicant@example.com" },
+    revealPanel: true,
+  });
+
+  const panelHost = page.locator("#job-autofill-extension-panel");
+  const panelBox = await panelHost.boundingBox();
+  expect(panelBox).not.toBeNull();
+  expect(panelBox!.x).toBeGreaterThanOrEqual(0);
+  expect(panelBox!.x + panelBox!.width).toBeLessThanOrEqual(360);
+  expect(panelBox!.y).toBeGreaterThanOrEqual(0);
+  expect(panelBox!.y + panelBox!.height).toBeLessThanOrEqual(640);
+
+  const firstStat = panelHost.locator(".stat").first();
+  const countBox = await firstStat.locator("strong").boundingBox();
+  const labelBox = await firstStat.locator("span").boundingBox();
+  expect(countBox).not.toBeNull();
+  expect(labelBox).not.toBeNull();
+  expect(countBox!.x + countBox!.width).toBeLessThanOrEqual(labelBox!.x);
+
+  await panelHost
+    .getByRole("button", { name: "Autofill ready fields" })
+    .click();
+  await expect(page.locator("#applicant-email")).toHaveValue(
+    "applicant@example.com",
+  );
+  await expect(
+    panelHost.getByText("Filled 1 field. Review every answer."),
+  ).toBeVisible();
 });

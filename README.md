@@ -110,7 +110,7 @@ npm run discover -- "Y Combinator"
   degree required. "No experience specified" passes. (Tunable in Settings.)
 - **Safe application handoff** — every card opens the real posting. Without the optional
   extension it is a normal link; with the extension connected, the assistant opens beside the
-  form and waits for you to start autofill from Chrome's browser-owned extension popup.
+  form and waits for you to start autofill from its protected panel.
 - **Workday flagging** — surfaced in a separate list.
 - **Clean dashboard** — Overview, Jobs (US/CA), Companies, Settings, Profile, Workday.
 
@@ -188,8 +188,7 @@ unpacked is enough for local use:
    `apps/chrome-extension` directory.
 3. Add your application details on **Profile → Application autofill**, then save.
 4. On **Jobs**, click a posting title or **Open** action. The extension opens the application
-   with a progress panel. After reviewing the page, open the extension from Chrome's toolbar
-   and click **Autofill current page**.
+   with a progress panel. Click **Autofill ready fields**, then review every answer.
 
 The app profile is the source of truth. A mapped autofill copy and application progress stay
 in that Chrome profile via `chrome.storage.local`.

@@ -646,6 +646,30 @@
     return { ok: true, filled };
   }
 
+  async function handlePanelAutofill() {
+    const button = state.shadow?.querySelector("[data-autofill]");
+    if (!button || button.disabled) {
+      return;
+    }
+
+    button.disabled = true;
+    button.textContent = "Autofilling...";
+    try {
+      await fillKnownFields();
+    } catch (error) {
+      const status = state.shadow?.querySelector("[data-status]");
+      if (status) {
+        status.textContent =
+          error instanceof Error ? error.message : String(error);
+      }
+    } finally {
+      if (state.shadow && button.isConnected) {
+        button.disabled = false;
+        button.textContent = "Autofill ready fields";
+      }
+    }
+  }
+
   function panelTemplate() {
     return `
       <style>
@@ -654,6 +678,7 @@
           color-scheme: light;
           font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         }
+        *, *::before, *::after { box-sizing: border-box; }
         .panel {
           background: #ffffff;
           border: 1px solid #d0d5dd;
@@ -663,9 +688,10 @@
           display: flex;
           flex-direction: column;
           font-size: 13px;
-          max-height: min(720px, calc(100vh - 32px));
+          max-height: min(720px, calc(100vh - 24px));
+          max-width: calc(100vw - 24px);
           overflow: hidden;
-          width: 360px;
+          width: 380px;
         }
         header {
           align-items: flex-start;
@@ -675,9 +701,16 @@
           justify-content: space-between;
           padding: 16px;
         }
+        header > div:first-child { min-width: 0; }
         h1, h2, p { margin: 0; }
         h1 { font-size: 15px; line-height: 1.35; }
-        .job { color: #667085; font-size: 12px; margin-top: 3px; }
+        .job {
+          color: #667085;
+          font-size: 12px;
+          line-height: 1.3;
+          margin-top: 3px;
+          overflow-wrap: anywhere;
+        }
         .header-actions { display: flex; gap: 6px; }
         button {
           background: #ffffff;
@@ -692,7 +725,12 @@
         button:hover { background: #f9fafb; }
         button:disabled { cursor: wait; opacity: 0.6; }
         .icon-button { font-size: 12px; padding: 6px 8px; }
-        main { overflow-y: auto; padding: 16px; }
+        main {
+          min-height: 0;
+          overflow-x: hidden;
+          overflow-y: auto;
+          padding: 16px;
+        }
         .progress-row {
           align-items: center;
           display: flex;
@@ -721,13 +759,26 @@
           margin: 12px 0;
         }
         .stat {
+          align-items: center;
           background: #f9fafb;
           border: 1px solid #eaecf0;
           border-radius: 9px;
+          display: flex;
+          gap: 7px;
+          min-width: 0;
           padding: 9px;
         }
-        .stat strong { display: block; font-size: 17px; }
-        .stat span { color: #667085; font-size: 11px; }
+        .stat strong {
+          flex: 0 0 auto;
+          font-size: 17px;
+          line-height: 1;
+        }
+        .stat span {
+          color: #667085;
+          font-size: 11px;
+          line-height: 1.15;
+          min-width: 0;
+        }
         .autofill-guidance {
           background: #eff4ff;
           border: 1px solid #c7d7fe;
@@ -737,6 +788,15 @@
           padding: 10px 12px;
         }
         .autofill-guidance strong { display: block; margin-bottom: 2px; }
+        .autofill-guidance p { font-size: 12px; }
+        .autofill-button {
+          background: #175cd3;
+          border-color: #175cd3;
+          color: #ffffff;
+          margin-top: 9px;
+          width: 100%;
+        }
+        .autofill-button:hover { background: #1849a9; }
         .status {
           color: #475467;
           font-size: 12px;
@@ -797,7 +857,8 @@
           </div>
           <div class="autofill-guidance">
             <strong>Ready to autofill?</strong>
-            Open the extension from Chrome's toolbar and choose Autofill current page.
+            <p>Fill recognized fields, then review every answer before submitting.</p>
+            <button class="autofill-button" data-autofill type="button">Autofill ready fields</button>
           </div>
           <p class="status" data-status>Nothing is submitted automatically.</p>
           <h2>Needs your answer</h2>
@@ -820,14 +881,17 @@
     state.host.id = "job-autofill-extension-panel";
     Object.assign(state.host.style, {
       position: "fixed",
-      right: "16px",
-      top: "16px",
+      right: "12px",
+      top: "12px",
       zIndex: "2147483647"
     });
     state.shadow = state.host.attachShadow({ mode: "closed" });
     state.shadow.innerHTML = panelTemplate();
     document.documentElement.append(state.host);
 
+    state.shadow
+      .querySelector("[data-autofill]")
+      .addEventListener("click", () => void handlePanelAutofill());
     state.shadow.querySelector("[data-rescan]").addEventListener("click", scan);
     state.shadow.querySelector("[data-close]").addEventListener("click", () => {
       unmountPanel();
