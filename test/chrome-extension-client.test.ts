@@ -20,16 +20,15 @@ const PROFILE = {
   lastName: " Doe ",
   email: " jane@example.com ",
   phone: " +1 555 0100 ",
-  addressLine1: " 123 Main Street ",
-  city: " San Francisco ",
-  state: " California ",
-  postalCode: " 94105 ",
-  country: " United States ",
+  usLocation: " New York, NY ",
+  usWorkAuthorized: true,
+  usRequiresSponsorship: false,
+  caLocation: " Toronto, ON ",
+  caWorkAuthorized: false,
+  caRequiresSponsorship: true,
   linkedin: " https://www.linkedin.com/in/jane ",
   github: " https://github.com/jane ",
   website: " https://jane.dev ",
-  workAuthorized: true,
-  requiresSponsorship: false,
   coverLetterTemplate: " Hello hiring team.\n\nThank you. ",
 } satisfies ProfileData;
 
@@ -76,17 +75,18 @@ describe("Chrome extension identity and profile mapping", () => {
       lastName: "Doe",
       email: "jane@example.com",
       phone: "+1 555 0100",
-      addressLine1: "123 Main Street",
-      city: "San Francisco",
-      state: "California",
-      postalCode: "94105",
-      country: "United States",
+      location: "New York, NY",
       linkedinUrl: "https://www.linkedin.com/in/jane",
       githubUrl: "https://github.com/jane",
       portfolioUrl: "https://jane.dev",
       workAuthorization: "yes",
       requiresSponsorship: "no",
       coverLetter: "Hello hiring team.\n\nThank you.",
+    });
+    expect(buildAutofillProfile(PROFILE, "CA")).toMatchObject({
+      location: "Toronto, ON",
+      workAuthorization: "no",
+      requiresSponsorship: "yes",
     });
   });
 

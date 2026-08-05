@@ -60,3 +60,51 @@ export function isGithubResumeUrl(input: string): boolean {
     return false;
   }
 }
+
+const GOOGLE_DRIVE_FILE_ID = /^[A-Za-z0-9_-]{10,}$/;
+
+function googleDriveFileId(url: URL): string {
+  const pathMatch = url.pathname.match(/^\/file\/d\/([^/]+)/);
+  const candidate = pathMatch?.[1] || url.searchParams.get("id") || "";
+  return GOOGLE_DRIVE_FILE_ID.test(candidate) ? candidate : "";
+}
+
+export function normalizeResumePdfUrl(input: string): string {
+  let original: URL;
+  try {
+    original = new URL(input.trim());
+  } catch {
+    throw new Error("Enter a valid HTTPS resume PDF link.");
+  }
+  if (original.protocol !== "https:") {
+    throw new Error("The resume PDF link must use HTTPS.");
+  }
+
+  const normalized = normalizeResumeUrl(input);
+  let url: URL;
+  try {
+    url = new URL(normalized);
+  } catch {
+    throw new Error("Enter a valid HTTPS resume PDF link.");
+  }
+
+  if (url.hostname === "drive.google.com") {
+    const fileId = googleDriveFileId(url);
+    if (!fileId) {
+      throw new Error("Use a Google Drive file share link with a valid file ID.");
+    }
+    return `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}`;
+  }
+
+  if (
+    ["github.com", "raw.githubusercontent.com", "gist.github.com"].includes(
+      url.hostname,
+    )
+  ) {
+    return url.toString();
+  }
+
+  throw new Error(
+    "Resume PDFs must be hosted on public GitHub or Google Drive links.",
+  );
+}

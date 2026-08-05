@@ -38,12 +38,7 @@ export interface ProfileData {
   lastName?: string;
   email?: string;
   phone?: string;
-  location?: string;
-  addressLine1?: string;
-  city?: string;
-  state?: string;
-  postalCode?: string;
-  country?: string;
+  location?: string; // legacy; migrated to usLocation
   linkedin?: string;
   github?: string;
   website?: string;
@@ -55,8 +50,14 @@ export interface ProfileData {
   targetRoles?: string[]; // roles the user wants the discovery judge to favor
   qualifications?: string; // degree, graduation date, projects, constraints
   // Common compliance / eligibility questions.
-  workAuthorized?: boolean | null;
-  requiresSponsorship?: boolean | null;
+  workAuthorized?: boolean | null; // legacy; migrated to country-specific answers
+  requiresSponsorship?: boolean | null; // legacy; migrated to country-specific answers
+  usLocation?: string;
+  usWorkAuthorized?: boolean | null;
+  usRequiresSponsorship?: boolean | null;
+  caLocation?: string;
+  caWorkAuthorized?: boolean | null;
+  caRequiresSponsorship?: boolean | null;
   gender?: string;
   raceEthnicity?: string;
   veteranStatus?: string;
@@ -74,12 +75,6 @@ export const DEFAULT_PROFILE: ProfileData = {
   lastName: "",
   email: "",
   phone: "",
-  location: "",
-  addressLine1: "",
-  city: "",
-  state: "",
-  postalCode: "",
-  country: "",
   linkedin: "",
   github: "",
   website: "",
@@ -90,8 +85,12 @@ export const DEFAULT_PROFILE: ProfileData = {
   resumeText: "",
   targetRoles: [],
   qualifications: "",
-  workAuthorized: null,
-  requiresSponsorship: null,
+  usLocation: "",
+  usWorkAuthorized: null,
+  usRequiresSponsorship: null,
+  caLocation: "",
+  caWorkAuthorized: null,
+  caRequiresSponsorship: null,
   gender: "",
   raceEthnicity: "",
   veteranStatus: "",
@@ -101,11 +100,56 @@ export const DEFAULT_PROFILE: ProfileData = {
   coverLetterTemplate: "",
 };
 
+const LEGACY_PROFILE_KEYS = [
+  "location",
+  "addressLine1",
+  "city",
+  "state",
+  "postalCode",
+  "country",
+  "workAuthorized",
+  "requiresSponsorship",
+] as const;
+
+function normalizeProfileData(data: ProfileData): ProfileData {
+  const profile = { ...DEFAULT_PROFILE, ...data };
+  const legacyCountry = String(profile.country || "").trim().toLowerCase();
+  const legacyIsCanada =
+    legacyCountry === "ca" || legacyCountry.includes("canada");
+  if (legacyIsCanada) {
+    if (!profile.caLocation && profile.location) profile.caLocation = profile.location;
+    if (profile.caWorkAuthorized == null && profile.workAuthorized != null) {
+      profile.caWorkAuthorized = profile.workAuthorized;
+    }
+    if (
+      profile.caRequiresSponsorship == null &&
+      profile.requiresSponsorship != null
+    ) {
+      profile.caRequiresSponsorship = profile.requiresSponsorship;
+    }
+  } else {
+    if (!profile.usLocation && profile.location) profile.usLocation = profile.location;
+    if (profile.usWorkAuthorized == null && profile.workAuthorized != null) {
+      profile.usWorkAuthorized = profile.workAuthorized;
+    }
+    if (
+      profile.usRequiresSponsorship == null &&
+      profile.requiresSponsorship != null
+    ) {
+      profile.usRequiresSponsorship = profile.requiresSponsorship;
+    }
+  }
+  for (const key of LEGACY_PROFILE_KEYS) {
+    delete profile[key];
+  }
+  return profile;
+}
+
 export async function getProfile(): Promise<ProfileData> {
   const row = await prisma.profile.findUnique({ where: { id: "me" } });
   if (!row) return { ...DEFAULT_PROFILE };
   try {
-    return { ...DEFAULT_PROFILE, ...(JSON.parse(row.data) as ProfileData) };
+    return normalizeProfileData(JSON.parse(row.data) as ProfileData);
   } catch {
     return { ...DEFAULT_PROFILE };
   }
@@ -113,11 +157,20 @@ export async function getProfile(): Promise<ProfileData> {
 
 export async function saveProfile(data: ProfileData): Promise<ProfileData> {
   const current = await getProfile();
-  const merged = { ...current, ...data };
-  await prisma.profile.upsert({
-    where: { id: "me" },
-    update: { data: JSON.stringify(merged) },
-    create: { id: "me", data: JSON.stringify(merged) },
+  const merged = normalizeProfileData({ ...current, ...data });
+  const resumeUrlChanged =
+    Object.prototype.hasOwnProperty.call(data, "resumeUrl") &&
+    String(current.resumeUrl || "").trim() !==
+      String(merged.resumeUrl || "").trim();
+  await prisma.$transaction(async (tx) => {
+    await tx.profile.upsert({
+      where: { id: "me" },
+      update: { data: JSON.stringify(merged) },
+      create: { id: "me", data: JSON.stringify(merged) },
+    });
+    if (resumeUrlChanged) {
+      await tx.resumeAsset.deleteMany({ where: { id: "me" } });
+    }
   });
   return merged;
 }

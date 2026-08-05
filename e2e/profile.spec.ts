@@ -2,11 +2,11 @@ import { test, expect } from "@playwright/test";
 import { CHROME_AUTOFILL_EXTENSION_ID } from "../lib/chromeExtension";
 
 test.describe("profile page", () => {
-  test("features a GitHub résumé link field", async ({ page }) => {
+  test("features a GitHub or Google Drive résumé PDF field", async ({ page }) => {
     await page.goto("/profile");
     await expect(page.getByRole("heading", { name: "Resume source" })).toBeVisible();
     await expect(
-      page.getByPlaceholder("https://github.com/you/resume/blob/main/resume.md"),
+      page.getByPlaceholder("https://github.com/you/resume/blob/main/resume.pdf"),
     ).toBeVisible();
     // The judge signals the profile actually feeds.
     await expect(page.getByRole("heading", { name: "Judge signals" })).toBeVisible();
@@ -23,9 +23,13 @@ test.describe("profile page", () => {
     ).toBeVisible();
     await expect(page.getByLabel("First name")).toBeVisible();
     await expect(page.getByLabel("Email")).toBeVisible();
-    await expect(page.getByLabel("Street address")).toBeVisible();
-    await expect(page.getByLabel("Legally authorized to work")).toBeVisible();
+    await expect(page.getByLabel("Street address")).toHaveCount(0);
+    await expect(page.getByLabel("US location")).toBeVisible();
+    await expect(page.getByLabel("Canada location")).toBeVisible();
+    await expect(page.getByLabel("United States work authorization")).toBeVisible();
+    await expect(page.getByLabel("Canada work authorization")).toBeVisible();
     await expect(page.getByLabel("Default cover letter")).toBeVisible();
+    await expect(page.getByLabel("Pasted or parsed resume text")).toHaveCount(0);
     await expect(page.getByText(/never influence fit scores/i)).toBeVisible();
   });
 
@@ -65,7 +69,7 @@ test.describe("profile page", () => {
     await page.goto("/profile");
     await page.getByLabel("First name").fill("Jane");
     await page.getByLabel("Email").fill("jane@example.com");
-    await page.getByLabel("Requires visa sponsorship").selectOption("no");
+    await page.getByLabel("United States visa sponsorship").selectOption("no");
     await page.getByRole("button", { name: "Save profile", exact: true }).click();
     await expect(page.getByText(/Chrome autofill synced/)).toBeVisible();
 
@@ -89,7 +93,7 @@ test.describe("profile page", () => {
       },
     });
 
-    await page.getByLabel("Requires visa sponsorship").selectOption("");
+    await page.getByLabel("United States visa sponsorship").selectOption("");
     const clearResponse = page.waitForResponse(
       (response) =>
         response.url().endsWith("/api/profile") &&
@@ -97,7 +101,7 @@ test.describe("profile page", () => {
     );
     await page.getByRole("button", { name: "Save profile", exact: true }).click();
     expect(await (await clearResponse).json()).toMatchObject({
-      requiresSponsorship: null,
+      usRequiresSponsorship: null,
     });
     const clearedRequest = await page.evaluate(() => {
       const messages = (
@@ -125,7 +129,7 @@ test.describe("profile page", () => {
 
     await page.goto("/profile");
     await page.getByLabel("Preferred name").fill("Unsaved Before Refresh");
-    await page.getByRole("button", { name: "Fetch text" }).click();
+    await page.getByRole("button", { name: "Save resume PDF" }).click();
     await expect(page.getByLabel("Preferred name")).toHaveValue(
       "Unsaved Before Refresh",
     );

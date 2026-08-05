@@ -74,6 +74,7 @@ export interface AutofillJob {
   jobTitle: string;
   company: string;
   url: string;
+  country?: string | null;
 }
 
 export interface AutofillProfile {
@@ -82,17 +83,19 @@ export interface AutofillProfile {
   lastName: string;
   email: string;
   phone: string;
-  addressLine1: string;
-  city: string;
-  state: string;
-  postalCode: string;
-  country: string;
+  location: string;
   linkedinUrl: string;
   githubUrl: string;
   portfolioUrl: string;
   workAuthorization: "" | "yes" | "no";
   requiresSponsorship: "" | "yes" | "no";
   coverLetter: string;
+}
+
+export interface AutofillResumeFile {
+  fileName: string;
+  mimeType: "application/pdf";
+  base64: string;
 }
 
 export function isGoogleChromeBrowser(
@@ -126,24 +129,54 @@ function choice(value: unknown): "" | "yes" | "no" {
   return value === true ? "yes" : value === false ? "no" : "";
 }
 
-export function buildAutofillProfile(profile: ProfileData): AutofillProfile {
+export function buildAutofillProfile(
+  profile: ProfileData,
+  country?: string | null,
+): AutofillProfile {
+  const normalizedCountry = country?.trim().toLowerCase();
+  const isCanada = normalizedCountry === "ca" || normalizedCountry === "canada";
   return {
     firstName: text(profile.firstName),
     preferredName: text(profile.preferredName),
     lastName: text(profile.lastName),
     email: text(profile.email),
     phone: text(profile.phone),
-    addressLine1: text(profile.addressLine1),
-    city: text(profile.city),
-    state: text(profile.state),
-    postalCode: text(profile.postalCode),
-    country: text(profile.country),
+    location: isCanada
+      ? text(profile.caLocation)
+      : text(profile.usLocation) || text(profile.location),
     linkedinUrl: text(profile.linkedin),
     githubUrl: text(profile.github),
     portfolioUrl: text(profile.website) || text(profile.portfolio),
-    workAuthorization: choice(profile.workAuthorized),
-    requiresSponsorship: choice(profile.requiresSponsorship),
+    workAuthorization: isCanada
+      ? choice(profile.caWorkAuthorized)
+      : choice(profile.usWorkAuthorized ?? profile.workAuthorized),
+    requiresSponsorship: isCanada
+      ? choice(profile.caRequiresSponsorship)
+      : choice(profile.usRequiresSponsorship ?? profile.requiresSponsorship),
     coverLetter: text(profile.coverLetterTemplate),
+  };
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 32_768) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 32_768));
+  }
+  return btoa(binary);
+}
+
+async function loadSavedResumeFile(): Promise<AutofillResumeFile | null> {
+  if (typeof window === "undefined") return null;
+  const response = await fetch("/api/profile/resume", { cache: "no-store" });
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw new Error(`Could not load the saved resume PDF (${response.status}).`);
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  return {
+    fileName: response.headers.get("x-resume-filename") || "resume.pdf",
+    mimeType: "application/pdf",
+    base64: bytesToBase64(bytes),
   };
 }
 
@@ -194,29 +227,33 @@ export function pingAutofillExtension(
   return sendChromeExtensionMessage({ type: "JOB_AUTOFILL_PING" }, runtime);
 }
 
-export function syncAutofillProfile(
+export async function syncAutofillProfile(
   profile: ProfileData,
   runtime?: ChromeRuntimeLike | null,
 ): Promise<ChromeExtensionResponse> {
+  const resumeFile = await loadSavedResumeFile();
   return sendChromeExtensionMessage(
     {
       type: "JOB_AUTOFILL_SET_PROFILE",
       profile: buildAutofillProfile(profile),
+      resumeFile,
     },
     runtime,
   );
 }
 
-export function launchAutofillApplication(
+export async function launchAutofillApplication(
   job: AutofillJob,
   profile: ProfileData,
   runtime?: ChromeRuntimeLike | null,
 ): Promise<AutofillLaunchResponse> {
+  const resumeFile = await loadSavedResumeFile();
   return sendChromeExtensionMessage(
     {
       type: "JOB_AUTOFILL_LAUNCH",
       ...job,
-      profile: buildAutofillProfile(profile),
+      profile: buildAutofillProfile(profile, job.country),
+      resumeFile,
     },
     runtime,
   );

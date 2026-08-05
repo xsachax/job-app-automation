@@ -2,18 +2,15 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../components/api";
-import { AutofillProgressCard } from "../components/extension/AutofillProgressCard";
 import { FilterBar } from "../components/jobs/FilterBar";
 import { JobCard } from "../components/jobs/JobCard";
 import type { ApplicationStatus, Country, FilterState, Job, JobFacets, MultiFilterKey } from "../components/jobs/types";
 import { DEFAULT_FILTERS } from "../components/jobs/types";
 import { PageHeader } from "../components/ui";
 import {
-  getAutofillProgress,
   isGoogleChromeBrowser,
   launchAutofillApplication,
   pingAutofillExtension,
-  type AutofillSession,
 } from "@/lib/chromeExtension";
 import type { ProfileData } from "@/lib/settings";
 
@@ -25,8 +22,6 @@ const COUNTRIES: { value: Country; label: string }[] = [
 // The queue can hold well over a thousand postings; rendering every card up front
 // is slow and janky. Show a page at a time and let the user reveal more.
 const PAGE_SIZE = 60;
-const TERMINAL_EXTENSION_STATUSES = new Set(["closed", "left-application"]);
-
 type ExtensionConnection = "none" | "checking" | "ready" | "off" | "error";
 
 function openExternal(url: string): boolean {
@@ -123,10 +118,6 @@ export default function JobsPage() {
   const [extensionConnection, setExtensionConnection] =
     useState<ExtensionConnection>("none");
   const [extensionMessage, setExtensionMessage] = useState<string | null>(null);
-  const [activeExtensionSessionId, setActiveExtensionSessionId] =
-    useState<string | null>(null);
-  const [activeExtensionSession, setActiveExtensionSession] =
-    useState<AutofillSession | null>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const committedSearch = useRef(DEFAULT_FILTERS.q);
 
@@ -204,43 +195,6 @@ export default function JobsPage() {
   }, []);
 
   useEffect(() => {
-    if (!activeExtensionSessionId) return;
-
-    const sessionId = activeExtensionSessionId;
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-
-    async function poll() {
-      try {
-        const response = await getAutofillProgress(sessionId);
-        if (cancelled) return;
-        setActiveExtensionSession(response.session);
-        if (!TERMINAL_EXTENSION_STATUSES.has(response.session.status)) {
-          const delay = ["opening", "loading", "active"].includes(
-            response.session.status,
-          )
-            ? 1000
-            : 5000;
-          timer = setTimeout(() => void poll(), delay);
-        }
-      } catch (caught) {
-        if (cancelled) return;
-        setExtensionMessage(
-          `Could not refresh autofill progress: ${
-            caught instanceof Error ? caught.message : String(caught)
-          }`,
-        );
-      }
-    }
-
-    void poll();
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [activeExtensionSessionId]);
-
-  useEffect(() => {
     return () => {
       if (searchTimer.current) clearTimeout(searchTimer.current);
     };
@@ -306,18 +260,16 @@ export default function JobsPage() {
     setExtensionMessage(null);
     try {
       const profile = await api<ProfileData>("/api/profile");
-      const response = await launchAutofillApplication(
+      await launchAutofillApplication(
         {
           jobId: job.id,
           jobTitle: job.title,
           company: job.company,
           url: job.applyUrl,
+          country: job.country,
         },
         profile,
       );
-      setActiveExtensionSession(null);
-      setActiveExtensionSessionId(response.sessionId);
-      setExtensionMessage("Application opened with the autofill extension.");
     } catch (caught) {
       setExtensionConnection("error");
       const openedNormally = openExternal(job.applyUrl);
@@ -482,16 +434,6 @@ export default function JobsPage() {
         <div className="mb-3 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950 dark:text-indigo-200">
           {extensionMessage}
         </div>
-      )}
-
-      {activeExtensionSession && (
-        <AutofillProgressCard
-          session={activeExtensionSession}
-          onDismiss={() => {
-            setActiveExtensionSessionId(null);
-            setActiveExtensionSession(null);
-          }}
-        />
       )}
 
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">

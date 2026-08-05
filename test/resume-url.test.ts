@@ -1,11 +1,43 @@
 import { describe, it, expect } from "vitest";
-import { normalizeResumeUrl, isGithubResumeUrl } from "../lib/profile/url";
+import {
+  isGithubResumeUrl,
+  normalizeResumePdfUrl,
+  normalizeResumeUrl,
+} from "../lib/profile/url";
 
 describe("normalizeResumeUrl", () => {
   it("rewrites a github blob URL to raw.githubusercontent.com", () => {
     expect(normalizeResumeUrl("https://github.com/sacha/resume/blob/main/resume.md")).toBe(
       "https://raw.githubusercontent.com/sacha/resume/main/resume.md",
     );
+  });
+
+  describe("normalizeResumePdfUrl", () => {
+    it("normalizes Google Drive share links to downloads", () => {
+      expect(
+        normalizeResumePdfUrl(
+          "https://drive.google.com/file/d/1AbCdEfGhIjKlMnOp/view?usp=sharing",
+        ),
+      ).toBe(
+        "https://drive.google.com/uc?export=download&id=1AbCdEfGhIjKlMnOp",
+      );
+      expect(
+        normalizeResumePdfUrl(
+          "https://drive.google.com/open?id=1AbCdEfGhIjKlMnOp",
+        ),
+      ).toBe(
+        "https://drive.google.com/uc?export=download&id=1AbCdEfGhIjKlMnOp",
+      );
+    });
+
+    it("rejects non-HTTPS and unsupported hosts", () => {
+      expect(() =>
+        normalizeResumePdfUrl("http://github.com/a/b/blob/main/resume.pdf"),
+      ).toThrow("HTTPS");
+      expect(() =>
+        normalizeResumePdfUrl("https://example.com/resume.pdf"),
+      ).toThrow("GitHub or Google Drive");
+    });
   });
 
   it("rewrites a nested blob path", () => {

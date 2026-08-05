@@ -1,7 +1,8 @@
+import { createHash } from "node:crypto";
 import { prisma } from "../db";
 import { getProfile, saveProfile, type ProfileData } from "../settings";
 import { extractResumeText } from "./resume";
-import { fetchResumeText } from "./pdf";
+import { fetchResumePdf } from "./pdf";
 import { parseResume } from "../llm";
 import type { ParsedResume } from "../llm/types";
 
@@ -23,12 +24,7 @@ function isBlank(v: unknown): boolean {
 
 async function readResumeSource(source: string): Promise<string> {
   if (!source) return "";
-  if (/^https?:\/\//i.test(source)) return fetchResumeText(source);
-  try {
-    return (await extractResumeText(source)).text;
-  } catch {
-    return "";
-  }
+  return (await extractResumeText(source)).text;
 }
 
 function remember(updates: ProfileData, updatedFields: string[], key: keyof ProfileData, value: unknown) {
@@ -45,7 +41,10 @@ export async function refreshProfile(sourceOverride?: string): Promise<RefreshRe
   const profile = await getProfile();
   const configuredSource = (sourceOverride || profile.resumeUrl || profile.resumeSource || "").trim();
   let source = configuredSource;
-  let text = await readResumeSource(source);
+  const resumePdf = /^https?:\/\//i.test(source)
+    ? await fetchResumePdf(source)
+    : null;
+  let text = resumePdf?.text || (await readResumeSource(source));
 
   if (!text && profile.resumeText?.trim()) {
     text = profile.resumeText.trim();
@@ -53,7 +52,7 @@ export async function refreshProfile(sourceOverride?: string): Promise<RefreshRe
   }
 
   if (!source && !text) {
-    throw new Error("Add a resume PDF URL or paste resume text before refreshing your profile.");
+    throw new Error("Add a public GitHub or Google Drive resume PDF link.");
   }
 
   const { parsed, provider } = await parseResume(text);
@@ -87,6 +86,30 @@ export async function refreshProfile(sourceOverride?: string): Promise<RefreshRe
   }
 
   const updatedProfile = await saveProfile(updates);
+
+  if (resumePdf) {
+    const sha256 = createHash("sha256").update(resumePdf.bytes).digest("hex");
+    await prisma.resumeAsset.upsert({
+      where: { id: "me" },
+      update: {
+        source: resumePdf.source,
+        fileName: resumePdf.fileName,
+        mimeType: "application/pdf",
+        data: Uint8Array.from(resumePdf.bytes),
+        size: resumePdf.bytes.length,
+        sha256,
+      },
+      create: {
+        id: "me",
+        source: resumePdf.source,
+        fileName: resumePdf.fileName,
+        mimeType: "application/pdf",
+        data: Uint8Array.from(resumePdf.bytes),
+        size: resumePdf.bytes.length,
+        sha256,
+      },
+    });
+  }
 
   // The judge no longer runs automatically on résumé refresh — scoring is a
   // deliberate, button-triggered action (see /judge and the profile "Re-run

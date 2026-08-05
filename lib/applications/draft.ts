@@ -24,6 +24,7 @@ export interface DraftJob {
   title: string;
   company: string;
   applyUrl: string;
+  country?: string | null;
 }
 
 function s(v: unknown): string {
@@ -45,19 +46,30 @@ function renderCoverLetter(
 
 // Map the canonical profile onto the standard fields Greenhouse/Lever/Ashby ask for.
 export function buildFields(job: DraftJob, profile: ProfileData): ApplicationFields {
+  const isCanada = ["ca", "canada"].includes(
+    String(job.country || "").toLowerCase(),
+  );
   return {
     firstName: s(profile.firstName),
     lastName: s(profile.lastName),
     email: s(profile.email),
     phone: s(profile.phone),
-    location: s(profile.location),
+    location: isCanada
+      ? s(profile.caLocation)
+      : s(profile.usLocation) || s(profile.location),
     linkedin: s(profile.linkedin),
     github: s(profile.github),
     website: s(profile.website) || s(profile.portfolio),
     resume: s(profile.resumePath) || s(profile.resumeSource),
     coverLetter: renderCoverLetter(profile.coverLetterTemplate, job, profile),
-    workAuthorized: profile.workAuthorized ?? undefined,
-    requiresSponsorship: profile.requiresSponsorship ?? undefined,
+    workAuthorized: isCanada
+      ? profile.caWorkAuthorized ?? undefined
+      : profile.usWorkAuthorized ?? profile.workAuthorized ?? undefined,
+    requiresSponsorship: isCanada
+      ? profile.caRequiresSponsorship ?? undefined
+      : profile.usRequiresSponsorship ??
+        profile.requiresSponsorship ??
+        undefined,
     gender: s(profile.gender) || undefined,
     raceEthnicity: s(profile.raceEthnicity) || undefined,
     veteranStatus: s(profile.veteranStatus) || undefined,

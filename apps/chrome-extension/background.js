@@ -7,6 +7,7 @@ const STORAGE_DEFAULTS = {
   profile: {},
   applicationSessions: {}
 };
+const MAX_RESUME_BASE64_LENGTH = Math.ceil((5 * 1024 * 1024 * 4) / 3) + 4;
 
 const PANEL_FILES = [
   "lib/session-scope.js",
@@ -40,6 +41,47 @@ async function replaceProfile(rawProfile) {
   const profile = sanitizeProfile(rawProfile);
   await chrome.storage.local.set({ profile });
   return profile;
+}
+
+function sanitizeResumeFile(rawFile) {
+  if (rawFile == null) {
+    return null;
+  }
+  if (
+    typeof rawFile !== "object" ||
+    Array.isArray(rawFile) ||
+    rawFile.mimeType !== "application/pdf" ||
+    typeof rawFile.base64 !== "string" ||
+    !rawFile.base64 ||
+    rawFile.base64.length > MAX_RESUME_BASE64_LENGTH ||
+    !rawFile.base64.startsWith("JVBERi0") ||
+    !/^[A-Za-z0-9+/]+={0,2}$/.test(rawFile.base64)
+  ) {
+    throw new Error("The saved resume PDF is invalid or larger than 5 MB.");
+  }
+  const fileName =
+    typeof rawFile.fileName === "string"
+      ? rawFile.fileName.trim().replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 200)
+      : "";
+  const padding = rawFile.base64.endsWith("==")
+    ? 2
+    : rawFile.base64.endsWith("=")
+      ? 1
+      : 0;
+  if (Math.floor((rawFile.base64.length * 3) / 4) - padding > 5 * 1024 * 1024) {
+    throw new Error("The saved resume PDF is larger than 5 MB.");
+  }
+  return {
+    fileName: fileName.toLowerCase().endsWith(".pdf") ? fileName : "resume.pdf",
+    mimeType: "application/pdf",
+    base64: rawFile.base64
+  };
+}
+
+async function replaceResumeFile(rawFile) {
+  const resumeFile = sanitizeResumeFile(rawFile);
+  await (chrome.storage.session || chrome.storage.local).set({ resumeFile });
+  return resumeFile;
 }
 
 async function ensureDefaults() {
@@ -112,7 +154,8 @@ function cleanJobContext(payload = {}) {
     jobId: cleanText(payload.jobId, 200),
     jobTitle: cleanText(payload.jobTitle, 200),
     company: cleanText(payload.company, 200),
-    url: cleanText(payload.url, 4000)
+    url: cleanText(payload.url, 4000),
+    country: cleanText(payload.country, 20)
   };
 }
 
@@ -380,6 +423,9 @@ async function injectPanel(session, { autofill = false } = {}) {
     enabled: true,
     profile: {}
   });
+  const { resumeFile = null } = await (
+    chrome.storage.session || chrome.storage.local
+  ).get({ resumeFile: null });
 
   if (!enabled || requestedEnabled === false) {
     return { ok: false, error: "Extension is off." };
@@ -417,7 +463,8 @@ async function injectPanel(session, { autofill = false } = {}) {
     const startResponse = await chrome.tabs.sendMessage(session.tabId, {
       type: "JOB_AUTOFILL_START_SESSION",
       session,
-      profile
+      profile,
+      resumeFile
     });
     if (!startResponse?.ok) {
       throw new Error(
@@ -465,6 +512,9 @@ async function launchApplication(payload) {
   }
   if (Object.prototype.hasOwnProperty.call(payload, "profile")) {
     await replaceProfile(payload.profile);
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "resumeFile")) {
+    await replaceResumeFile(payload.resumeFile);
   }
 
   const tab = await chrome.tabs.create({ url: context.url, active: true });
@@ -642,6 +692,9 @@ async function handleInternalMessage(message, sender) {
         enabled: true,
         profile: {}
       });
+      const { resumeFile = null } = await (
+        chrome.storage.session || chrome.storage.local
+      ).get({ resumeFile: null });
       const tabId = sender.tab?.id;
       const senderUrl = sender.url || sender.tab?.url;
       const session = Number.isInteger(tabId)
@@ -661,7 +714,7 @@ async function handleInternalMessage(message, sender) {
       ) {
         return { ok: false, error: "The application session is not active." };
       }
-      return { ok: true, profile };
+      return { ok: true, profile, resumeFile };
     }
     case "JOB_AUTOFILL_SET_ENABLED":
       return setEnabled(message.enabled);
@@ -719,6 +772,9 @@ async function handleExternalMessage(message) {
       return launchApplication(message);
     case "JOB_AUTOFILL_SET_PROFILE": {
       const profile = await replaceProfile(message.profile);
+      if (Object.prototype.hasOwnProperty.call(message, "resumeFile")) {
+        await replaceResumeFile(message.resumeFile);
+      }
       return {
         ok: true,
         profileConfigured: Object.values(profile).some(Boolean)
