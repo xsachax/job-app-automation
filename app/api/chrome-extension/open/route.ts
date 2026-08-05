@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { NextRequest } from "next/server";
 import { isGoogleChromeBrowser } from "@/lib/chromeExtension";
-import { errorResponse, json } from "@/lib/http";
+import { errorResponse, isSameOriginRequest, json } from "@/lib/http";
 
 export const runtime = "nodejs";
 
@@ -40,19 +40,8 @@ function launchCommand(): { command: string; args: string[] } {
   }
 }
 
-function isSameOrigin(request: NextRequest): boolean {
-  const origin = request.headers.get("origin");
-  if (!origin) return false;
-
-  try {
-    return new URL(origin).origin === request.nextUrl.origin;
-  } catch {
-    return false;
-  }
-}
-
 export async function POST(request: NextRequest) {
-  if (!isSameOrigin(request)) {
+  if (!isSameOriginRequest(request)) {
     return errorResponse("same-origin request required", 403);
   }
   if (
