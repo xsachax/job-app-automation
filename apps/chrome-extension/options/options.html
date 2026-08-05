@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Job Application Autofill Setup</title>
+    <link rel="stylesheet" href="options.css">
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <p class="eyebrow">Local Chrome extension</p>
+          <h1>Autofill setup</h1>
+          <p class="lede">Your profile stays in this Chrome profile. Every answer must be reviewed before submission.</p>
+        </div>
+        <label class="enabled-control">
+          <input data-enabled type="checkbox">
+          <span><strong data-enabled-label>Extension on</strong><small>Global ON/OFF switch</small></span>
+        </label>
+      </header>
+
+      <section class="setup-card">
+        <div>
+          <h2>Dashboard connection</h2>
+          <p>Paste this ID into the local dashboard. Only the exact origin below may connect.</p>
+        </div>
+        <div class="connection-settings">
+          <div class="extension-id">
+            <code data-extension-id></code>
+            <button data-copy-id type="button">Copy ID</button>
+          </div>
+          <label>
+            Allowed dashboard origin
+            <input data-dashboard-origin type="url" required placeholder="http://localhost:3000">
+          </label>
+        </div>
+      </section>
+
+      <form data-profile-form>
+        <div data-fields></div>
+        <div class="save-bar">
+          <span data-status></span>
+          <button class="primary" type="submit">Save profile</button>
+        </div>
+      </form>
+    </main>
+
+    <script src="../lib/profile-schema.js"></script>
+    <script src="options.js"></script>
+  </body>
+</html>

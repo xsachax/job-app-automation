@@ -2,11 +2,19 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../components/api";
+import { AutofillProgressCard } from "../components/extension/AutofillProgressCard";
 import { FilterBar } from "../components/jobs/FilterBar";
 import { JobCard } from "../components/jobs/JobCard";
 import type { ApplicationStatus, Country, FilterState, Job, JobFacets, MultiFilterKey } from "../components/jobs/types";
 import { DEFAULT_FILTERS } from "../components/jobs/types";
 import { PageHeader } from "../components/ui";
+import {
+  getAutofillProgress,
+  launchAutofillApplication,
+  pingAutofillExtension,
+  readChromeExtensionId,
+  type AutofillSession,
+} from "@/lib/chromeExtension";
 
 const COUNTRIES: { value: Country; label: string }[] = [
   { value: "US", label: "United States" },
@@ -16,6 +24,20 @@ const COUNTRIES: { value: Country; label: string }[] = [
 // The queue can hold well over a thousand postings; rendering every card up front
 // is slow and janky. Show a page at a time and let the user reveal more.
 const PAGE_SIZE = 60;
+const TERMINAL_EXTENSION_STATUSES = new Set(["closed", "left-application"]);
+
+type ExtensionConnection = "none" | "checking" | "ready" | "off" | "error";
+
+function openExternal(url: string): boolean {
+  const win = window.open(url, "_blank");
+  if (!win) return false;
+  try {
+    win.opener = null;
+  } catch {
+    // Cross-origin tabs are already isolated.
+  }
+  return true;
+}
 
 function buildJobsUrl(country: Country, filters: FilterState): string {
   const params = new URLSearchParams({
@@ -97,6 +119,14 @@ export default function JobsPage() {
   const [updatingIds, setUpdatingIds] = useState<Set<string>>(() => new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [extensionId, setExtensionId] = useState("");
+  const [extensionConnection, setExtensionConnection] =
+    useState<ExtensionConnection>("none");
+  const [extensionMessage, setExtensionMessage] = useState<string | null>(null);
+  const [activeExtensionSessionId, setActiveExtensionSessionId] =
+    useState<string | null>(null);
+  const [activeExtensionSession, setActiveExtensionSession] =
+    useState<AutofillSession | null>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const committedSearch = useRef(DEFAULT_FILTERS.q);
 
@@ -146,6 +176,87 @@ export default function JobsPage() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    void Promise.resolve().then(async () => {
+      let configuredId: string;
+      try {
+        configuredId = readChromeExtensionId();
+      } catch (caught) {
+        if (!active) return;
+        setExtensionConnection("error");
+        setExtensionMessage(
+          `Could not read the saved Chrome extension ID: ${
+            caught instanceof Error ? caught.message : String(caught)
+          }`,
+        );
+        return;
+      }
+      if (!active) return;
+      setExtensionId(configuredId);
+      if (!configuredId) return;
+
+      setExtensionConnection("checking");
+      try {
+        const response = await pingAutofillExtension(configuredId);
+        if (!active) return;
+        setExtensionConnection(response.enabled ? "ready" : "off");
+      } catch (caught) {
+        if (!active) return;
+        setExtensionConnection("error");
+        setExtensionMessage(
+          `Autofill extension unavailable: ${
+            caught instanceof Error ? caught.message : String(caught)
+          }. Job links will open normally.`,
+        );
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!extensionId || !activeExtensionSessionId) return;
+
+    const sessionId = activeExtensionSessionId;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    async function poll() {
+      try {
+        const response = await getAutofillProgress(
+          extensionId,
+          sessionId,
+        );
+        if (cancelled) return;
+        setActiveExtensionSession(response.session);
+        if (!TERMINAL_EXTENSION_STATUSES.has(response.session.status)) {
+          const delay = ["opening", "loading", "active"].includes(
+            response.session.status,
+          )
+            ? 1000
+            : 5000;
+          timer = setTimeout(() => void poll(), delay);
+        }
+      } catch (caught) {
+        if (cancelled) return;
+        setExtensionMessage(
+          `Could not refresh autofill progress: ${
+            caught instanceof Error ? caught.message : String(caught)
+          }`,
+        );
+      }
+    }
+
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [activeExtensionSessionId, extensionId]);
 
   useEffect(() => {
     return () => {
@@ -198,18 +309,7 @@ export default function JobsPage() {
     if (chosen.length === 0) return;
     let blocked = 0;
     for (const job of chosen) {
-      const win = window.open(job.applyUrl, "_blank");
-      if (win) {
-        // Sever the opener reference so the external posting can't script back
-        // into this tab (reverse tabnabbing) while still letting us detect blocks.
-        try {
-          win.opener = null;
-        } catch {
-          /* cross-origin: already isolated */
-        }
-      } else {
-        blocked += 1;
-      }
+      if (!openExternal(job.applyUrl)) blocked += 1;
     }
     if (blocked > 0) {
       setError(
@@ -217,6 +317,33 @@ export default function JobsPage() {
       );
     } else {
       setError(null);
+    }
+  }
+
+  async function openWithExtension(job: Job) {
+    setExtensionMessage(null);
+    try {
+      const response = await launchAutofillApplication(extensionId, {
+        jobId: job.id,
+        jobTitle: job.title,
+        company: job.company,
+        url: job.applyUrl,
+      });
+      setActiveExtensionSession(null);
+      setActiveExtensionSessionId(response.sessionId);
+      setExtensionMessage("Application opened with the autofill extension.");
+    } catch (caught) {
+      setExtensionConnection("error");
+      const openedNormally = openExternal(job.applyUrl);
+      setExtensionMessage(
+        `Autofill extension failed: ${
+          caught instanceof Error ? caught.message : String(caught)
+        }. ${
+          openedNormally
+            ? "The posting was opened normally."
+            : "Allow pop-ups for this dashboard, then open the posting again."
+        }`,
+      );
     }
   }
 
@@ -346,6 +473,41 @@ export default function JobsPage() {
         onClear={handleClearFilters}
       />
 
+      {extensionId && (
+        <div
+          className={
+            "mb-3 rounded-lg border px-3 py-2 text-xs " +
+            (extensionConnection === "ready"
+              ? "border-green-200 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300"
+              : "border-gray-200 bg-gray-50 text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300")
+          }
+        >
+          {extensionConnection === "checking"
+            ? "Checking the Chrome autofill extension…"
+            : extensionConnection === "ready"
+              ? "Chrome autofill is ready. Opening a job launches the application assistant."
+              : extensionConnection === "off"
+                ? "The Chrome autofill extension is off. Job links will open normally."
+                : "The Chrome autofill extension is not connected. Job links will open normally."}
+        </div>
+      )}
+
+      {extensionMessage && (
+        <div className="mb-3 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950 dark:text-indigo-200">
+          {extensionMessage}
+        </div>
+      )}
+
+      {activeExtensionSession && (
+        <AutofillProgressCard
+          session={activeExtensionSession}
+          onDismiss={() => {
+            setActiveExtensionSessionId(null);
+            setActiveExtensionSession(null);
+          }}
+        />
+      )}
+
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         {!loading || jobs.length > 0 ? (
           <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -423,6 +585,7 @@ export default function JobsPage() {
               onStatusChange={handleStatusChange}
               selected={selectedIds.has(job.id)}
               onToggleSelect={toggleSelect}
+              onOpen={extensionConnection === "ready" ? openWithExtension : undefined}
             />
           ))}
           {visibleCount < jobs.length && (
