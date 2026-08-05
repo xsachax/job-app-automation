@@ -5,8 +5,9 @@ test.describe("judge hub", () => {
     await page.goto("/judge");
     await expect(page.getByRole("heading", { name: "Judge", exact: true })).toBeVisible();
 
-    // The four scoring axes are documented in the "how it's built" table.
+    // Every scoring axis is documented in the "how it's built" table.
     await expect(page.getByRole("cell", { name: "Résumé fit" })).toBeVisible();
+    await expect(page.getByRole("cell", { name: "Date posted" })).toBeVisible();
     await expect(page.getByRole("cell", { name: "Company tier" })).toBeVisible();
     await expect(page.getByRole("cell", { name: "Location tier" })).toBeVisible();
     await expect(page.getByRole("cell", { name: "Pay vs. target" })).toBeVisible();

@@ -138,7 +138,7 @@ export default function JudgePage() {
     <div className="space-y-6">
       <PageHeader
         title="Judge"
-        subtitle="One fit score per posting, blended from your résumé, company and location tiers, and target pay."
+        subtitle="One fit score per posting, blended from your résumé, date posted, company and location tiers, and target pay."
       >
         <button className={cls.btnGreen} onClick={rerun} disabled={running}>
           {running ? "Re-running…" : "Re-run judge"}
@@ -215,7 +215,8 @@ export default function JudgePage() {
         <div className="border-b border-gray-200 px-5 py-4 dark:border-gray-800">
           <h2 className="text-lg font-semibold">How the score is built</h2>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            The résumé match sets a 0–100 base; your tiers and pay target then nudge it up or down.
+            The résumé match sets a 0–100 base; freshness, your tiers, and pay
+            target then nudge it up or down.
           </p>
         </div>
         <table className="w-full text-sm">

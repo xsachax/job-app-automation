@@ -43,6 +43,7 @@ interface Fixture {
   fitScore?: number;
   fitProvider?: string;
   fitSummary?: string;
+  fitReasons?: string[];
 }
 
 const JOBS: Fixture[] = [
@@ -64,7 +65,12 @@ const JOBS: Fixture[] = [
     employmentType: "fulltime",
     fitScore: 88,
     fitProvider: "deterministic",
-    fitSummary: "Strong fit: overlaps on TypeScript, React.",
+    fitSummary: "Prioritize this application while the posting is fresh.",
+    fitReasons: [
+      "Fit: Matches résumé skills: TypeScript, React, and Node.js",
+      "Fit: Posted within 24 hours (+12 freshness)",
+      "Gap: Confirm any team-specific experience requirements",
+    ],
   },
   {
     key: "apply",
@@ -79,6 +85,10 @@ const JOBS: Fixture[] = [
     location: "New York, NY",
     fitScore: 64,
     fitProvider: "deterministic",
+    fitReasons: [
+      "Fit: Matches résumé skills: TypeScript and PostgreSQL",
+      "Gap: One year of professional experience may need confirmation",
+    ],
   },
   {
     key: "reject",
@@ -94,6 +104,10 @@ const JOBS: Fixture[] = [
     sponsorship: "none",
     fitScore: 41,
     fitProvider: "deterministic",
+    fitReasons: [
+      "Fit: Node.js overlaps with the saved résumé",
+      "Gap: Go is not shown on the saved résumé",
+    ],
   },
   {
     key: "staff",
@@ -133,7 +147,11 @@ const JOBS: Fixture[] = [
     salaryRaw: "CA$90,000 - CA$110,000",
     fitScore: 72,
     fitProvider: "agent",
-    fitSummary: "Possible fit: Python overlap, cloud exposure.",
+    fitSummary: "Worth applying after confirming the cloud requirements.",
+    fitReasons: [
+      "Fit: Python experience transfers directly to this role",
+      "Gap: AWS depth is not clear from the saved résumé",
+    ],
   },
   {
     key: "workday",
@@ -185,7 +203,7 @@ async function main() {
         fitScore: f.fitScore ?? null,
         fitProvider: f.fitProvider ?? null,
         fitSummary: f.fitSummary ?? null,
-        fitReasons: f.fitScore != null ? JSON.stringify(["seed reason"]) : null,
+        fitReasons: f.fitScore != null ? JSON.stringify(f.fitReasons ?? []) : null,
         fitScoredAt: f.fitScore != null ? new Date() : null,
       },
     });

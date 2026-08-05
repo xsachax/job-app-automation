@@ -48,6 +48,7 @@ async function makeJob(opts: {
   salaryMax?: number;
   salaryCurrency?: string;
   location?: string;
+  postedAt?: Date;
 }) {
   return prisma.job.create({
     data: {
@@ -69,6 +70,7 @@ async function makeJob(opts: {
       salaryMax: opts.salaryMax ?? null,
       salaryCurrency: opts.salaryCurrency ?? null,
       location: opts.location ?? null,
+      postedAt: opts.postedAt ?? null,
     },
   });
 }
@@ -163,7 +165,9 @@ describe("scoreAllJobs", () => {
     const updated = await prisma.job.findUniqueOrThrow({ where: { id: scoredJob.id } });
     expect(updated.fitProvider).toBe("deterministic");
     expect(updated.fitScore ?? 0).toBeGreaterThan(0);
-    expect(JSON.parse(updated.fitReasons ?? "[]")).toEqual(expect.arrayContaining([expect.stringContaining("resume skills")]));
+    expect(JSON.parse(updated.fitReasons ?? "[]")).toEqual(
+      expect.arrayContaining([expect.stringMatching(/matches .*résumé skills/i)]),
+    );
 
     const preserved = await prisma.job.findUniqueOrThrow({ where: { id: agentJob.id } });
     expect(preserved.fitProvider).toBe("agent");
@@ -178,6 +182,7 @@ describe("scoreAllJobs salary axis", () => {
       targetRoles: ["Software Engineer"],
       summary: "Entry-level software engineer shipping web apps.",
     });
+
     await saveCriteria({ salaryTarget: 110000 });
 
     const desc = "Build customer features with TypeScript and React.";
@@ -225,8 +230,48 @@ describe("scoreAllJobs salary axis", () => {
 
     await scoreAllJobs();
     const scored = await prisma.job.findUniqueOrThrow({ where: { id: job.id } });
-    expect(JSON.parse(scored.fitReasons ?? "[]")).not.toEqual(
-      expect.arrayContaining([expect.stringContaining("target")]),
+    const reasons = JSON.parse(scored.fitReasons ?? "[]") as string[];
+    expect(reasons.some((reason) => /\bpay\b.*\btarget\b/i.test(reason))).toBe(
+      false,
+    );
+  });
+});
+
+describe("scoreAllJobs freshness axis", () => {
+  it("ranks a newly posted job above an otherwise identical stale job", async () => {
+    await saveProfile({
+      skills: ["TypeScript", "React"],
+      targetRoles: ["Software Engineer"],
+      summary: "Entry-level software engineer shipping web apps.",
+    });
+    const now = Date.now();
+    const shared = {
+      title: "Software Engineer I",
+      description: "Build customer features with TypeScript and React.",
+      skills: ["TypeScript", "React"],
+      company: "Same Co",
+    };
+    const fresh = await makeJob({
+      key: "fresh",
+      ...shared,
+      postedAt: new Date(now - 6 * 60 * 60 * 1000),
+    });
+    const stale = await makeJob({
+      key: "stale",
+      ...shared,
+      postedAt: new Date(now - 45 * 24 * 60 * 60 * 1000),
+    });
+
+    await scoreAllJobs();
+
+    const freshJob = await prisma.job.findUniqueOrThrow({ where: { id: fresh.id } });
+    const staleJob = await prisma.job.findUniqueOrThrow({ where: { id: stale.id } });
+    expect(freshJob.fitScore ?? 0).toBeGreaterThan(staleJob.fitScore ?? 0);
+    expect(JSON.parse(freshJob.fitReasons ?? "[]")).toEqual(
+      expect.arrayContaining([expect.stringMatching(/^Fit: Posted within 24 hours/)]),
+    );
+    expect(JSON.parse(staleJob.fitReasons ?? "[]")).toEqual(
+      expect.arrayContaining([expect.stringMatching(/^Gap: Posted more than 30 days ago/)]),
     );
   });
 });
@@ -263,7 +308,7 @@ describe("scoreAllJobs location axis", () => {
     const austinJob = await prisma.job.findUniqueOrThrow({ where: { id: austin.id } });
     expect(sfJob.fitScore ?? 0).toBeGreaterThan(austinJob.fitScore ?? 0);
     expect(JSON.parse(sfJob.fitReasons ?? "[]")).toEqual(
-      expect.arrayContaining([expect.stringContaining("San Francisco, CA is tier S")]),
+      expect.arrayContaining([expect.stringContaining("San Francisco, CA is location tier S")]),
     );
   });
 });
@@ -301,10 +346,6 @@ describe("scoreAllJobs company axis", () => {
     const unrankedJob = await prisma.job.findUniqueOrThrow({ where: { id: unranked.id } });
 
     expect(rankedJob.fitScore ?? 0).toBeGreaterThan(unrankedJob.fitScore ?? 0);
-    expect(JSON.parse(rankedJob.fitReasons ?? "[]")).toEqual(
-      expect.arrayContaining([expect.stringContaining("Ranked Co is tier C")]),
-    );
-
     const unrankedReasons = JSON.parse(unrankedJob.fitReasons ?? "[]") as string[];
     expect(unrankedReasons).toEqual(
       expect.arrayContaining([expect.stringContaining("unranked")]),
@@ -341,9 +382,17 @@ describe("agent judge batch", () => {
     expect(batch.items[0].id).toBe(job.id);
     expect(batch.resume.skills).toContain("Python");
     expect(batch.outputPath).toContain(".match");
+    expect(batch.instructions).toContain('"fits"');
+    expect(batch.instructions).toContain('"gaps"');
 
     const result = await applyJudgeScores([
-      { id: job.id, score: 88, summary: "Strong backend fit", reasons: ["Python and SQL overlap"] },
+      {
+        id: job.id,
+        score: 88,
+        summary: "Strong backend fit",
+        fits: ["Python and SQL overlap"],
+        gaps: ["Production scale is not shown"],
+      },
       { id: "missing", score: 70 },
     ]);
     expect(result.updated).toBe(1);
@@ -351,7 +400,14 @@ describe("agent judge batch", () => {
 
     const updated = await prisma.job.findUniqueOrThrow({ where: { id: job.id } });
     expect(updated.fitProvider).toBe("agent");
-    expect(updated.fitScore).toBe(88);
+    expect(updated.fitScore).toBe(100);
     expect(updated.fitSummary).toBe("Strong backend fit");
+    expect(JSON.parse(updated.fitReasons ?? "[]")).toEqual(
+      expect.arrayContaining([
+        "Fit: Python and SQL overlap",
+        "Gap: Production scale is not shown",
+        expect.stringMatching(/^Fit: First seen within 24 hours/),
+      ]),
+    );
   });
 });

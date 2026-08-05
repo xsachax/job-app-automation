@@ -149,6 +149,14 @@ test.describe("profile page", () => {
       },
     });
 
+    const messagesBeforeClear = await page.evaluate(
+      () =>
+        (
+          globalThis as unknown as {
+            __profileExtensionMessages: unknown[];
+          }
+        ).__profileExtensionMessages.length,
+    );
     await usSection.getByLabel("Do you need visa sponsorship?").selectOption("");
     const clearResponse = page.waitForResponse(
       (response) =>
@@ -170,7 +178,7 @@ test.describe("profile page", () => {
             ).__profileExtensionMessages.length,
         ),
       )
-      .toBe(2);
+      .toBeGreaterThan(messagesBeforeClear);
     const clearedRequest = await page.evaluate(() => {
       const messages = (
         globalThis as unknown as {

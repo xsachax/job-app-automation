@@ -880,6 +880,7 @@ export default function ProfilePage() {
               <li>• target roles for title alignment</li>
               <li>• skills for exact posting overlap</li>
               <li>• summary, qualifications, and resume text for broader context</li>
+              <li>• date posted for the freshness boost</li>
               <li>• agent review exports for the strongest deterministic matches</li>
             </ul>
             <p className="mt-3 border-t border-gray-200 pt-3 text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400">

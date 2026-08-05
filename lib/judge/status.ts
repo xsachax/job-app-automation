@@ -1,7 +1,7 @@
 // Shared vocabulary for the Judge hub (/judge) and its status API.
 //
-// The judge blends four axes into one 0..100 fit score per posting:
-//   résumé fit (base) ± company tier ± location tier ± salary-vs-target.
+// The judge blends five axes into one 0..100 fit score per posting:
+//   résumé fit (base) + freshness ± company tier ± location tier ± salary-vs-target.
 // These bands/labels are the single source of truth so the page, the badges,
 // and the status counts can never drift apart.
 
@@ -42,14 +42,19 @@ export interface JudgeAxis {
   effect: string;
 }
 
-// The four scoring axes, in the order they apply. Mirrors scoreAllJobs():
-// résumé base, then company + location tier modifiers, then the salary delta.
+// The five scoring axes, in the order they apply. Mirrors scoreAllJobs().
 export const JUDGE_AXES: JudgeAxis[] = [
   {
     key: "resume",
     name: "Résumé fit",
     reads: "Skills, prior titles, and summary from your résumé matched against the posting",
     effect: "Base 0–100",
+  },
+  {
+    key: "freshness",
+    name: "Date posted",
+    reads: "The posting date, falling back to when the job was first discovered",
+    effect: "+12 new … −4 stale",
   },
   {
     key: "company",

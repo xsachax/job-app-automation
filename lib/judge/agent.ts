@@ -3,6 +3,8 @@ import { dirname, resolve } from "node:path";
 import { prisma } from "../db";
 import { getProfile } from "../settings";
 import { buildResumeContext } from "./judge";
+import { fitAdvice, gapAdvice } from "./advice";
+import { freshnessFit } from "./freshness";
 
 export interface BuildJudgeBatchOptions {
   topN?: number;
@@ -22,6 +24,8 @@ export interface JudgeBatchItem {
   fitSummary: string | null;
   skills: string[];
   description: string;
+  postedAt: string | null;
+  firstSeenAt: string;
 }
 
 export interface JudgeBatch {
@@ -40,6 +44,8 @@ export interface JudgeScoreInput {
   score: unknown;
   summary?: unknown;
   reasons?: unknown;
+  fits?: unknown;
+  gaps?: unknown;
 }
 
 export interface ApplyJudgeScoresResult {
@@ -51,8 +57,10 @@ const DEFAULT_OUT = ".match/judge-review.json";
 
 const JUDGE_INSTRUCTIONS =
   "You are the Copilot agent scoring post-scrape discovery jobs against THIS candidate. " +
-  "Return JSON as {\"scores\":[{\"id\":\"job_id\",\"score\":0-100,\"summary\":\"one line\",\"reasons\":[\"short reason\"]}]}. " +
-  "Judge entry-level fit, concrete skill overlap, qualifications, seniority, and gaps. " +
+  "Return JSON as {\"scores\":[{\"id\":\"job_id\",\"score\":0-100,\"summary\":\"actionable one-line advice\",\"fits\":[\"specific evidence\"],\"gaps\":[\"specific gap\"]}]}. " +
+  "Judge concrete skill and domain overlap, qualifications, seniority, transferable experience, and hard requirements. " +
+  "Name evidence from the résumé and posting; never use vague phrases like \"good fit\" or invent experience. " +
+  "Score candidate fit only. The app applies the date-posted freshness modifier separately. " +
   "Then run: npm run judge:apply -- <scores.json>.";
 
 function parseStringArray(raw: string | null): string[] {
@@ -124,6 +132,8 @@ export async function buildJudgeBatch(opts: BuildJudgeBatchOptions = {}): Promis
       fitSummary: job.fitSummary,
       skills: parseStringArray(job.skills),
       description: compactDescription(job.description, descriptionChars),
+      postedAt: job.postedAt?.toISOString() ?? null,
+      firstSeenAt: job.firstSeenAt.toISOString(),
     })),
     instructions: JUDGE_INSTRUCTIONS,
     outputPath,
@@ -145,8 +155,8 @@ export async function applyJudgeScores(scores: JudgeScoreInput[]): Promise<Apply
       continue;
     }
 
-    const score = clampScore(item.score);
-    if (score === null) {
+    const baseScore = clampScore(item.score);
+    if (baseScore === null) {
       result.skipped.push({ id, reason: "invalid score" });
       continue;
     }
@@ -158,7 +168,19 @@ export async function applyJudgeScores(scores: JudgeScoreInput[]): Promise<Apply
     }
 
     const summary = typeof item.summary === "string" ? item.summary.trim().slice(0, 300) : "";
-    const reasons = cleanReasons(item.reasons);
+    const fits = cleanReasons(item.fits);
+    const gaps = cleanReasons(item.gaps);
+    const legacyReasons = cleanReasons(item.reasons);
+    const freshness = freshnessFit(job, now);
+    const score = clampScore(baseScore + freshness.delta) ?? baseScore;
+    const reasons = [
+      ...fits.map(fitAdvice),
+      ...gaps.map(gapAdvice),
+      ...(fits.length || gaps.length ? [] : legacyReasons),
+      ...(freshness.reason
+        ? [freshness.delta > 0 ? fitAdvice(freshness.reason) : gapAdvice(freshness.reason)]
+        : []),
+    ].slice(0, 8);
     await prisma.job.update({
       where: { id },
       data: {

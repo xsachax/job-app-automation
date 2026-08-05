@@ -8,6 +8,8 @@
 // A richer, judgement-based score is produced separately by the Copilot agent
 // (see lib/matching/agent.ts) and overrides this baseline when available.
 
+import { SKILL_VOCAB } from "../discovery/enrich";
+
 export interface ResumeContext {
   skills?: string[]; // parsed skills from the resume
   titles?: string[]; // roles/titles the candidate has held
@@ -19,6 +21,7 @@ export interface ResumeJobInput {
   title: string;
   description?: string | null;
   company?: string | null;
+  skills?: string[];
 }
 
 export interface ResumeScoreResult {
@@ -38,6 +41,52 @@ const STOPWORDS = new Set([
   "looking", "seeking", "responsibilities", "requirements", "qualifications",
 ]);
 
+const RESONANCE_STOPWORDS = new Set([
+  ...STOPWORDS,
+  "computer",
+  "company",
+  "data",
+  "developer",
+  "development",
+  "engineer",
+  "engineering",
+  "focused",
+  "full",
+  "level",
+  "market",
+  "product",
+  "science",
+  "software",
+  "stack",
+  "systems",
+  "technical",
+  "technology",
+]);
+
+const SIGNAL_NOISE = new Set([
+  "amp",
+  "button",
+  "class",
+  "div",
+  "href",
+  "html",
+  "http",
+  "https",
+  "local",
+  "nbsp",
+  "quot",
+  "render",
+  "renderer",
+  "section",
+  "span",
+  "start",
+  "style",
+]);
+
+const TRUSTED_SKILL_SIGNALS = new Set(
+  SKILL_VOCAB.map((skill) => normalizePhrase(skill)),
+);
+
 function tokenize(s: string | null | undefined): string[] {
   return (
     (s || "").toLowerCase().match(/[a-z0-9+#.]+/g)?.map((t) => t.replace(/\.+$/, "")).filter(Boolean) ??
@@ -49,6 +98,47 @@ function tokenize(s: string | null | undefined): string[] {
 // against normalized text, and also token-match single words.
 function normalizePhrase(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9+#.\s]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function phraseAppears(text: string, phrase: string): boolean {
+  const normalized = normalizePhrase(phrase);
+  if (!normalized) return false;
+  return normalized.includes(" ")
+    ? text.includes(normalized)
+    : new Set(tokenize(text)).has(normalized);
+}
+
+function humanList(values: string[]): string {
+  if (values.length <= 1) return values[0] ?? "";
+  if (values.length === 2) return `${values[0]} and ${values[1]}`;
+  return `${values.slice(0, -1).join(", ")}, and ${values.at(-1)}`;
+}
+
+function usefulSignal(value: string): boolean {
+  if (!TRUSTED_SKILL_SIGNALS.has(normalizePhrase(value))) return false;
+  const tokens = tokenize(value);
+  return tokens.some(
+    (token) =>
+      !RESONANCE_STOPWORDS.has(token) &&
+      !SIGNAL_NOISE.has(token) &&
+      !/^\d+$/.test(token),
+  );
+}
+
+function addMissingSignal(signals: string[], value: string): void {
+  const normalized = normalizePhrase(value);
+  if (!normalized) return;
+  const relatedIndex = signals.findIndex((signal) => {
+    const existing = normalizePhrase(signal);
+    return existing.includes(normalized) || normalized.includes(existing);
+  });
+  if (relatedIndex < 0) {
+    signals.push(value);
+    return;
+  }
+  if (normalized.length > normalizePhrase(signals[relatedIndex]).length) {
+    signals[relatedIndex] = value;
+  }
 }
 
 function clamp(n: number): number {
@@ -75,12 +165,7 @@ export function scoreResumeFit(job: ResumeJobInput, resume: ResumeContext): Resu
   // --- Skill coverage ---
   const matchedSkills: string[] = [];
   for (const skill of skills) {
-    const norm = normalizePhrase(skill);
-    if (!norm) continue;
-    const hit = norm.includes(" ")
-      ? postingText.includes(norm) // multi-word: substring match
-      : postingTokens.has(norm); // single word: exact token match
-    if (hit) matchedSkills.push(skill);
+    if (phraseAppears(postingText, skill)) matchedSkills.push(skill);
   }
   let skillScore = 0;
   if (skills.length > 0 && matchedSkills.length > 0) {
@@ -88,11 +173,13 @@ export function scoreResumeFit(job: ResumeJobInput, resume: ResumeContext): Resu
     // Reward both breadth (coverage) and a floor for absolute hits.
     skillScore = Math.min(55, coverage * 45 + Math.min(matchedSkills.length, 5) * 4);
     reasons.push(
-      `resume skills present: ${matchedSkills.slice(0, 8).join(", ")}` +
-        (matchedSkills.length > 8 ? `, +${matchedSkills.length - 8} more` : ""),
+      `Matches ${matchedSkills.length} résumé ${
+        matchedSkills.length === 1 ? "skill" : "skills"
+      }: ${humanList(matchedSkills.slice(0, 5))}` +
+        (matchedSkills.length > 5 ? `, plus ${matchedSkills.length - 5} more` : ""),
     );
   } else if (skills.length === 0) {
-    reasons.push("no resume skills on file — fit is title-based only");
+    reasons.push("No résumé skills are on file, so the score relies on role and experience text");
   }
 
   // --- Title / role alignment ---
@@ -110,53 +197,53 @@ export function scoreResumeFit(job: ResumeJobInput, resume: ResumeContext): Resu
     }
   }
   if (titleScore > 0) {
-    reasons.push(`title aligns with prior role "${bestRole}"`);
+    reasons.push(`Role aligns with the target title "${bestRole}"`);
   }
 
   // --- Summary / broad keyword resonance ---
   const summaryTerms = new Set(
     [...tokenize(resume.summary), ...tokenize(resume.text)]
-      .filter((t) => t.length >= 4 && !STOPWORDS.has(t)),
+      .filter(
+        (t) =>
+          t.length >= 4 &&
+          !RESONANCE_STOPWORDS.has(t) &&
+          !SIGNAL_NOISE.has(t) &&
+          !/^\d+$/.test(t),
+      ),
   );
   let resonance = 0;
   const echoed: string[] = [];
   for (const t of postingTokens) {
-    if (t.length >= 4 && !STOPWORDS.has(t) && summaryTerms.has(t)) {
+    if (t.length >= 4 && !RESONANCE_STOPWORDS.has(t) && summaryTerms.has(t)) {
       echoed.push(t);
     }
   }
   if (echoed.length > 0) {
     resonance = Math.min(20, echoed.length * 2.5);
-    reasons.push(`resume echoes posting terms: ${echoed.slice(0, 6).join(", ")}`);
+    reasons.push(`Résumé evidence overlaps on ${humanList(echoed.slice(0, 6))}`);
   }
 
-  // --- Missing signals: prominent posting keywords the resume never mentions ---
+  // --- Missing signals: structured posting skills and prominent repeated terms ---
   const missingSignals: string[] = [];
   if (skills.length > 0) {
-    const resumeTerms = new Set([
-      ...skills.map((s) => normalizePhrase(s)),
-      ...summaryTerms,
-    ]);
-    const freq = new Map<string, number>();
-    for (const t of tokenize(job.description)) {
-      if (t.length >= 4 && !STOPWORDS.has(t)) freq.set(t, (freq.get(t) ?? 0) + 1);
-    }
-    const prominent = [...freq.entries()]
-      .filter(([, c]) => c >= 2)
-      .sort((a, b) => b[1] - a[1])
-      .map(([t]) => t)
-      .filter((t) => !resumeTerms.has(t) && !postingTitleHas(job.title, t));
-    for (const t of prominent) {
+    const resumeText = normalizePhrase(
+      `${skills.join(" ")} ${resume.summary ?? ""} ${resume.text ?? ""}`,
+    );
+    const companyText = normalizePhrase(job.company ?? "");
+    for (const skill of (job.skills ?? []).filter(usefulSignal)) {
       if (missingSignals.length >= 6) break;
-      missingSignals.push(t);
+      const normalizedSkill = normalizePhrase(skill);
+      if (
+        !phraseAppears(resumeText, skill) &&
+        (!companyText || !companyText.includes(normalizedSkill))
+      ) {
+        addMissingSignal(missingSignals, skill);
+      }
     }
+
   }
 
   const score = clamp(skillScore + titleScore + resonance);
-  if (reasons.length === 0) reasons.push("weak resume overlap");
+  if (reasons.length === 0) reasons.push("Limited direct résumé overlap");
   return { score, reasons, matchedSkills, missingSignals };
-}
-
-function postingTitleHas(title: string, term: string): boolean {
-  return new Set(tokenize(title)).has(term);
 }

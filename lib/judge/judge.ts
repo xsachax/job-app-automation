@@ -4,6 +4,8 @@ import { scoreResumeFit, type ResumeContext } from "../matching/resume";
 import { salaryFit } from "../matching/salary";
 import { normalizeLocation, normalizeLocationKey } from "../locations";
 import { clampScore, isTier, normalizeCompanyKey, TIER_MODIFIER, UNRANKED_COMPANY_MODIFIER, type Tier } from "../tiers";
+import { fitAdvice, gapAdvice } from "./advice";
+import { freshnessFit } from "./freshness";
 
 export interface ScoreAllJobsOptions {
   onlyUnscored?: boolean;
@@ -68,15 +70,13 @@ function parseJobSkills(raw: string | null): string[] {
 
 function deterministicSummary(
   score: number,
-  reasons: string[],
-  missingSignals: string[],
-  tier?: Tier | null,
+  strengths: string[],
+  gaps: string[],
 ): string {
   const fit = score >= 70 ? "Strong fit" : score >= 40 ? "Possible fit" : "Weak fit";
-  const reason = reasons[0] ?? "limited resume overlap";
-  const gap = missingSignals.length ? ` Gaps: ${missingSignals.slice(0, 3).join(", ")}.` : "";
-  const tierNote = isTier(tier) ? ` Tier ${tier}.` : "";
-  return `${fit}: ${reason}.${gap}${tierNote}`.replace(/\.\./g, ".").slice(0, 300);
+  const reason = strengths[0] ?? "The résumé has limited direct overlap";
+  const gap = gaps[0] ? ` Watch-out: ${gaps[0]}.` : "";
+  return `${fit}: ${reason}.${gap}`.replace(/\.\./g, ".").slice(0, 300);
 }
 
 export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<ScoreAllJobsResult> {
@@ -123,7 +123,7 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
     const skills = parseJobSkills(job.skills);
     const description = compactText(job.description, skills.length ? `Skills: ${skills.join(", ")}` : "");
     const result = scoreResumeFit(
-      { title: job.title, company: job.company, description },
+      { title: job.title, company: job.company, description, skills },
       resume,
     );
 
@@ -131,28 +131,68 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
     const canonicalLoc = normalizeLocation(job.location);
     const locTier = canonicalLoc ? tierByLocation.get(normalizeLocationKey(canonicalLoc)) ?? null : null;
     const salary = salaryFit(job, salaryTarget);
+    const freshness = freshnessFit(job, now);
 
     // Unranked companies take a mild default penalty so ranking is worthwhile;
     // unranked locations stay neutral (see UNRANKED_COMPANY_MODIFIER).
     const companyMod = isTier(tier) ? TIER_MODIFIER[tier] : UNRANKED_COMPANY_MODIFIER;
     const locationMod = isTier(locTier) ? TIER_MODIFIER[locTier] : 0;
-    const adjustedScore = clampScore(result.score + companyMod + locationMod + salary.delta);
+    const adjustedScore = clampScore(
+      result.score + companyMod + locationMod + salary.delta + freshness.delta,
+    );
 
-    const reasons = [...result.reasons];
-    if (salary.reason) reasons.push(salary.reason);
-    if (isTier(tier)) {
-      reasons.push(`company ${job.company} is tier ${tier}`);
-    } else {
-      reasons.push(`company ${job.company} is unranked (${UNRANKED_COMPANY_MODIFIER} fit)`);
+    const strengths = result.reasons.filter(
+      (reason) => !/\b(?:limited|no résumé skills)\b/i.test(reason),
+    );
+    const gaps: string[] = [];
+    if ((resume.skills?.length ?? 0) > 0 && result.matchedSkills.length === 0) {
+      gaps.push("No saved résumé skills directly match the posting");
     }
-    if (isTier(locTier) && canonicalLoc) reasons.push(`location ${canonicalLoc} is tier ${locTier}`);
+    if (result.missingSignals.length) {
+      gaps.push(`Résumé does not show ${result.missingSignals.slice(0, 4).join(", ")}`);
+    }
+    if (job.minYoE != null && job.minYoE > 0) {
+      gaps.push(
+        `Posting asks for ${job.minYoE}+ ${
+          job.minYoE === 1 ? "year" : "years"
+        } of experience; verify the requirement`,
+      );
+    }
+
+    if (freshness.reason) {
+      if (freshness.delta > 0) {
+        strengths.splice(Math.min(1, strengths.length), 0, freshness.reason);
+      } else {
+        gaps.push(freshness.reason);
+      }
+    }
+    if (salary.reason && salary.delta !== 0) {
+      (salary.delta > 0 ? strengths : gaps).push(salary.reason);
+    } else if (salary.reason && !salary.known) {
+      gaps.push("Salary is not listed");
+    }
+    if (isTier(tier) && companyMod !== 0) {
+      const reason = `${job.company} is company tier ${tier} (${companyMod > 0 ? "+" : ""}${companyMod})`;
+      (companyMod > 0 ? strengths : gaps).push(reason);
+    } else if (!isTier(tier)) {
+      gaps.push(`${job.company} is unranked (${UNRANKED_COMPANY_MODIFIER})`);
+    }
+    if (isTier(locTier) && canonicalLoc && locationMod !== 0) {
+      const reason = `${canonicalLoc} is location tier ${locTier} (${locationMod > 0 ? "+" : ""}${locationMod})`;
+      (locationMod > 0 ? strengths : gaps).push(reason);
+    }
+
+    const advice = [
+      ...strengths.slice(0, 6).map(fitAdvice),
+      ...gaps.slice(0, 6).map(gapAdvice),
+    ];
 
     await prisma.job.update({
       where: { id: job.id },
       data: {
         fitScore: adjustedScore,
-        fitReasons: JSON.stringify(reasons.slice(0, 5)),
-        fitSummary: deterministicSummary(adjustedScore, reasons, result.missingSignals, tier),
+        fitReasons: JSON.stringify(advice),
+        fitSummary: deterministicSummary(adjustedScore, strengths, gaps),
         fitProvider: "deterministic",
         fitScoredAt: now,
       },
