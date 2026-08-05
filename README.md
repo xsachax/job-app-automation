@@ -173,7 +173,7 @@ The Chrome extension is optional and needs no build or Web Store publication. Fo
 | **Companies** | Coverage of every API and browser-scraped source. |
 | **Extension** | Install the optional Chrome extension and see its live connection status. |
 | **Settings** | Edit discovery configuration — countries, max YoE, degree/internship gates, keywords, scraper query terms, per-source enable/disable. |
-| **Profile** | Manage application autofill details, résumé PDF URL (or pasted text), target roles, skills and qualifications, and your LinkedIn Connections.csv (for warm-intro tagging), then run the fit judge. |
+| **Profile** | Manage country-specific application details, a saved résumé PDF from GitHub or Google Drive, target roles, skills and qualifications, and your LinkedIn Connections.csv (for warm-intro tagging), then run the fit judge. |
 | **Workday** | Read-only list of flagged Workday jobs with apply links. |
 
 ---
@@ -192,10 +192,16 @@ unpacked is enough for local use:
 
 The app profile is the source of truth. A mapped autofill copy and application progress stay
 in that Chrome profile via `chrome.storage.local`.
-The assistant skips uploads and consent checkboxes, reports unknown fields, and never presses
-a submit button. Turn it off globally from its browser-owned popup. If it is off,
-disconnected, or not configured, dashboard job links behave as normal external links. The
-unpacked extension has a stable ID, so no ID copy/paste is needed.
+The assistant combines labels, accessibility text, nearby prompts, browser autocomplete hints,
+and ATS metadata instead of relying on exact field names. It supports native and custom controls,
+dynamic steps, open shadow roots, and embedded forms from Greenhouse, Lever, Ashby, Workday,
+SmartRecruiters, iCIMS, Oracle/Taleo, and SAP SuccessFactors. Uncertain matches are left blank
+and highlighted for review. The saved PDF is attached only to recognized résumé fields;
+consent checkboxes and other uploads stay manual, and the extension never submits an
+application. Application pages receive only field-availability flags until you explicitly click
+autofill. Turn it off globally from its browser-owned popup. If it is off, disconnected, or not
+configured, dashboard job links behave as normal external links. The unpacked extension has a
+stable ID, so no ID copy/paste is needed.
 
 ---
 

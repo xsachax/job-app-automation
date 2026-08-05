@@ -1,5 +1,7 @@
 (function registerFieldMatcher(root) {
-  const MINIMUM_SCORE = 62;
+  const MINIMUM_SCORE = 68;
+  const UNCERTAIN_SCORE = 42;
+  const MINIMUM_MARGIN = 7;
   const applicantFieldGroups = new Set(["identity", "contact", "links"]);
   const eligibilityFieldKeys = new Set([
     "workAuthorization",
@@ -31,8 +33,102 @@
     "school",
     "schools",
     "university",
-    "universities"
+    "universities",
+    "institution",
+    "institutions",
+    "organization",
+    "organisation"
   ];
+  const machineSignalSources = new Set([
+    "name",
+    "id",
+    "metadata",
+    "platform"
+  ]);
+  const choiceAliases = {
+    "united states": [
+      "us",
+      "usa",
+      "u s",
+      "u s a",
+      "united states",
+      "united states of america"
+    ],
+    canada: ["can", "canada"],
+    alabama: ["al", "alabama"],
+    alaska: ["ak", "alaska"],
+    arizona: ["az", "arizona"],
+    arkansas: ["ar", "arkansas"],
+    california: ["ca", "california"],
+    colorado: ["co", "colorado"],
+    connecticut: ["ct", "connecticut"],
+    delaware: ["de", "delaware"],
+    "district of columbia": ["dc", "district of columbia", "washington dc"],
+    florida: ["fl", "florida"],
+    georgia: ["ga", "georgia"],
+    hawaii: ["hi", "hawaii"],
+    idaho: ["id", "idaho"],
+    illinois: ["il", "illinois"],
+    indiana: ["in", "indiana"],
+    iowa: ["ia", "iowa"],
+    kansas: ["ks", "kansas"],
+    kentucky: ["ky", "kentucky"],
+    louisiana: ["la", "louisiana"],
+    maine: ["me", "maine"],
+    maryland: ["md", "maryland"],
+    massachusetts: ["ma", "massachusetts"],
+    michigan: ["mi", "michigan"],
+    minnesota: ["mn", "minnesota"],
+    mississippi: ["ms", "mississippi"],
+    missouri: ["mo", "missouri"],
+    montana: ["mt", "montana"],
+    nebraska: ["ne", "nebraska"],
+    nevada: ["nv", "nevada"],
+    "new hampshire": ["nh", "new hampshire"],
+    "new jersey": ["nj", "new jersey"],
+    "new mexico": ["nm", "new mexico"],
+    "new york": ["ny", "new york"],
+    "north carolina": ["nc", "north carolina"],
+    "north dakota": ["nd", "north dakota"],
+    ohio: ["oh", "ohio"],
+    oklahoma: ["ok", "oklahoma"],
+    oregon: ["or", "oregon"],
+    pennsylvania: ["pa", "pennsylvania"],
+    "rhode island": ["ri", "rhode island"],
+    "south carolina": ["sc", "south carolina"],
+    "south dakota": ["sd", "south dakota"],
+    tennessee: ["tn", "tennessee"],
+    texas: ["tx", "texas"],
+    utah: ["ut", "utah"],
+    vermont: ["vt", "vermont"],
+    virginia: ["va", "virginia"],
+    washington: ["wa", "washington"],
+    "west virginia": ["wv", "west virginia"],
+    wisconsin: ["wi", "wisconsin"],
+    wyoming: ["wy", "wyoming"],
+    "american samoa": ["as", "american samoa"],
+    guam: ["gu", "guam"],
+    "northern mariana islands": ["mp", "northern mariana islands"],
+    "puerto rico": ["pr", "puerto rico"],
+    "us virgin islands": ["vi", "us virgin islands", "virgin islands"],
+    alberta: ["ab", "alberta"],
+    "british columbia": ["bc", "british columbia"],
+    manitoba: ["mb", "manitoba"],
+    "new brunswick": ["nb", "new brunswick"],
+    "newfoundland and labrador": [
+      "nl",
+      "newfoundland",
+      "newfoundland and labrador"
+    ],
+    "nova scotia": ["ns", "nova scotia"],
+    ontario: ["on", "ontario"],
+    "prince edward island": ["pe", "prince edward island"],
+    quebec: ["qc", "quebec"],
+    saskatchewan: ["sk", "saskatchewan"],
+    "northwest territories": ["nt", "northwest territories"],
+    nunavut: ["nu", "nunavut"],
+    yukon: ["yt", "yukon"]
+  };
 
   function normalizeText(value) {
     return String(value || "")
@@ -50,6 +146,40 @@
   function tokens(value) {
     const normalized = normalizeText(value);
     return normalized ? normalized.split(" ") : [];
+  }
+
+  function editDistance(left, right) {
+    if (left === right) {
+      return 0;
+    }
+    if (!left.length || !right.length) {
+      return Math.max(left.length, right.length);
+    }
+    const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+    for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+      let diagonal = previous[0];
+      previous[0] = leftIndex;
+      for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+        const above = previous[rightIndex];
+        previous[rightIndex] = Math.min(
+          previous[rightIndex] + 1,
+          previous[rightIndex - 1] + 1,
+          diagonal + (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1)
+        );
+        diagonal = above;
+      }
+    }
+    return previous[right.length];
+  }
+
+  function equivalentToken(left, right) {
+    if (left === right) {
+      return true;
+    }
+    if (Math.min(left.length, right.length) < 5) {
+      return false;
+    }
+    return editDistance(left, right) <= 1;
   }
 
   function scoreText(value, alias) {
@@ -72,8 +202,20 @@
       return Math.max(78, 88 - (valueTokens.length - aliasTokens.length) * 2);
     }
 
-    if (aliasTokens.every((token) => valueTokens.includes(token))) {
+    const matchingAliasTokens = aliasTokens.filter((aliasToken) =>
+      valueTokens.some((valueToken) => equivalentToken(aliasToken, valueToken))
+    );
+    if (matchingAliasTokens.length === aliasTokens.length) {
       return Math.max(64, 74 - (valueTokens.length - aliasTokens.length));
+    }
+    if (
+      aliasTokens.length >= 2 &&
+      matchingAliasTokens.length / aliasTokens.length >= 0.67
+    ) {
+      return Math.max(
+        42,
+        Math.round(62 * (matchingAliasTokens.length / aliasTokens.length))
+      );
     }
 
     return 0;
@@ -81,7 +223,7 @@
 
   function isExcluded(definition, signals) {
     return (definition.excludeAliases || []).some((excludedAlias) =>
-      signals.some((signal) => scoreText(signal.text, excludedAlias) >= 86)
+      signals.some((signal) => scoreText(signal.text, excludedAlias) >= 78)
     );
   }
 
@@ -102,97 +244,115 @@
     });
   }
 
-  function hasAmbiguousEligibilityContext(definition, signals) {
-    if (!eligibilityFieldKeys.has(definition.key)) {
-      return false;
+  function eligibilityIntent(signals) {
+    const normalized = (signals || [])
+      .filter((signal) => !machineSignalSources.has(signal.source))
+      .map((signal) => normalizeText(signal.text))
+      .filter(Boolean)
+      .join(" ");
+    if (!normalized) {
+      return null;
     }
 
-    const normalizedSignals = (signals || [])
-      .filter((signal) => !["name", "id"].includes(signal.source))
-      .map((signal) => normalizeText(signal.text));
-    const mentionsAuthorization = normalizedSignals.some((normalized) =>
-      [
-        "authorized to work",
-        "authorised to work",
-        "eligible to work",
-        "work authorization"
-      ].some((phrase) => normalized.includes(phrase))
-    );
-    const mentionsSponsorship = normalizedSignals.some((normalized) =>
-      normalized.includes("sponsor")
-    );
-    const hasNegation = normalizedSignals.some((normalized) => {
-      const signalTokens = tokens(normalized);
-      return (
-        signalTokens.some((token, index) => {
-          if (token !== "no") {
-            return ["not", "never", "without", "cannot"].includes(token);
-          }
-          return ![signalTokens[index - 1], signalTokens[index + 1]].includes(
-            "yes"
-          );
-        }) ||
-        signalTokens.some(
-          (token, index) =>
-            token === "t" &&
-            index > 0 &&
-            signalTokens[index - 1].endsWith("n")
-        ) ||
-        normalized.includes("sponsorship free") ||
-        normalized.includes("free of sponsorship")
+    const mentionsSponsorship = /\bsponsor(?:ship|ed|ing)?\b/.test(normalized);
+    const mentionsWorkCapability =
+      /\b(?:can|able to)\b.{0,20}\bwork\b/.test(normalized);
+    const mentionsAuthorization =
+      /\b(?:authorized|authorised|eligible|legally permitted|right|permission)\b.{0,32}\bwork\b|\blegally\b.{0,20}\bwork\b|\bwork (?:authorization|authorisation|permit|eligibility|rights?)\b/.test(
+        normalized
+      ) ||
+      (mentionsWorkCapability && mentionsSponsorship);
+    const asksAboutWorkSchedule =
+      /\b(?:availability|available|days?|hours?|schedule|shift|weekends?|overtime|on call|night work|evenings?)\b/.test(
+        normalized
       );
-    });
+    const asksForUnmodeledStatus =
+      /\b(?:obtain|already have|currently have|visa status|immigration status|type of visa|which visa)\b/.test(
+        normalized
+      );
+    const asksIfAuthorizationIsNeeded =
+      /\b(?:need|require|requires|required)\b.{0,16}\bwork (?:authorization|authorisation|permit)\b/.test(
+        normalized
+      );
+    const negatesAuthorization =
+      /\b(?:not|don t|doesn t|isn t|aren t)\b.{0,28}\b(?:authorized|authorised|eligible|permitted|right|permission)\b/.test(
+        normalized
+      );
 
-    if (hasNegation || (mentionsAuthorization && mentionsSponsorship)) {
+    if (
+      asksForUnmodeledStatus ||
+      asksIfAuthorizationIsNeeded ||
+      (mentionsWorkCapability && asksAboutWorkSchedule) ||
+      (mentionsAuthorization && !mentionsSponsorship && negatesAuthorization)
+    ) {
+      return null;
+    }
+
+    const withoutSponsorship =
+      /\bwithout\b.{0,28}\bsponsor|\bfree of\b.{0,20}\bsponsor|\bnot\b.{0,16}\b(?:need|require)\b.{0,20}\bsponsor|\bdon t\b.{0,12}\b(?:need|require)\b.{0,20}\bsponsor/.test(
+        normalized
+      );
+    if (mentionsAuthorization && mentionsSponsorship && withoutSponsorship) {
+      return "authorized-without-sponsorship";
+    }
+    if (mentionsSponsorship && withoutSponsorship) {
+      return "does-not-require-sponsorship";
+    }
+    if (mentionsAuthorization && !mentionsSponsorship) {
+      return "work-authorization";
+    }
+    if (
+      mentionsSponsorship &&
+      (/\b(?:need|needs|needed|require|requires|required|future|now)\b/.test(
+        normalized
+      ) ||
+        /^(?:visa |immigration )?sponsorship$/.test(normalized))
+    ) {
+      return "requires-sponsorship";
+    }
+    return null;
+  }
+
+  function eligibilityDefinitionMatches(definition, signals) {
+    if (!eligibilityFieldKeys.has(definition.key)) {
       return true;
     }
-
-    if (definition.key === "workAuthorization") {
-      return !normalizedSignals.some(
-        (normalized) =>
-          normalized === "work authorization" ||
-          [
-            "authorized to work",
-            "authorised to work",
-            "eligible to work",
-            "legally authorized",
-            "legally authorised",
-            "have work authorization",
-            "hold work authorization",
-            "possess work authorization"
-          ].some((phrase) => normalized.includes(phrase))
-      );
+    const intent = eligibilityIntent(signals);
+    if (!intent) {
+      return false;
     }
+    if (
+      ["work-authorization", "authorized-without-sponsorship"].includes(intent)
+    ) {
+      return definition.key === "workAuthorization";
+    }
+    return definition.key === "requiresSponsorship";
+  }
 
-    const requirementWords = new Set([
-      "require",
-      "requires",
-      "required",
-      "requiring",
-      "requirement",
-      "need",
-      "needs",
-      "needed",
-      "needing"
-    ]);
-    const explicitlyRequiresSponsorship = normalizedSignals.some((normalized) => {
-      const signalTokens = tokens(normalized);
-      const requirementIndexes = signalTokens
-        .map((token, index) => (requirementWords.has(token) ? index : -1))
-        .filter((index) => index >= 0);
-      const sponsorshipIndexes = signalTokens
-        .map((token, index) => (token.startsWith("sponsor") ? index : -1))
-        .filter((index) => index >= 0);
+  function invertYesNo(value) {
+    return value === "yes" ? "no" : value === "no" ? "yes" : "";
+  }
 
-      return requirementIndexes.some((requirementIndex) =>
-        sponsorshipIndexes.some(
-          (sponsorshipIndex) =>
-            Math.abs(requirementIndex - sponsorshipIndex) <= 10
-        )
-      );
-    });
-
-    return !explicitlyRequiresSponsorship;
+  function resolveEligibilityAnswer(definitionKey, signals, profile) {
+    const intent = eligibilityIntent(signals);
+    if (!eligibilityFieldKeys.has(definitionKey) || !intent) {
+      return "";
+    }
+    if (intent === "work-authorization") {
+      return String(profile?.workAuthorization || "");
+    }
+    if (intent === "requires-sponsorship") {
+      return String(profile?.requiresSponsorship || "");
+    }
+    if (intent === "does-not-require-sponsorship") {
+      return invertYesNo(String(profile?.requiresSponsorship || ""));
+    }
+    const authorization = String(profile?.workAuthorization || "");
+    const sponsorship = String(profile?.requiresSponsorship || "");
+    if (!authorization || !sponsorship) {
+      return "";
+    }
+    return authorization === "yes" && sponsorship === "no" ? "yes" : "no";
   }
 
   function scoreDefinition(definition, context) {
@@ -202,7 +362,7 @@
     if (
       isExcluded(definition, context.signals || []) ||
       hasThirdPartyContext(definition, context.signals) ||
-      hasAmbiguousEligibilityContext(definition, context.signals)
+      !eligibilityDefinitionMatches(definition, context.signals)
     ) {
       return 0;
     }
@@ -222,7 +382,9 @@
     }
 
     let bestScore = 0;
+    const corroboratingSources = new Set();
     for (const signal of context.signals || []) {
+      let signalScore = 0;
       for (const alias of definition.aliases || []) {
         if (
           (definition.exactAliases || []).includes(alias) &&
@@ -231,50 +393,91 @@
           continue;
         }
         const weightedScore = scoreText(signal.text, alias) * (signal.weight || 1);
+        signalScore = Math.max(signalScore, weightedScore);
         bestScore = Math.max(bestScore, weightedScore);
+      }
+      if (signalScore >= UNCERTAIN_SCORE) {
+        corroboratingSources.add(signal.source || signal.text);
       }
     }
 
-    return bestScore;
+    return Math.min(120, bestScore + Math.max(0, corroboratingSources.size - 1) * 4);
   }
 
-  function findBestDefinition(context, definitions) {
-    const ranked = definitions
+  function rankDefinitions(context, definitions) {
+    return definitions
       .map((definition) => ({
         definition,
         score: scoreDefinition(definition, context)
       }))
-      .filter((match) => match.score >= MINIMUM_SCORE)
+      .filter((match) => match.score >= UNCERTAIN_SCORE)
       .sort((left, right) => right.score - left.score);
+  }
 
+  function analyzeDefinition(context, definitions) {
+    const ranked = rankDefinitions(context, definitions);
     if (!ranked.length) {
-      return null;
+      return {
+        status: "none",
+        match: null,
+        candidates: [],
+        confidence: 0,
+        reason: "The field was not recognized."
+      };
     }
 
     const [best, secondBest] = ranked;
     const ambiguous =
       Boolean(secondBest) &&
-      best.score < 95 &&
-      best.score - secondBest.score < 5;
+      best.score < 105 &&
+      best.score - secondBest.score < MINIMUM_MARGIN;
+    if (ambiguous) {
+      return {
+        status: "uncertain",
+        match: null,
+        candidates: ranked.slice(0, 3),
+        confidence: Math.min(100, Math.round(best.score)),
+        reason: `Could be ${best.definition.label.toLowerCase()} or ${secondBest.definition.label.toLowerCase()}.`
+      };
+    }
+    if (best.score < MINIMUM_SCORE) {
+      return {
+        status: "uncertain",
+        match: null,
+        candidates: ranked.slice(0, 3),
+        confidence: Math.min(100, Math.round(best.score)),
+        reason: `Possible ${best.definition.label.toLowerCase()} match (${Math.round(
+          best.score
+        )}% confidence).`
+      };
+    }
+    return {
+      status: "confident",
+      match: best,
+      candidates: ranked.slice(0, 3),
+      confidence: Math.min(100, Math.round(best.score)),
+      reason: ""
+    };
+  }
 
-    return ambiguous ? null : best;
+  function findBestDefinition(context, definitions) {
+    const analysis = analyzeDefinition(context, definitions);
+    return analysis.status === "confident" ? analysis.match : null;
   }
 
   function canonicalChoice(value) {
     const normalized = normalizeText(value);
 
-    if (["yes", "true", "y", "1"].includes(normalized)) {
+    if (["yes", "true", "y", "1", "affirmative"].includes(normalized)) {
       return "yes";
     }
-    if (["no", "false", "n", "0"].includes(normalized)) {
+    if (["no", "false", "n", "0", "negative"].includes(normalized)) {
       return "no";
     }
-    if (
-      ["us", "usa", "u s", "united states of america", "united states"].includes(
-        normalized
-      )
-    ) {
-      return "united states";
+    for (const [canonical, aliases] of Object.entries(choiceAliases)) {
+      if (aliases.includes(normalized)) {
+        return canonical;
+      }
     }
 
     return normalized;
@@ -295,17 +498,24 @@
       ["yes", "no"].includes(saved) &&
       (tokens(value)[0] === saved || tokens(label)[0] === saved)
     ) {
-      return 70;
+      return 82;
     }
-    return 0;
+    return Math.min(
+      92,
+      Math.max(scoreText(value, saved), scoreText(label, saved))
+    );
   }
 
   const api = Object.freeze({
     MINIMUM_SCORE,
+    UNCERTAIN_SCORE,
     normalizeText,
     scoreText,
     scoreDefinition,
+    analyzeDefinition,
     findBestDefinition,
+    eligibilityIntent,
+    resolveEligibilityAnswer,
     canonicalChoice,
     scoreChoice
   });

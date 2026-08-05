@@ -8,24 +8,32 @@
   const profileSchema = root.JobAutofillProfile;
   const matcher = root.JobAutofillMatcher;
   const sessionScope = root.JobAutofillSessionScope;
+  const ats = root.JobAutofillAts;
 
-  if (!profileSchema || !matcher || !sessionScope) {
+  if (!profileSchema || !matcher || !sessionScope || !ats) {
     throw new Error("Job autofill libraries were not loaded.");
   }
 
   const state = {
     session: null,
     profile: {},
+    profileAvailability: new Set(),
+    context: {},
     host: null,
     shadow: null,
-    observer: null,
+    observers: new Map(),
+    observedFrames: new WeakSet(),
     scanTimer: null,
     progressSignature: "",
     sessionGeneration: 0,
     extensionValues: new WeakMap(),
     elementIds: new WeakMap(),
     nextElementId: 1,
-    fillIssues: new Map()
+    fillIssues: new Map(),
+    lastQuestions: new Map(),
+    platform: { key: "generic", label: "Custom application" },
+    frameMode: false,
+    scanRevision: 0
   };
 
   const ignoredInputTypes = new Set([
@@ -34,8 +42,7 @@
     "button",
     "reset",
     "image",
-    "password",
-    "search"
+    "password"
   ]);
 
   function sendMessage(message) {
@@ -44,6 +51,30 @@
 
   function text(value) {
     return String(value || "").trim().replace(/\s+/g, " ");
+  }
+
+  function setProfileAvailability(availability) {
+    state.profileAvailability = new Set(
+      profileSchema.fields
+        .filter((field) => availability?.[field.key] === true)
+        .map((field) => field.key)
+    );
+  }
+
+  function refreshProfileAvailability() {
+    const effective = profileSchema.buildEffectiveProfile(
+      state.profile,
+      state.context
+    );
+    state.profileAvailability = new Set(
+      profileSchema.fields
+        .filter((field) =>
+          field.key === "resumeFile"
+            ? Boolean(state.profile.resumeFile)
+            : Boolean(text(effective[field.key]))
+        )
+        .map((field) => field.key)
+    );
   }
 
   function humanize(value) {
@@ -61,11 +92,50 @@
     return state.elementIds.get(element);
   }
 
+  function tagName(element) {
+    return String(element?.tagName || "").toUpperCase();
+  }
+
+  function isInput(element) {
+    return tagName(element) === "INPUT";
+  }
+
+  function isTextarea(element) {
+    return tagName(element) === "TEXTAREA";
+  }
+
+  function isSelect(element) {
+    return tagName(element) === "SELECT";
+  }
+
+  function inputType(element) {
+    return isInput(element)
+      ? String(element.getAttribute("type") || "text").toLowerCase()
+      : "";
+  }
+
+  function elementRole(element) {
+    return String(element?.getAttribute?.("role") || "").toLowerCase();
+  }
+
+  function isContentEditable(element) {
+    return (
+      element?.isContentEditable ||
+      element?.getAttribute?.("contenteditable") === "true"
+    );
+  }
+
   function isVisible(element) {
-    if (!element.isConnected || element.disabled) {
+    if (
+      !element?.isConnected ||
+      element.disabled ||
+      element.getAttribute?.("aria-disabled") === "true"
+    ) {
       return false;
     }
-    const style = getComputedStyle(element);
+    const style =
+      element.ownerDocument?.defaultView?.getComputedStyle(element) ||
+      getComputedStyle(element);
     const directlyVisible =
       style.display !== "none" &&
       style.visibility !== "hidden" &&
@@ -75,11 +145,13 @@
       return true;
     }
     if (
-      element instanceof HTMLInputElement &&
-      ["radio", "checkbox", "file"].includes(element.type)
+      isInput(element) &&
+      ["radio", "checkbox", "file"].includes(inputType(element))
     ) {
       return Array.from(element.labels || []).some((label) => {
-        const labelStyle = getComputedStyle(label);
+        const labelStyle =
+          label.ownerDocument?.defaultView?.getComputedStyle(label) ||
+          getComputedStyle(label);
         return (
           labelStyle.display !== "none" &&
           labelStyle.visibility !== "hidden" &&
@@ -99,29 +171,42 @@
     ) {
       return false;
     }
-    if (element instanceof HTMLInputElement) {
-      return !ignoredInputTypes.has(element.type);
+    if (isInput(element)) {
+      return !ignoredInputTypes.has(inputType(element));
     }
-    return (
-      element instanceof HTMLTextAreaElement ||
-      element instanceof HTMLSelectElement
-    );
+    if (isTextarea(element) || isSelect(element) || isContentEditable(element)) {
+      return true;
+    }
+    return ["combobox", "radio", "checkbox"].includes(elementRole(element));
   }
 
-  function getTextByIds(value) {
+  function getTextByIds(value, ownerDocument = document) {
     return text(
       String(value || "")
         .split(/\s+/)
-        .map((id) => document.getElementById(id)?.textContent || "")
+        .map((id) => ownerDocument?.getElementById?.(id)?.textContent || "")
         .join(" ")
     );
   }
 
   function associatedLabel(element) {
-    const labels = Array.from(element.labels || [])
-      .map((label) => text(label.textContent))
-      .filter(Boolean);
-    return labels.join(" ");
+    const labels = new Set(element.labels || []);
+    const closestLabel = element.closest?.("label");
+    if (closestLabel) {
+      labels.add(closestLabel);
+    }
+    return Array.from(labels)
+      .map((label) => {
+        const copy = label.cloneNode(true);
+        for (const control of copy.querySelectorAll(
+          "input, textarea, select, button, [role='combobox'], [role='radio'], [role='checkbox']"
+        )) {
+          control.remove();
+        }
+        return text(copy.textContent);
+      })
+      .filter(Boolean)
+      .join(" ");
   }
 
   function explicitGroupPrompt(elements) {
@@ -136,7 +221,10 @@
     if (roleGroup) {
       const ariaLabel =
         text(roleGroup.getAttribute("aria-label")) ||
-        getTextByIds(roleGroup.getAttribute("aria-labelledby"));
+        getTextByIds(
+          roleGroup.getAttribute("aria-labelledby"),
+          roleGroup.ownerDocument
+        );
       if (ariaLabel) {
         return ariaLabel;
       }
@@ -197,6 +285,24 @@
     return "";
   }
 
+  function nearbyPrompt(element) {
+    const container = ats.questionContainer(element);
+    if (!container || container === element) {
+      return "";
+    }
+    const candidates = Array.from(
+      container.querySelectorAll(
+        ":scope > label, :scope > legend, :scope > p, :scope > span, :scope > h1, :scope > h2, :scope > h3, :scope > h4, :scope > [class*='label'], :scope > [class*='question'], :scope > [data-automation-id*='label']"
+      )
+    );
+    return (
+      candidates
+        .filter((candidate) => !candidate.contains(element))
+        .map((candidate) => text(candidate.textContent))
+        .find((value) => value.length >= 2 && value.length <= 240) || ""
+    );
+  }
+
   function signalsForQuestion(elements, grouped) {
     const first = elements[0];
     const signals = [];
@@ -214,27 +320,49 @@
       add(explicitGroupPrompt(elements), 0.98, "prompt");
     }
     add(first.getAttribute("aria-label"), 0.98, "aria");
-    add(getTextByIds(first.getAttribute("aria-labelledby")), 0.98, "aria");
+    add(
+      getTextByIds(first.getAttribute("aria-labelledby"), first.ownerDocument),
+      0.98,
+      "aria"
+    );
+    add(
+      getTextByIds(first.getAttribute("aria-describedby"), first.ownerDocument),
+      0.74,
+      "description"
+    );
+    add(nearbyPrompt(first), 0.92, "nearby");
     add(first.getAttribute("placeholder"), 0.84, "placeholder");
     add(first.getAttribute("name"), 0.76, "name");
     add(first.id, 0.72, "id");
     add(sectionPrompt(first), 0.55, "section");
+    for (const signal of ats.metadataSignals(first)) {
+      add(signal.text, signal.weight, signal.source);
+    }
 
     return signals;
   }
 
   function controlKind(elements) {
     const first = elements[0];
-    if (first instanceof HTMLSelectElement) {
+    if (isSelect(first)) {
       return "select";
     }
-    if (first instanceof HTMLTextAreaElement) {
+    if (isTextarea(first) || isContentEditable(first)) {
       return "textarea";
     }
-    if (first.type === "radio" || first.type === "checkbox") {
+    if (
+      elementRole(first) === "combobox" ||
+      first.getAttribute("aria-haspopup") === "listbox"
+    ) {
+      return "combobox";
+    }
+    if (
+      ["radio", "checkbox"].includes(inputType(first)) ||
+      ["radio", "checkbox"].includes(elementRole(first))
+    ) {
       return "choice";
     }
-    if (first.type === "file") {
+    if (inputType(first) === "file") {
       return "file";
     }
     return "text";
@@ -242,15 +370,49 @@
 
   function isAnswered(elements) {
     const first = elements[0];
-    if (first instanceof HTMLSelectElement) {
+    if (isSelect(first)) {
       const option = first.options[first.selectedIndex];
       return Boolean(first.value && option && !option.disabled);
     }
-    if (first.type === "radio" || first.type === "checkbox") {
-      return elements.some((element) => element.checked);
+    if (
+      ["radio", "checkbox"].includes(inputType(first)) ||
+      ["radio", "checkbox"].includes(elementRole(first))
+    ) {
+      return elements.some(
+        (element) =>
+          Boolean(element.checked) ||
+          element.getAttribute("aria-checked") === "true"
+      );
     }
-    if (first.type === "file") {
+    if (inputType(first) === "file") {
       return Boolean(first.files?.length);
+    }
+    if (isContentEditable(first)) {
+      return Boolean(text(first.textContent));
+    }
+    if (controlKind(elements) === "combobox" && !isInput(first)) {
+      const explicitValue =
+        first.getAttribute("data-value") ||
+        first.getAttribute("aria-valuetext");
+      if (text(explicitValue)) {
+        return true;
+      }
+      const controlledIds = String(
+        first.getAttribute("aria-controls") ||
+          first.getAttribute("aria-owns") ||
+          ""
+      ).split(/\s+/);
+      const hasSelectedOption = controlledIds.some((id) =>
+        first.ownerDocument
+          ?.getElementById(id)
+          ?.querySelector?.('[role="option"][aria-selected="true"]')
+      );
+      if (hasSelectedOption) {
+        return true;
+      }
+      const displayed = text(first.textContent);
+      return Boolean(displayed) &&
+        !/^(?:choose|select|pick|please select|none)(?:\b|$)/i.test(displayed);
     }
     return Boolean(text(first.value));
   }
@@ -261,11 +423,20 @@
         return false;
       }
       const filledValue = state.extensionValues.get(element);
-      if (element.type === "radio" || element.type === "checkbox") {
-        return element.checked && filledValue === String(element.value);
+      if (
+        ["radio", "checkbox"].includes(inputType(element)) ||
+        ["radio", "checkbox"].includes(elementRole(element))
+      ) {
+        const selected =
+          Boolean(element.checked) ||
+          element.getAttribute("aria-checked") === "true";
+        return selected && filledValue === String(element.value || optionText(element));
       }
-      if (element.type === "file") {
+      if (inputType(element) === "file") {
         return element.files?.[0]?.name === filledValue;
+      }
+      if (isContentEditable(element)) {
+        return text(element.textContent) === text(filledValue);
       }
       return text(element.value) === text(filledValue);
     });
@@ -301,17 +472,167 @@
     );
   }
 
+  function collectRoots() {
+    const roots = [];
+    const seen = new Set();
+
+    function visit(rootNode) {
+      if (!rootNode || seen.has(rootNode)) {
+        return;
+      }
+      seen.add(rootNode);
+      roots.push(rootNode);
+
+      for (const element of rootNode.querySelectorAll?.("*") || []) {
+        if (element.shadowRoot) {
+          visit(element.shadowRoot);
+        }
+        if (tagName(element) === "IFRAME") {
+          if (!state.observedFrames.has(element)) {
+            state.observedFrames.add(element);
+            element.addEventListener("load", () => scheduleScan(250));
+          }
+          try {
+            if (element.contentDocument?.documentElement) {
+              visit(element.contentDocument);
+            }
+          } catch {
+            // Cross-origin frames cannot be inspected from the top-level page.
+          }
+        }
+      }
+    }
+
+    visit(document);
+    return roots;
+  }
+
+  function pageControls() {
+    const controls = [];
+    const seen = new Set();
+    for (const rootNode of collectRoots()) {
+      for (const element of rootNode.querySelectorAll?.(
+        ats.candidateSelector
+      ) || []) {
+        if (!seen.has(element) && isCandidateControl(element)) {
+          seen.add(element);
+          controls.push(element);
+        }
+      }
+    }
+    return controls;
+  }
+
+  function groupIdentity(control) {
+    if (
+      (inputType(control) === "checkbox" || elementRole(control) === "checkbox") &&
+      !control.name
+    ) {
+      return `element:${elementIdentity(control)}`;
+    }
+    if (isInput(control) && control.name) {
+      const formKey = control.form ? elementIdentity(control.form) : "page";
+      return `${elementIdentity(control.ownerDocument)}:${inputType(
+        control
+      )}:${formKey}:${control.name}`;
+    }
+    const roleGroup = control.closest?.(
+      '[role="radiogroup"], [role="group"], fieldset'
+    );
+    return roleGroup
+      ? `role:${elementIdentity(roleGroup)}`
+      : `element:${elementIdentity(control)}`;
+  }
+
+  function resolveMatchedValue(match, kind, signals, effectiveProfile) {
+    if (!match) {
+      return { value: "", safe: false };
+    }
+    if (kind === "file") {
+      return {
+        value:
+          match.definition.key === "resumeFile"
+            ? effectiveProfile.resumeFile
+            : null,
+        safe: match.definition.key === "resumeFile",
+        available: state.profileAvailability.has("resumeFile")
+      };
+    }
+    if (
+      ["workAuthorization", "requiresSponsorship"].includes(
+        match.definition.key
+      )
+    ) {
+      const resolution = matcher.resolveEligibilityAnswer(
+        match.definition.key,
+        signals,
+        effectiveProfile
+      );
+      const intent = matcher.eligibilityIntent(signals);
+      const available =
+        intent === "authorized-without-sponsorship"
+          ? state.profileAvailability.has("workAuthorization") &&
+            state.profileAvailability.has("requiresSponsorship")
+          : intent === "work-authorization"
+            ? state.profileAvailability.has("workAuthorization")
+            : state.profileAvailability.has("requiresSponsorship");
+      return {
+        value: resolution
+          ? profileSchema.formatControlValue(resolution, kind)
+          : "",
+        safe: Boolean(intent),
+        available,
+        reason: intent
+          ? ""
+          : "The eligibility wording needs manual review."
+      };
+    }
+    if (
+      match.definition.key === "phone" &&
+      effectiveProfile.phoneNational &&
+      pageControls().some((control) => {
+        const controlSignals = signalsForQuestion([control], false);
+        return (
+          matcher.findBestDefinition(
+            {
+              autocomplete: control.getAttribute("autocomplete"),
+              signals: controlSignals,
+              controlKind: controlKind([control])
+            },
+            profileSchema.fields
+          )?.definition.key === "phoneCountryCode"
+        );
+      })
+    ) {
+      return {
+        value: profileSchema.formatControlValue(
+          effectiveProfile.phoneNational,
+          kind
+        ),
+        safe: true,
+        available: state.profileAvailability.has("phoneNational")
+      };
+    }
+    return {
+      value: profileSchema.formatControlValue(
+        effectiveProfile[match.definition.key],
+        kind
+      ),
+      safe: true,
+      available: state.profileAvailability.has(match.definition.key)
+    };
+  }
+
   function collectQuestions() {
-    const controls = Array.from(
-      document.querySelectorAll("input, textarea, select")
-    ).filter(isCandidateControl);
+    const controls = pageControls();
     const groups = new Map();
 
     for (const control of controls) {
-      const grouped = ["radio", "checkbox"].includes(control.type) && control.name;
-      const formKey = control.form ? elementIdentity(control.form) : "page";
+      const grouped =
+        ["radio", "checkbox"].includes(inputType(control)) ||
+        ["radio", "checkbox"].includes(elementRole(control));
       const key = grouped
-        ? `${control.type}:${formKey}:${control.name}`
+        ? groupIdentity(control)
         : `element:${elementIdentity(control)}`;
 
       if (!groups.has(key)) {
@@ -322,12 +643,15 @@
 
     const effectiveProfile = profileSchema.buildEffectiveProfile(
       state.profile,
-      state.session
+      state.context
     );
     const questions = [];
 
     for (const [key, elements] of groups) {
-      const grouped = elements.length > 1 || elements[0].type === "radio";
+      const grouped =
+        elements.length > 1 ||
+        inputType(elements[0]) === "radio" ||
+        elementRole(elements[0]) === "radio";
       const kind = controlKind(elements);
       const signals = signalsForQuestion(elements, grouped);
       const label = questionLabel(signals, elements, kind);
@@ -336,7 +660,7 @@
         continue;
       }
 
-      const match = matcher.findBestDefinition(
+      const analysis = matcher.analyzeDefinition(
         {
           autocomplete: elements[0].getAttribute("autocomplete"),
           signals,
@@ -344,17 +668,14 @@
         },
         profileSchema.fields
       );
-      const matchedValue =
-        match && kind === "file"
-          ? match.definition.key === "resumeFile"
-            ? effectiveProfile.resumeFile
-            : null
-          : match
-            ? profileSchema.formatControlValue(
-                effectiveProfile[match.definition.key],
-                kind
-              )
-            : "";
+      const match = analysis.status === "confident" ? analysis.match : null;
+      const resolved = resolveMatchedValue(
+        match,
+        kind,
+        signals,
+        effectiveProfile
+      );
+      const matchedValue = resolved.value;
       const answered = isAnswered(elements);
       const required = elements.some(
         (element) =>
@@ -368,13 +689,23 @@
       if (answered) {
         status = "answered";
         reason = "";
-      } else if (elements[0].type === "checkbox") {
+      } else if (
+        inputType(elements[0]) === "checkbox" ||
+        elementRole(elements[0]) === "checkbox"
+      ) {
         status = "manual";
         reason = "Review this checkbox manually.";
       } else if (state.fillIssues.has(key)) {
         status = "failed";
         reason = state.fillIssues.get(key);
-      } else if (match && matchedValue) {
+      } else if (analysis.status === "uncertain") {
+        status = "uncertain";
+        reason = analysis.reason;
+      } else if (match && !resolved.safe) {
+        status = "uncertain";
+        reason =
+          resolved.reason || "The wording needs manual review before filling.";
+      } else if (match && (matchedValue || resolved.available)) {
         status = "ready";
         reason = "";
       } else if (match) {
@@ -395,6 +726,12 @@
         label,
         signals,
         match,
+        analysis,
+        confidence: analysis.confidence,
+        suggestedField:
+          match?.definition?.label ||
+          analysis.candidates?.[0]?.definition?.label ||
+          "",
         matchedValue,
         answered,
         required,
@@ -410,14 +747,24 @@
   function summarize(questions) {
     const unknownFields = questions
       .filter((question) =>
-        ["manual", "unknown", "missing-profile", "failed"].includes(question.status)
+        [
+          "manual",
+          "unknown",
+          "uncertain",
+          "missing-profile",
+          "failed"
+        ].includes(question.status)
       )
       .sort((left, right) => Number(right.required) - Number(left.required))
       .map((question) => ({
+        key: question.key,
         label: question.label,
         required: question.required,
         reason: question.reason,
-        controlKind: question.kind
+        controlKind: question.kind,
+        status: question.status,
+        confidence: question.confidence,
+        suggestedField: question.suggestedField
       }));
 
     return {
@@ -428,9 +775,100 @@
       ).length,
       readyToFill: questions.filter((question) => question.status === "ready")
         .length,
+      recognized: questions.filter((question) => Boolean(question.match)).length,
       needsAttention: unknownFields.length,
+      uncertain: questions.filter(
+        (question) => question.status === "uncertain"
+      ).length,
+      platform: state.platform.label,
       unknownFields
     };
+  }
+
+  function ensureReviewStyle(rootNode) {
+    if (rootNode.querySelector?.("[data-job-autofill-review-style]")) {
+      return;
+    }
+    const ownerDocument = rootNode.nodeType === 9 ? rootNode : rootNode.ownerDocument;
+    const style = ownerDocument.createElement("style");
+    style.setAttribute("data-job-autofill-review-style", "");
+    style.textContent = `
+      [data-job-autofill-review="uncertain"] {
+        outline: 3px solid #bf8700 !important;
+        outline-offset: 3px !important;
+        box-shadow: 0 0 0 5px rgba(191, 135, 0, 0.16) !important;
+      }
+      [data-job-autofill-review="failed"] {
+        outline: 3px solid #cf222e !important;
+        outline-offset: 3px !important;
+        box-shadow: 0 0 0 5px rgba(207, 34, 46, 0.14) !important;
+      }
+      [data-job-autofill-filled="true"] {
+        outline: 3px solid #1a7f37 !important;
+        outline-offset: 3px !important;
+        box-shadow: 0 0 0 5px rgba(26, 127, 55, 0.14) !important;
+      }
+    `;
+    if (rootNode.nodeType === 9) {
+      (rootNode.head || rootNode.documentElement).append(style);
+    } else {
+      rootNode.append(style);
+    }
+  }
+
+  function clearReviewMarkers(removeStyles = false) {
+    for (const rootNode of collectRoots()) {
+      if (!removeStyles) {
+        ensureReviewStyle(rootNode);
+      }
+      for (const element of rootNode.querySelectorAll?.(
+        "[data-job-autofill-review]"
+      ) || []) {
+        element.removeAttribute("data-job-autofill-review");
+        element.removeAttribute("data-job-autofill-review-label");
+      }
+      if (removeStyles) {
+        for (const style of rootNode.querySelectorAll?.(
+          "[data-job-autofill-review-style]"
+        ) || []) {
+          style.remove();
+        }
+      }
+    }
+  }
+
+  function reviewTarget(question) {
+    const visibleControl = question.elements.find(isVisible);
+    const first = visibleControl || question.elements[0];
+    const container = ats.questionContainer(first);
+    if (
+      container &&
+      container !== first &&
+      text(container.textContent).length <= 800
+    ) {
+      return container;
+    }
+    return first;
+  }
+
+  function markQuestionsForReview(questions) {
+    clearReviewMarkers();
+    for (const question of questions) {
+      if (
+        question.status !== "uncertain" &&
+        question.status !== "failed" &&
+        !(question.required && question.status === "unknown")
+      ) {
+        continue;
+      }
+      const target = reviewTarget(question);
+      const reviewState =
+        question.status === "failed" ? "failed" : "uncertain";
+      for (const element of new Set([target, ...question.elements])) {
+        element?.setAttribute("data-job-autofill-review", reviewState);
+        element?.setAttribute("data-job-autofill-review-label", question.label);
+      }
+    }
   }
 
   function renderProgress(progress) {
@@ -466,6 +904,21 @@
 
     for (const field of progress.unknownFields.slice(0, 20)) {
       const item = document.createElement("li");
+      const localQuestion = state.lastQuestions.get(field.key);
+      const reviewControl = document.createElement(
+        localQuestion ? "button" : "div"
+      );
+      reviewControl.className = "review-field";
+      if (localQuestion) {
+        reviewControl.type = "button";
+        reviewControl.addEventListener("click", () => {
+          const target = reviewTarget(localQuestion);
+          target?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+          localQuestion.elements
+            .find(isVisible)
+            ?.focus?.({ preventScroll: true });
+        });
+      }
       const heading = document.createElement("div");
       heading.className = "unknown-heading";
       heading.textContent = field.label;
@@ -478,8 +931,13 @@
 
       const reason = document.createElement("div");
       reason.className = "unknown-reason";
-      reason.textContent = field.reason;
-      item.append(heading, reason);
+      const confidence =
+        field.status === "uncertain" && field.confidence
+          ? ` ${Math.round(field.confidence)}% confidence.`
+          : "";
+      reason.textContent = `${field.reason}${confidence}`;
+      reviewControl.append(heading, reason);
+      item.append(reviewControl);
       list.append(item);
     }
   }
@@ -503,22 +961,120 @@
     }
   }
 
-  function scan() {
-    if (!state.session || !state.host) {
-      return;
+  function mergeProgress(base, embedded) {
+    const totals = [
+      "total",
+      "answered",
+      "filledByExtension",
+      "readyToFill",
+      "recognized",
+      "needsAttention",
+      "uncertain"
+    ];
+    const merged = {
+      ...base,
+      unknownFields: [...base.unknownFields]
+    };
+    const platforms = new Set(
+      base.platform ? [base.platform] : []
+    );
+    for (const progress of embedded) {
+      for (const key of totals) {
+        merged[key] = Number(merged[key] || 0) + Number(progress[key] || 0);
+      }
+      merged.unknownFields.push(...(progress.unknownFields || []));
+      if (progress.platform) {
+        platforms.add(progress.platform);
+      }
+    }
+    merged.unknownFields = merged.unknownFields.slice(0, 75);
+    merged.platform = Array.from(platforms).join(", ");
+    return merged;
+  }
+
+  async function addEmbeddedProgress(progress, revision) {
+    try {
+      const response = await sendMessage({
+        type: "JOB_AUTOFILL_SCAN_EMBEDDED",
+        sessionId: state.session?.id
+      });
+      if (
+        state.frameMode ||
+        revision !== state.scanRevision ||
+        !state.host ||
+        !response?.ok ||
+        !Array.isArray(response.progress)
+      ) {
+        return;
+      }
+      const merged = mergeProgress(progress, response.progress);
+      renderProgress(merged);
+      await publishProgress(merged);
+    } catch {
+      // Embedded forms are additive; the top-level form remains usable on failure.
+    }
+  }
+
+  function scan({ includeEmbedded = true } = {}) {
+    if (!state.session) {
+      return null;
     }
     if (!sessionScope.isAllowedUrl(state.session, location.href)) {
       teardown();
-      return;
+      return null;
     }
-    const progress = summarize(collectQuestions());
-    renderProgress(progress);
-    void publishProgress(progress);
+    const revision = ++state.scanRevision;
+    state.platform = ats.detectPlatform(location.href, document);
+    refreshObservers();
+    const questions = collectQuestions();
+    state.lastQuestions = new Map(
+      questions.map((question) => [question.key, question])
+    );
+    markQuestionsForReview(questions);
+    const progress = summarize(questions);
+    if (state.host) {
+      renderProgress(progress);
+      void publishProgress(progress);
+      if (includeEmbedded && !state.frameMode) {
+        void addEmbeddedProgress(progress, revision);
+      }
+    }
+    return progress;
   }
 
   function scheduleScan(delay = 120) {
     clearTimeout(state.scanTimer);
     state.scanTimer = setTimeout(scan, delay);
+  }
+
+  function refreshObservers() {
+    const roots = new Set(collectRoots());
+    for (const [rootNode, observer] of state.observers) {
+      if (!roots.has(rootNode)) {
+        observer.disconnect();
+        rootNode.removeEventListener?.("input", handleFieldChange, true);
+        rootNode.removeEventListener?.("change", handleFieldChange, true);
+        state.observers.delete(rootNode);
+      }
+    }
+    for (const rootNode of roots) {
+      if (state.observers.has(rootNode)) {
+        continue;
+      }
+      const ownerDocument =
+        rootNode.nodeType === 9 ? rootNode : rootNode.ownerDocument;
+      const Observer =
+        ownerDocument?.defaultView?.MutationObserver || MutationObserver;
+      const observer = new Observer(() => scheduleScan(250));
+      const target =
+        rootNode.nodeType === 9
+          ? rootNode.body || rootNode.documentElement
+          : rootNode;
+      observer.observe(target, { childList: true, subtree: true });
+      rootNode.addEventListener?.("input", handleFieldChange, true);
+      rootNode.addEventListener?.("change", handleFieldChange, true);
+      state.observers.set(rootNode, observer);
+    }
   }
 
   function setNativeProperty(element, property, value) {
@@ -532,32 +1088,156 @@
   }
 
   function dispatchValueEvents(element) {
-    element.dispatchEvent(new Event("input", { bubbles: true }));
-    element.dispatchEvent(new Event("change", { bubbles: true }));
+    const EventConstructor = element.ownerDocument?.defaultView?.Event || Event;
+    element.dispatchEvent(new EventConstructor("input", { bubbles: true }));
+    element.dispatchEvent(new EventConstructor("change", { bubbles: true }));
   }
 
   function optionText(element) {
+    if (tagName(element) === "OPTION" || elementRole(element) === "option") {
+      return (
+        text(element.getAttribute("aria-label")) ||
+        text(element.textContent) ||
+        text(element.value)
+      );
+    }
     return (
       associatedLabel(element) ||
       text(element.getAttribute("aria-label")) ||
+      getTextByIds(element.getAttribute("aria-labelledby"), element.ownerDocument) ||
+      text(element.textContent) ||
       text(element.value)
     );
   }
 
-  function fillChoice(question, value) {
+  function rankOptions(options, value) {
+    return options
+      .filter(
+        (option) =>
+          !option.disabled && option.getAttribute?.("aria-disabled") !== "true"
+      )
+      .map((option) => ({
+        option,
+        score: matcher.scoreChoice(
+          value,
+          option.value || option.getAttribute?.("data-value") || option.id,
+          optionText(option)
+        )
+      }))
+      .sort((left, right) => right.score - left.score);
+  }
+
+  function hasUniqueChoice(ranked) {
+    const best = ranked[0];
+    const next = ranked[1];
+    return Boolean(
+      best &&
+        best.score >= matcher.MINIMUM_SCORE &&
+        (!next ||
+          (best.score !== next.score &&
+            (best.score === 100 || best.score - next.score >= 7)))
+    );
+  }
+
+  function visibleComboOptions(element) {
+    const ownerDocument = element.ownerDocument;
+    const optionsFrom = (container) =>
+      Array.from(container?.querySelectorAll?.(ats.optionSelector) || []).filter(
+        isVisible
+      );
+    const controlledIds = [
+      element.getAttribute("aria-controls"),
+      element.getAttribute("aria-owns")
+    ]
+      .filter(Boolean)
+      .flatMap((value) => String(value).split(/\s+/));
+
+    for (const id of controlledIds) {
+      const controlled = ownerDocument.getElementById(id);
+      const controlledOptions = optionsFrom(controlled);
+      if (controlledOptions.length) {
+        return controlledOptions;
+      }
+    }
+
+    const listboxes = [];
+    for (const rootNode of collectRoots()) {
+      if (
+        rootNode !== ownerDocument &&
+        rootNode.ownerDocument !== ownerDocument
+      ) {
+        continue;
+      }
+      for (const listbox of rootNode.querySelectorAll?.("[role='listbox']") ||
+        []) {
+        if (isVisible(listbox)) {
+          listboxes.push(listbox);
+        }
+      }
+    }
+    if (listboxes.length === 1) {
+      return optionsFrom(listboxes[0]);
+    }
+    return [];
+  }
+
+  function wait(milliseconds) {
+    return new Promise((resolve) => setTimeout(resolve, milliseconds));
+  }
+
+  async function fillCombobox(question, value) {
+    const element = question.elements[0];
+    const originalValue = isInput(element) ? element.value : "";
+    element.focus?.();
+    element.click?.();
+    await wait(60);
+
+    let ranked = rankOptions(visibleComboOptions(element), value);
+    if (!hasUniqueChoice(ranked) && isInput(element) && !element.readOnly) {
+      setNativeProperty(element, "value", value);
+      const EventConstructor =
+        element.ownerDocument?.defaultView?.Event || Event;
+      element.dispatchEvent(new EventConstructor("input", { bubbles: true }));
+      await wait(100);
+      ranked = rankOptions(visibleComboOptions(element), value);
+    }
+
+    if (!hasUniqueChoice(ranked)) {
+      if (isInput(element) && element.value !== originalValue) {
+        setNativeProperty(element, "value", originalValue);
+        dispatchValueEvents(element);
+      }
+      return false;
+    }
+
+    ranked[0].option.click();
+    await wait(60);
+    const selected =
+      ranked[0].option.getAttribute("aria-selected") === "true" ||
+      matcher.scoreChoice(
+        value,
+        element.value || element.getAttribute("data-value"),
+        element.getAttribute("aria-valuetext") || optionText(element)
+      ) >= matcher.MINIMUM_SCORE;
+    if (selected) {
+      state.extensionValues.set(
+        element,
+        String(element.value || element.getAttribute("data-value") || value)
+      );
+    }
+    return selected;
+  }
+
+  async function fillChoice(question, value) {
     const first = question.elements[0];
 
-    if (first instanceof HTMLSelectElement) {
-      const ranked = Array.from(first.options)
-        .map((option) => ({
-          option,
-          score: matcher.scoreChoice(value, option.value, option.textContent)
-        }))
-        .sort((left, right) => right.score - left.score);
-      if (
-        !ranked[0]?.score ||
-        (ranked[1]?.score && ranked[0].score === ranked[1].score)
-      ) {
+    if (question.kind === "combobox") {
+      return fillCombobox(question, value);
+    }
+
+    if (isSelect(first)) {
+      const ranked = rankOptions(Array.from(first.options), value);
+      if (!hasUniqueChoice(ranked)) {
         return false;
       }
       setNativeProperty(first, "value", ranked[0].option.value);
@@ -569,29 +1249,27 @@
       return selected;
     }
 
-    if (first.type === "radio") {
-      const ranked = question.elements
-        .map((element) => ({
-          element,
-          score: matcher.scoreChoice(value, element.value, optionText(element))
-        }))
-        .sort((left, right) => right.score - left.score);
-      if (
-        !ranked[0]?.score ||
-        (ranked[1]?.score && ranked[0].score === ranked[1].score)
-      ) {
+    if (inputType(first) === "radio" || elementRole(first) === "radio") {
+      const ranked = rankOptions(question.elements, value);
+      if (!hasUniqueChoice(ranked)) {
         return false;
       }
-      ranked[0].element.click();
-      if (!ranked[0].element.checked) {
-        setNativeProperty(ranked[0].element, "checked", true);
-        dispatchValueEvents(ranked[0].element);
+      const selectedElement = ranked[0].option;
+      selectedElement.click();
+      if (
+        isInput(selectedElement) &&
+        !selectedElement.checked
+      ) {
+        setNativeProperty(selectedElement, "checked", true);
+        dispatchValueEvents(selectedElement);
       }
-      const selected = ranked[0].element.checked;
+      const selected =
+        Boolean(selectedElement.checked) ||
+        selectedElement.getAttribute("aria-checked") === "true";
       if (selected) {
         state.extensionValues.set(
-          ranked[0].element,
-          String(ranked[0].element.value)
+          selectedElement,
+          String(selectedElement.value || optionText(selectedElement))
         );
       }
       return selected;
@@ -603,13 +1281,20 @@
   function fillText(question, value) {
     const element = question.elements[0];
     if (
-      element instanceof HTMLInputElement &&
-      element.type === "number" &&
+      isInput(element) &&
+      inputType(element) === "number" &&
       !Number.isFinite(Number(value))
     ) {
       return false;
     }
 
+    if (isContentEditable(element)) {
+      element.focus?.();
+      element.textContent = value;
+      dispatchValueEvents(element);
+      state.extensionValues.set(element, String(element.textContent));
+      return text(element.textContent) === text(value);
+    }
     setNativeProperty(element, "value", value);
     dispatchValueEvents(element);
     state.extensionValues.set(element, String(element.value));
@@ -619,8 +1304,8 @@
   function fillFile(question, savedFile) {
     const element = question.elements[0];
     if (
-      !(element instanceof HTMLInputElement) ||
-      element.type !== "file" ||
+      !isInput(element) ||
+      inputType(element) !== "file" ||
       !savedFile ||
       savedFile.mimeType !== "application/pdf" ||
       typeof savedFile.base64 !== "string"
@@ -634,11 +1319,12 @@
       for (let index = 0; index < binary.length; index += 1) {
         bytes[index] = binary.charCodeAt(index);
       }
-      const file = new File([bytes], savedFile.fileName || "resume.pdf", {
+      const frameWindow = element.ownerDocument?.defaultView || root;
+      const file = new frameWindow.File([bytes], savedFile.fileName || "resume.pdf", {
         type: "application/pdf",
         lastModified: Date.now()
       });
-      const transfer = new DataTransfer();
+      const transfer = new frameWindow.DataTransfer();
       transfer.items.add(file);
       setNativeProperty(element, "files", transfer.files);
       dispatchValueEvents(element);
@@ -687,6 +1373,7 @@
       ...(response.profile || {}),
       resumeFile: response.resumeFile || null
     };
+    refreshProfileAvailability();
 
     state.fillIssues.clear();
     const questions = collectQuestions();
@@ -700,8 +1387,8 @@
       const succeeded =
         question.kind === "file"
           ? fillFile(question, question.matchedValue)
-          : question.kind === "choice" || question.kind === "select"
-          ? fillChoice(question, question.matchedValue)
+          : ["choice", "select", "combobox"].includes(question.kind)
+          ? await fillChoice(question, question.matchedValue)
           : fillText(question, question.matchedValue);
 
       if (succeeded) {
@@ -737,7 +1424,18 @@
     button.disabled = true;
     button.textContent = "Autofilling...";
     try {
-      await fillKnownFields();
+      const local = await fillKnownFields();
+      const embedded = await sendMessage({
+        type: "JOB_AUTOFILL_FILL_EMBEDDED",
+        sessionId: state.session?.id
+      });
+      const total = Number(local.filled || 0) + Number(embedded?.filled || 0);
+      const status = state.shadow?.querySelector("[data-status]");
+      if (status && embedded?.ok) {
+        status.textContent = total
+          ? `Filled ${total} field${total === 1 ? "" : "s"}. Review every answer.`
+          : "No additional known fields could be filled.";
+      }
     } catch (error) {
       const status = state.shadow?.querySelector("[data-status]");
       if (status) {
@@ -893,6 +1591,16 @@
           padding: 9px 0;
         }
         li:first-child { border-top: 0; }
+        .review-field {
+          background: transparent;
+          border: 0;
+          border-radius: 6px;
+          display: block;
+          padding: 3px;
+          text-align: left;
+          width: 100%;
+        }
+        button.review-field:hover { background: #f9fafb; }
         .unknown-heading { font-weight: 600; overflow-wrap: anywhere; }
         .unknown-reason { color: #667085; font-size: 11px; margin-top: 2px; }
         .required {
@@ -982,13 +1690,7 @@
         sessionId: state.session.id
       });
     });
-    document.addEventListener("input", handleFieldChange, true);
-    document.addEventListener("change", handleFieldChange, true);
-    state.observer = new MutationObserver(() => scheduleScan(250));
-    state.observer.observe(document.body || document.documentElement, {
-      childList: true,
-      subtree: true
-    });
+    refreshObservers();
   }
 
   function handleFieldChange() {
@@ -997,10 +1699,13 @@
 
   function unmountPanel() {
     clearTimeout(state.scanTimer);
-    state.observer?.disconnect();
-    state.observer = null;
-    document.removeEventListener("input", handleFieldChange, true);
-    document.removeEventListener("change", handleFieldChange, true);
+    for (const [rootNode, observer] of state.observers) {
+      observer.disconnect();
+      rootNode.removeEventListener?.("input", handleFieldChange, true);
+      rootNode.removeEventListener?.("change", handleFieldChange, true);
+    }
+    state.observers.clear();
+    clearReviewMarkers(true);
     state.host?.remove();
     state.host = null;
     state.shadow = null;
@@ -1013,13 +1718,29 @@
         error: "This page is outside the approved application site."
       };
     }
+    const changingSession = state.session?.id !== message.session.id;
     state.sessionGeneration += 1;
     state.session = message.session;
+    state.context = message.session;
+    state.frameMode = Boolean(message.frameMode);
     state.profile = {
       ...(message.profile || {}),
       resumeFile: message.resumeFile || null
     };
+    setProfileAvailability(message.profileAvailability);
+    if (changingSession) {
+      state.extensionValues = new WeakMap();
+      state.fillIssues.clear();
+      state.lastQuestions = new Map();
+    }
     state.progressSignature = "";
+    if (state.frameMode) {
+      refreshObservers();
+      return {
+        ok: true,
+        progress: scan({ includeEmbedded: false })
+      };
+    }
     mountPanel();
 
     const jobName = [state.session.jobTitle, state.session.company]
@@ -1035,6 +1756,9 @@
     unmountPanel();
     state.sessionGeneration += 1;
     state.session = null;
+    state.context = {};
+    state.profileAvailability = new Set();
+    state.frameMode = false;
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -1052,6 +1776,13 @@
           })
         );
       return true;
+    }
+    if (message.type === "JOB_AUTOFILL_SCAN") {
+      sendResponse({
+        ok: true,
+        progress: scan({ includeEmbedded: false })
+      });
+      return false;
     }
     if (message.type === "JOB_AUTOFILL_EXTENSION_DISABLED") {
       teardown();

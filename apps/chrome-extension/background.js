@@ -1,7 +1,12 @@
-importScripts("lib/profile-schema.js", "lib/session-scope.js");
+importScripts(
+  "lib/profile-schema.js",
+  "lib/session-scope.js",
+  "lib/ats-adapter.js"
+);
 
 const profileSchema = globalThis.JobAutofillProfile;
 const sessionScope = globalThis.JobAutofillSessionScope;
+const ats = globalThis.JobAutofillAts;
 const STORAGE_DEFAULTS = {
   enabled: true,
   profile: {},
@@ -13,6 +18,7 @@ const PANEL_FILES = [
   "lib/session-scope.js",
   "lib/profile-schema.js",
   "lib/field-matcher.js",
+  "lib/ats-adapter.js",
   "content/application-panel.js"
 ];
 
@@ -20,6 +26,9 @@ let sessionMutationQueue = Promise.resolve();
 let enablementMutationQueue = Promise.resolve();
 let enablementVersion = 0;
 let requestedEnabled;
+const embeddedFrameRegistry = new Map();
+const embeddedFrameSetupPromises = new Map();
+let initializationPromise = null;
 
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
@@ -35,6 +44,18 @@ function isHttpUrl(value) {
 
 function sanitizeProfile(rawProfile) {
   return profileSchema.sanitizeStoredProfile(rawProfile);
+}
+
+function profileAvailabilityFor(profile, resumeFile, context) {
+  const effective = profileSchema.buildEffectiveProfile(profile, context);
+  return Object.fromEntries(
+    profileSchema.fields.map((field) => [
+      field.key,
+      field.key === "resumeFile"
+        ? Boolean(resumeFile)
+        : Boolean(String(effective[field.key] || "").trim())
+    ])
+  );
 }
 
 async function replaceProfile(rawProfile) {
@@ -100,6 +121,20 @@ async function ensureDefaults() {
 
   await setGlobalBadge(stored.enabled ?? STORAGE_DEFAULTS.enabled);
   await reconcileApplicationSessions();
+}
+
+function initializeBackground() {
+  if (!initializationPromise) {
+    const operation = ensureDefaults();
+    const guarded = operation.catch((error) => {
+      if (initializationPromise === guarded) {
+        initializationPromise = null;
+      }
+      throw error;
+    });
+    initializationPromise = guarded;
+  }
+  return initializationPromise;
 }
 
 async function setGlobalBadge(enabled) {
@@ -417,6 +452,167 @@ async function activateSessionForInjection(sessionId, tabId, expectedEnablementV
   });
 }
 
+function isAuthorizedSessionDocument(session, senderUrl, frameId) {
+  if (sessionScope.isAllowedUrl(session, senderUrl)) {
+    return true;
+  }
+  return Number.isInteger(frameId) && frameId > 0 && ats.isKnownAtsUrl(senderUrl);
+}
+
+async function discoverApplicationFrames(tabId) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId, allFrames: true },
+    func: () => ({
+      url: location.href,
+      top: window === window.top
+    })
+  });
+  return results
+    .map((entry) => ({
+      frameId: entry.frameId,
+      documentId: entry.documentId || "",
+      url: entry.result?.url || "",
+      top: Boolean(entry.result?.top)
+    }))
+    .filter(
+      (entry) =>
+        !entry.top &&
+        Number.isInteger(entry.frameId) &&
+        isHttpUrl(entry.url) &&
+        ats.isKnownAtsUrl(entry.url)
+    );
+}
+
+async function configureEmbeddedFrameAgents(
+  session,
+  { force = false, profileAvailability: suppliedAvailability } = {}
+) {
+  const previous = embeddedFrameRegistry.get(session.id);
+  if (
+    !force &&
+    previous &&
+    previous.tabId === session.tabId &&
+    Date.now() - previous.checkedAt < 2_000
+  ) {
+    return previous.frames;
+  }
+
+  const discovered = (await discoverApplicationFrames(session.tabId)).filter(
+    (frame) => !sessionScope.isAllowedUrl(session, frame.url)
+  );
+  const previousFrames =
+    previous?.tabId === session.tabId ? previous.frames : new Map();
+  const frames = new Map();
+  let frameAvailability = suppliedAvailability;
+
+  for (const frame of discovered) {
+    const existing = previousFrames.get(frame.frameId);
+    if (
+      existing?.url === frame.url &&
+      existing?.documentId === frame.documentId
+    ) {
+      frames.set(frame.frameId, existing);
+      continue;
+    }
+    try {
+      if (frameAvailability === undefined) {
+        const { profile = {} } = await chrome.storage.local.get({
+          profile: {}
+        });
+        const { resumeFile = null } = await (
+          chrome.storage.session || chrome.storage.local
+        ).get({ resumeFile: null });
+        frameAvailability = profileAvailabilityFor(
+          profile,
+          resumeFile,
+          session
+        );
+      }
+      await chrome.scripting.executeScript({
+        target: { tabId: session.tabId, frameIds: [frame.frameId] },
+        files: PANEL_FILES
+      });
+      const frameSession = {
+        ...session,
+        applicationOrigins: [
+          ...sessionScope.applicationOrigins(session),
+          sessionScope.originOf(frame.url)
+        ]
+      };
+      const response = await chrome.tabs.sendMessage(
+        session.tabId,
+        {
+          type: "JOB_AUTOFILL_START_SESSION",
+          session: frameSession,
+          profile: {},
+          resumeFile: null,
+          profileAvailability: frameAvailability,
+          frameMode: true
+        },
+        { frameId: frame.frameId }
+      );
+      if (response?.ok && Number(response.progress?.recognized || 0) >= 2) {
+        frames.set(frame.frameId, frame);
+      } else {
+        await chrome.tabs.sendMessage(
+          session.tabId,
+          { type: "JOB_AUTOFILL_EXTENSION_DISABLED" },
+          { frameId: frame.frameId }
+        );
+      }
+    } catch {
+      // Sandboxed or inaccessible frames remain manual rather than weakening scope.
+    }
+  }
+
+  embeddedFrameRegistry.set(session.id, {
+    tabId: session.tabId,
+    checkedAt: Date.now(),
+    frames
+  });
+  return frames;
+}
+
+async function ensureEmbeddedFrameAgents(session, options = {}) {
+  const pending = embeddedFrameSetupPromises.get(session.id);
+  if (pending) {
+    return pending;
+  }
+  const operation = configureEmbeddedFrameAgents(session, options);
+  embeddedFrameSetupPromises.set(session.id, operation);
+  try {
+    return await operation;
+  } finally {
+    if (embeddedFrameSetupPromises.get(session.id) === operation) {
+      embeddedFrameSetupPromises.delete(session.id);
+    }
+  }
+}
+
+async function runEmbeddedFrameAction(session, messageType, { force = false } = {}) {
+  let frames;
+  try {
+    frames = await ensureEmbeddedFrameAgents(session, { force });
+  } catch {
+    return [];
+  }
+  const responses = await Promise.all(
+    Array.from(frames.values()).map(async (frame) => {
+      try {
+        const response = await chrome.tabs.sendMessage(
+          session.tabId,
+          { type: messageType },
+          { frameId: frame.frameId }
+        );
+        return response?.ok ? { ...response, frame } : null;
+      } catch {
+        return null;
+      }
+    })
+  );
+  return responses.filter(Boolean);
+}
+
 async function injectPanel(session, { autofill = false } = {}) {
   const expectedEnablementVersion = enablementVersion;
   const { enabled, profile } = await chrome.storage.local.get({
@@ -426,6 +622,11 @@ async function injectPanel(session, { autofill = false } = {}) {
   const { resumeFile = null } = await (
     chrome.storage.session || chrome.storage.local
   ).get({ resumeFile: null });
+  const profileAvailability = profileAvailabilityFor(
+    profile,
+    resumeFile,
+    session
+  );
 
   if (!enabled || requestedEnabled === false) {
     return { ok: false, error: "Extension is off." };
@@ -460,16 +661,29 @@ async function injectPanel(session, { autofill = false } = {}) {
       files: PANEL_FILES
     });
 
-    const startResponse = await chrome.tabs.sendMessage(session.tabId, {
-      type: "JOB_AUTOFILL_START_SESSION",
-      session,
-      profile,
-      resumeFile
-    });
+    const startResponse = await chrome.tabs.sendMessage(
+      session.tabId,
+      {
+        type: "JOB_AUTOFILL_START_SESSION",
+        session,
+        profile: {},
+        resumeFile: null,
+        profileAvailability
+      },
+      { frameId: 0 }
+    );
     if (!startResponse?.ok) {
       throw new Error(
         startResponse?.error || "The application page rejected the extension session."
       );
+    }
+    try {
+      await ensureEmbeddedFrameAgents(session, {
+        force: true,
+        profileAvailability
+      });
+    } catch {
+      embeddedFrameRegistry.delete(session.id);
     }
 
     const activation = await activateSessionForInjection(
@@ -488,9 +702,25 @@ async function injectPanel(session, { autofill = false } = {}) {
       ) {
         return { ok: false, error: "The extension state changed. Try again." };
       }
-      return await chrome.tabs.sendMessage(session.tabId, {
-        type: "JOB_AUTOFILL_FILL"
-      });
+      const topResult = await chrome.tabs.sendMessage(
+        session.tabId,
+        { type: "JOB_AUTOFILL_FILL" },
+        { frameId: 0 }
+      );
+      const embeddedResults = await runEmbeddedFrameAction(
+        session,
+        "JOB_AUTOFILL_FILL",
+        { force: true }
+      );
+      return {
+        ...topResult,
+        filled:
+          Number(topResult?.filled || 0) +
+          embeddedResults.reduce(
+            (total, result) => total + Number(result.filled || 0),
+            0
+          )
+      };
     }
 
     return { ok: true };
@@ -607,9 +837,22 @@ async function applyEnabledState(nextEnabled, expectedEnablementVersion) {
           tabId: session.tabId,
           color: "#667085"
         });
-        await chrome.tabs.sendMessage(session.tabId, {
-          type: "JOB_AUTOFILL_EXTENSION_DISABLED"
-        });
+        await chrome.tabs.sendMessage(
+          session.tabId,
+          { type: "JOB_AUTOFILL_EXTENSION_DISABLED" },
+          { frameId: 0 }
+        );
+        const embedded = embeddedFrameRegistry.get(session.id);
+        await Promise.allSettled(
+          (embedded ? Array.from(embedded.frames.values()) : []).map((frame) =>
+            chrome.tabs.sendMessage(
+              session.tabId,
+              { type: "JOB_AUTOFILL_EXTENSION_DISABLED" },
+              { frameId: frame.frameId }
+            )
+          )
+        );
+        embeddedFrameRegistry.delete(session.id);
       })
     );
   } else {
@@ -654,10 +897,14 @@ function sanitizeProgress(progress = {}) {
   const number = (value) => Math.max(0, Number.parseInt(value, 10) || 0);
   const unknownFields = Array.isArray(progress.unknownFields)
     ? progress.unknownFields.slice(0, 75).map((field) => ({
+        key: String(field.key || "").slice(0, 160),
         label: String(field.label || "Unlabeled field").slice(0, 240),
         required: Boolean(field.required),
         reason: String(field.reason || "Needs a manual answer").slice(0, 240),
-        controlKind: String(field.controlKind || "").slice(0, 40)
+        controlKind: String(field.controlKind || "").slice(0, 40),
+        status: String(field.status || "unknown").slice(0, 40),
+        confidence: Math.min(100, number(field.confidence)),
+        suggestedField: String(field.suggestedField || "").slice(0, 120)
       }))
     : [];
 
@@ -666,7 +913,10 @@ function sanitizeProgress(progress = {}) {
     answered: number(progress.answered),
     filledByExtension: number(progress.filledByExtension),
     readyToFill: number(progress.readyToFill),
+    recognized: number(progress.recognized),
     needsAttention: number(progress.needsAttention),
+    uncertain: number(progress.uncertain),
+    platform: String(progress.platform || "").slice(0, 80),
     unknownFields
   };
 }
@@ -710,7 +960,7 @@ async function handleInternalMessage(message, sender) {
         ["paused", "dismissed", "closed", "left-application"].includes(
           session.status
         ) ||
-        !sessionScope.isAllowedUrl(session, senderUrl)
+        !isAuthorizedSessionDocument(session, senderUrl, sender.frameId)
       ) {
         return { ok: false, error: "The application session is not active." };
       }
@@ -720,6 +970,53 @@ async function handleInternalMessage(message, sender) {
       return setEnabled(message.enabled);
     case "JOB_AUTOFILL_START_TAB":
       return startCurrentTab(message);
+    case "JOB_AUTOFILL_SCAN_EMBEDDED":
+    case "JOB_AUTOFILL_FILL_EMBEDDED": {
+      const tabId = sender.tab?.id;
+      const senderUrl = sender.url || sender.tab?.url;
+      const session = Number.isInteger(tabId)
+        ? await findSessionByTab(tabId)
+        : null;
+      if (
+        !senderUrl ||
+        !session ||
+        session.id !== message.sessionId ||
+        session.panelDismissed ||
+        !sessionScope.isAllowedUrl(session, senderUrl)
+      ) {
+        return { ok: false, error: "The application session is not active." };
+      }
+      const fill = message.type === "JOB_AUTOFILL_FILL_EMBEDDED";
+      const results = await runEmbeddedFrameAction(
+        session,
+        fill ? "JOB_AUTOFILL_FILL" : "JOB_AUTOFILL_SCAN",
+        { force: fill }
+      );
+      if (fill) {
+        return {
+          ok: true,
+          filled: results.reduce(
+            (total, result) => total + Number(result.filled || 0),
+            0
+          )
+        };
+      }
+      return {
+        ok: true,
+        progress: results
+          .filter((result) => result.progress)
+          .map((result) => {
+            const progress = sanitizeProgress(result.progress);
+            progress.unknownFields = progress.unknownFields.map(
+              (field, index) => ({
+                ...field,
+                key: `frame-${result.frame.frameId}-${index}`
+              })
+            );
+            return progress;
+          })
+      };
+    }
     case "JOB_AUTOFILL_PROGRESS": {
       const tabId = sender.tab?.id;
       const senderUrl = sender.url || sender.tab?.url;
@@ -750,6 +1047,19 @@ async function handleInternalMessage(message, sender) {
         tabId,
         senderUrl
       );
+      if (dismissed) {
+        const embedded = embeddedFrameRegistry.get(message.sessionId);
+        await Promise.allSettled(
+          (embedded ? Array.from(embedded.frames.values()) : []).map((frame) =>
+            chrome.tabs.sendMessage(
+              tabId,
+              { type: "JOB_AUTOFILL_EXTENSION_DISABLED" },
+              { frameId: frame.frameId }
+            )
+          )
+        );
+        embeddedFrameRegistry.delete(message.sessionId);
+      }
       return { ok: true, ignored: !dismissed };
     }
     default:
@@ -795,11 +1105,11 @@ async function handleExternalMessage(message) {
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  void ensureDefaults();
+  void initializeBackground();
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  void ensureDefaults();
+  void initializeBackground();
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -807,14 +1117,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
 
-  handleInternalMessage(message, sender)
+  initializeBackground()
+    .then(() => handleInternalMessage(message, sender))
     .then(sendResponse)
     .catch((error) => sendResponse({ ok: false, error: errorMessage(error) }));
   return true;
 });
 
 chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
-  handleExternalMessage(message || {})
+  initializeBackground()
+    .then(() => handleExternalMessage(message || {}, sender))
     .then(sendResponse)
     .catch((error) => sendResponse({ ok: false, error: errorMessage(error) }));
   return true;
@@ -826,6 +1138,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   }
 
   void (async () => {
+    await initializeBackground();
     const session = await findSessionByTab(tabId);
     if (!session) {
       return;
@@ -850,8 +1163,10 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   void (async () => {
+    await initializeBackground();
     const session = await findSessionByTab(tabId);
     if (session) {
+      embeddedFrameRegistry.delete(session.id);
       await updateSession(session.id, {
         tabId: null,
         status: "closed",
@@ -861,4 +1176,4 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   })();
 });
 
-void ensureDefaults();
+void initializeBackground();

@@ -26,10 +26,14 @@ interface ChromeExtensionResponse {
 }
 
 export interface AutofillUnknownField {
+  key?: string;
   label: string;
   required: boolean;
   reason: string;
   controlKind: string;
+  status?: string;
+  confidence?: number;
+  suggestedField?: string;
 }
 
 export interface AutofillProgress {
@@ -37,7 +41,10 @@ export interface AutofillProgress {
   answered: number;
   filledByExtension: number;
   readyToFill: number;
+  recognized?: number;
   needsAttention: number;
+  uncertain?: number;
+  platform?: string;
   unknownFields: AutofillUnknownField[];
 }
 

@@ -26,6 +26,15 @@ describe("Chrome extension background security", () => {
     );
   });
 
+  it("serializes startup defaults before handling profile messages", () => {
+    expect(backgroundSource).toMatch(
+      /initializeBackground\(\)[\s\S]*then\(\(\) => handleExternalMessage/,
+    );
+    expect(backgroundSource).toMatch(
+      /initializeBackground\(\)[\s\S]*then\(\(\) => handleInternalMessage/,
+    );
+  });
+
   it("terminates tracked sessions after any disallowed completed navigation", () => {
     expect(backgroundSource).toMatch(
       /transitionSessionForNavigation[\s\S]*!isHttpUrl\(url\) \|\|[\s\S]*status: "left-application"/,
@@ -48,6 +57,31 @@ describe("Chrome extension background security", () => {
     expect(backgroundSource).toMatch(
       /async function applyEnabledState[\s\S]*enablementVersion !== expectedEnablementVersion[\s\S]*\["dismissed", "closed", "left-application"\]\.includes\(session\.status\)/,
     );
+  });
+
+  it("limits cross-origin frame agents to known ATS documents", () => {
+    expect(backgroundSource).toContain("target: { tabId, allFrames: true }");
+    expect(backgroundSource).toMatch(
+      /!entry\.top[\s\S]*ats\.isKnownAtsUrl\(entry\.url\)/,
+    );
+    expect(backgroundSource).toMatch(
+      /frameId > 0 && ats\.isKnownAtsUrl\(senderUrl\)/,
+    );
+    expect(backgroundSource).toContain(
+      "Number(response.progress?.recognized || 0) >= 2",
+    );
+    expect(backgroundSource).toContain("frameMode: true");
+    expect(backgroundSource).toMatch(
+      /JOB_AUTOFILL_START_SESSION[\s\S]*\{ frameId: 0 \}/,
+    );
+  });
+
+  it("does not send profile values or resume bytes during passive scans", () => {
+    expect(backgroundSource).toMatch(
+      /type: "JOB_AUTOFILL_START_SESSION",[\s\S]*profile: \{\},[\s\S]*resumeFile: null,[\s\S]*profileAvailability/,
+    );
+    expect(backgroundSource).not.toContain("profile: frameProfile");
+    expect(backgroundSource).not.toContain("resumeFile: frameResumeFile");
   });
 
   it("uses Chrome's manifest allowlist without a second configured origin", () => {

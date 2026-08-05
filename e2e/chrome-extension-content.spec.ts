@@ -5,6 +5,7 @@ const extensionScripts = [
   "apps/chrome-extension/lib/session-scope.js",
   "apps/chrome-extension/lib/profile-schema.js",
   "apps/chrome-extension/lib/field-matcher.js",
+  "apps/chrome-extension/lib/ats-adapter.js",
   "apps/chrome-extension/content/application-panel.js",
 ].map((path) => resolve(process.cwd(), path));
 
@@ -16,6 +17,9 @@ async function installContentPanel(
     resumeFile,
     deferProfile = false,
     revealPanel = false,
+    frameMode = false,
+    country = "",
+    profileAvailability,
   }: {
     html: string;
     profile: Record<string, string>;
@@ -26,6 +30,9 @@ async function installContentPanel(
     };
     deferProfile?: boolean;
     revealPanel?: boolean;
+    frameMode?: boolean;
+    country?: string;
+    profileAvailability?: Record<string, boolean>;
   },
 ) {
   await page.goto("/jobs");
@@ -48,8 +55,11 @@ async function installContentPanel(
             url: string;
             applicationOrigins: string[];
             jobTitle: string;
+            country: string;
           };
           profile?: Record<string, string>;
+          profileAvailability?: Record<string, boolean>;
+          frameMode?: boolean;
         },
         sender: unknown,
         sendResponse: (response: unknown) => void,
@@ -116,7 +126,11 @@ async function installContentPanel(
     await page.addScriptTag({ path });
   }
 
-  await page.evaluate(async () => {
+  await page.evaluate(async ({
+    embeddedFrame,
+    applicationCountry,
+    availableProfile,
+  }) => {
     const harness = (
       globalThis as unknown as {
         __panelHarness: {
@@ -131,13 +145,32 @@ async function installContentPanel(
         url: location.href,
         applicationOrigins: [location.origin],
         jobTitle: "Content script fixture",
+        country: applicationCountry,
       },
       profile: {},
+      profileAvailability: availableProfile,
+      frameMode: embeddedFrame,
     });
     if (!response?.ok) {
       throw new Error("Unable to start the content script fixture.");
     }
+  }, {
+    embeddedFrame: frameMode,
+    applicationCountry: country,
+    availableProfile: profileAvailability ?? {},
   });
+}
+
+async function invokeAutofill(page: Page) {
+  return page.evaluate(() =>
+    (
+      globalThis as unknown as {
+        __panelHarness: {
+          invoke(message: unknown): Promise<unknown>;
+        };
+      }
+    ).__panelHarness.invoke({ type: "JOB_AUTOFILL_FILL" }),
+  );
 }
 
 test("section headings prevent applicant data from filling reference fields", async ({
@@ -206,7 +239,26 @@ test("disabling the extension cancels an in-flight profile fill", async ({ page 
   await expect(page.locator("#applicant-email")).toHaveValue("");
 });
 
-test("negated sponsorship questions remain unanswered", async ({ page }) => {
+test("shows ready fields from availability without preloading profile values", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `<label>Email address <input id="applicant-email" autocomplete="email"></label>`,
+    profile: { email: "applicant@example.com" },
+    profileAvailability: { email: true },
+    revealPanel: true,
+  });
+
+  const panel = page.locator("#job-autofill-extension-panel");
+  await expect(panel.locator("[data-ready-count]")).toHaveText("1");
+  await expect(page.locator("#applicant-email")).toHaveValue("");
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 1 });
+  await expect(page.locator("#applicant-email")).toHaveValue(
+    "applicant@example.com",
+  );
+});
+
+test("answers standard negated sponsorship questions safely", async ({ page }) => {
   await installContentPanel(page, {
     html: `
       <fieldset>
@@ -228,10 +280,36 @@ test("negated sponsorship questions remain unanswered", async ({ page }) => {
     ).__panelHarness.invoke({ type: "JOB_AUTOFILL_FILL" }),
   );
 
-  expect(result).toMatchObject({ ok: true, filled: 0 });
+  expect(result).toMatchObject({ ok: true, filled: 1 });
   await expect(
-    page.locator('input[name="requires_sponsorship"]:checked'),
-  ).toHaveCount(0);
+    page.locator('input[name="requires_sponsorship"][value="yes"]'),
+  ).toBeChecked();
+});
+
+test("does not confuse scheduling questions with work authorization", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `
+      <label>What days can you work?
+        <select id="work-days">
+          <option value="">Select</option>
+          <option value="weekdays">Weekdays</option>
+          <option value="weekends">Weekends</option>
+        </select>
+      </label>
+      <fieldset>
+        <legend>Are you able to work overtime?</legend>
+        <label><input type="radio" name="overtime" value="yes"> Yes</label>
+        <label><input type="radio" name="overtime" value="no"> No</label>
+      </fieldset>
+    `,
+    profile: { workAuthorization: "yes" },
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 0 });
+  await expect(page.locator("#work-days")).toHaveValue("");
+  await expect(page.locator('input[name="overtime"]:checked')).toHaveCount(0);
 });
 
 test("fills styled yes or no radios through the native click path", async ({
@@ -263,6 +341,265 @@ test("fills styled yes or no radios through the native click path", async ({
   await expect(
     page.locator('input[name="authorized"][value="yes"]'),
   ).toBeChecked();
+});
+
+test("fills Workday-style comboboxes and ARIA radio groups", async ({ page }) => {
+  await installContentPanel(page, {
+    html: `
+      <div class="form-group">
+        <span id="region-label">State or province</span>
+        <button
+          id="region"
+          type="button"
+          role="combobox"
+          aria-labelledby="region-label"
+          aria-controls="region-options"
+          aria-expanded="false"
+          data-automation-id="addressSection_countryRegion"
+        >Choose a region</button>
+        <ul id="region-options" role="listbox" hidden>
+          <li role="option" data-value="BC">British Columbia</li>
+          <li role="option" data-value="ON">Ontario</li>
+        </ul>
+      </div>
+      <div role="radiogroup" aria-label="Are you legally authorized to work?">
+        <div role="radio" aria-checked="false" data-value="yes">Yes</div>
+        <div role="radio" aria-checked="false" data-value="no">No</div>
+      </div>
+      <script>
+        const combo = document.querySelector("#region");
+        const list = document.querySelector("#region-options");
+        combo.addEventListener("click", () => {
+          list.hidden = false;
+          combo.setAttribute("aria-expanded", "true");
+        });
+        for (const option of list.querySelectorAll("[role=option]")) {
+          option.addEventListener("click", () => {
+            for (const candidate of list.querySelectorAll("[role=option]")) {
+              candidate.setAttribute("aria-selected", String(candidate === option));
+            }
+            combo.dataset.value = option.dataset.value;
+            combo.textContent = option.textContent;
+            combo.setAttribute("aria-expanded", "false");
+            list.hidden = true;
+          });
+        }
+        for (const radio of document.querySelectorAll("[role=radio]")) {
+          radio.addEventListener("click", () => {
+            for (const candidate of radio.parentElement.querySelectorAll("[role=radio]")) {
+              candidate.setAttribute("aria-checked", String(candidate === radio));
+            }
+          });
+        }
+      </script>
+    `,
+    profile: {
+      location: "Toronto, ON",
+      workAuthorization: "yes",
+    },
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 2 });
+  await expect(page.locator("#region")).toHaveAttribute("data-value", "ON");
+  await expect(
+    page.locator('[role="radio"][data-value="yes"]'),
+  ).toHaveAttribute("aria-checked", "true");
+});
+
+test("fills split phone and location controls with canonical values", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `
+      <label>Country calling code
+        <select id="calling-code">
+          <option value="">Select</option>
+          <option value="+1">Canada / United States (+1)</option>
+          <option value="+44">United Kingdom (+44)</option>
+        </select>
+      </label>
+      <label>National phone number <input id="national-phone"></label>
+      <label>City <input id="city" autocomplete="address-level2"></label>
+      <label>State or province
+        <select id="region" autocomplete="address-level1">
+          <option value="">Select</option>
+          <option value="BC">British Columbia</option>
+          <option value="ON">Ontario</option>
+        </select>
+      </label>
+      <label>Country
+        <select id="country" autocomplete="country">
+          <option value="">Select</option>
+          <option value="CA">Canada</option>
+          <option value="US">United States</option>
+        </select>
+      </label>
+    `,
+    profile: {
+      phone: "+1 (416) 555-0199",
+      location: "Toronto, ON",
+    },
+    country: "CA",
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 5 });
+  await expect(page.locator("#calling-code")).toHaveValue("+1");
+  await expect(page.locator("#national-phone")).toHaveValue("(416) 555-0199");
+  await expect(page.locator("#city")).toHaveValue("Toronto");
+  await expect(page.locator("#region")).toHaveValue("ON");
+  await expect(page.locator("#country")).toHaveValue("CA");
+});
+
+test("fills contenteditable fields on generic application forms", async ({ page }) => {
+  await installContentPanel(page, {
+    html: `
+      <div class="form-group">
+        <label id="cover-label">Message to hiring manager</label>
+        <div
+          id="cover"
+          role="textbox"
+          contenteditable="true"
+          aria-labelledby="cover-label"
+        ></div>
+      </div>
+    `,
+    profile: { coverLetter: "I am excited to apply." },
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 1 });
+  await expect(page.locator("#cover")).toHaveText("I am excited to apply.");
+});
+
+test("fills fields inside open shadow roots and same-origin frames", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `<main id="application"></main>`,
+    profile: { email: "applicant@example.com" },
+  });
+
+  await page.evaluate(async () => {
+    const host = document.createElement("section");
+    host.id = "shadow-application";
+    const shadow = host.attachShadow({ mode: "open" });
+    shadow.innerHTML =
+      '<label>Email address <input id="shadow-email" autocomplete="email"></label>';
+    document.querySelector("#application")?.append(host);
+
+    const frame = document.createElement("iframe");
+    frame.id = "application-frame";
+    frame.srcdoc =
+      '<label>Email address <input id="frame-email" autocomplete="email"></label>';
+    document.querySelector("#application")?.append(frame);
+    await new Promise<void>((resolve) => {
+      frame.addEventListener("load", () => resolve(), { once: true });
+    });
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 2 });
+  expect(
+    await page.locator("#shadow-application").evaluate((host) => {
+      const input = host.shadowRoot?.querySelector<HTMLInputElement>(
+        "#shadow-email",
+      );
+      return input?.value;
+    }),
+  ).toBe("applicant@example.com");
+  expect(
+    await page
+      .locator("#application-frame")
+      .contentFrame()
+      .locator("#frame-email")
+      .inputValue(),
+  ).toBe("applicant@example.com");
+});
+
+test("embedded frame agents fill without mounting duplicate panels", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `<label>Email address <input id="embedded-email" autocomplete="email"></label>`,
+    profile: { email: "applicant@example.com" },
+    frameMode: true,
+  });
+
+  await expect(page.locator("#job-autofill-extension-panel")).toHaveCount(0);
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 1 });
+  await expect(page.locator("#embedded-email")).toHaveValue(
+    "applicant@example.com",
+  );
+});
+
+test("flags ambiguous fields instead of guessing", async ({ page }) => {
+  await installContentPanel(page, {
+    html: `<label>Email or mobile <input id="ambiguous-contact" required></label>`,
+    profile: {
+      email: "applicant@example.com",
+      phone: "+1 416 555 0199",
+    },
+    revealPanel: true,
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 0 });
+  await expect(page.locator("#ambiguous-contact")).toHaveValue("");
+  await expect(page.locator("#ambiguous-contact")).toHaveAttribute(
+    "data-job-autofill-review",
+    "uncertain",
+  );
+  await expect(
+    page
+      .locator("#job-autofill-extension-panel")
+      .getByText(/could be email address or phone number/i),
+  ).toBeVisible();
+});
+
+test("rescans fields added by a hydrated application step", async ({ page }) => {
+  await installContentPanel(page, {
+    html: `<main id="application"></main>`,
+    profile: { email: "applicant@example.com" },
+    revealPanel: true,
+  });
+
+  await page.evaluate(() => {
+    const input = document.createElement("input");
+    input.id = "hydrated-email";
+    input.setAttribute("data-automation-id", "email");
+    document.querySelector("#application")?.append(input);
+  });
+
+  const panel = page.locator("#job-autofill-extension-panel");
+  await expect(panel.locator("[data-attention-count]")).toHaveText("1");
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 1 });
+  await expect(page.locator("#hydrated-email")).toHaveValue(
+    "applicant@example.com",
+  );
+});
+
+test("uses ATS metadata when generated controls have no labels", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `
+      <input id="greenhouse-name" data-mapped="first_name">
+      <input id="lever-linkedin" name="urls[LinkedIn]">
+      <input id="ashby-email" data-testid="candidateEmail">
+      <input id="workday-city" data-automation-id="addressSection_city">
+    `,
+    profile: {
+      firstName: "Sacha",
+      email: "sacha@example.com",
+      linkedinUrl: "https://www.linkedin.com/in/sacha",
+      location: "Toronto, ON",
+    },
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 4 });
+  await expect(page.locator("#greenhouse-name")).toHaveValue("Sacha");
+  await expect(page.locator("#lever-linkedin")).toHaveValue(
+    "https://www.linkedin.com/in/sacha",
+  );
+  await expect(page.locator("#ashby-email")).toHaveValue("sacha@example.com");
+  await expect(page.locator("#workday-city")).toHaveValue("Toronto");
 });
 
 test("uploads the saved PDF only to a recognized resume input", async ({ page }) => {
