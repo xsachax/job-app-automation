@@ -155,11 +155,17 @@ describe("scoreAllJobs", () => {
       fitProvider: "agent",
     });
     await makeJob({ key: "senior", title: "Senior Engineer", isEntryLevel: false });
-    await makeJob({ key: "workday", title: "Software Engineer", isWorkday: true });
+    const workdayJob = await makeJob({
+      key: "workday",
+      title: "Software Engineer",
+      description: "Build TypeScript services.",
+      skills: ["TypeScript"],
+      isWorkday: true,
+    });
 
     const result = await scoreAllJobs();
-    expect(result.scanned).toBe(2);
-    expect(result.scored).toBe(1);
+    expect(result.scanned).toBe(3);
+    expect(result.scored).toBe(2);
     expect(result.preservedAgent).toBe(1);
 
     const updated = await prisma.job.findUniqueOrThrow({ where: { id: scoredJob.id } });
@@ -172,6 +178,10 @@ describe("scoreAllJobs", () => {
     const preserved = await prisma.job.findUniqueOrThrow({ where: { id: agentJob.id } });
     expect(preserved.fitProvider).toBe("agent");
     expect(preserved.fitScore).toBe(91);
+
+    const scoredWorkday = await prisma.job.findUniqueOrThrow({ where: { id: workdayJob.id } });
+    expect(scoredWorkday.fitProvider).toBe("deterministic");
+    expect(scoredWorkday.fitScore ?? 0).toBeGreaterThan(0);
   });
 });
 
@@ -351,7 +361,7 @@ describe("scoreAllJobs company axis", () => {
 });
 
 describe("agent judge batch", () => {
-  it("exports deterministic jobs and applies agent scores to Job.fit fields", async () => {
+  it("exports deterministic jobs, including Workday, and applies agent scores", async () => {
     await saveProfile({
       skills: ["Python", "SQL"],
       targetRoles: ["Backend Engineer"],
@@ -364,6 +374,7 @@ describe("agent judge batch", () => {
       skills: ["Python", "SQL"],
       fitScore: 72,
       fitProvider: "deterministic",
+      isWorkday: true,
     });
     await makeJob({
       key: "other-country",

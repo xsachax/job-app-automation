@@ -125,7 +125,7 @@ export const API_COMPANIES: ApiCompany[] = [
   { name: "Datadog", method: "api", system: "greenhouse", token: "datadog", countryFilter: "post", queryTerms: SWE_BROAD },
   { name: "xAI", method: "api", system: "greenhouse", token: "xai", countryFilter: "post", queryTerms: SWE_BROAD },
   { name: "SpaceX", method: "api", system: "greenhouse", token: "spacex", countryFilter: "post", queryTerms: SWE_BROAD },
-  { name: "Thinking Machines", method: "api", system: "greenhouse", token: "thinkingmachines", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Thinking Machines", method: "api", system: "ashby", token: "thinkingmachines", countryFilter: "post", queryTerms: SWE_BROAD },
   { name: "Nuro", method: "api", system: "greenhouse", token: "nuro", countryFilter: "post", queryTerms: SWE_BROAD },
   { name: "Waymo", method: "api", system: "greenhouse", token: "waymo", countryFilter: "post", queryTerms: SWE_BROAD },
   { name: "Together AI", method: "api", system: "greenhouse", token: "togetherai", countryFilter: "post", queryTerms: SWE_BROAD },

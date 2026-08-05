@@ -1,6 +1,7 @@
 import { scoreAllJobs, type ScoreAllJobsResult } from "../judge/judge";
 import {
   BROWSER_COMPANIES,
+  DISCOVERY_SOURCES,
   SCRAPABLE_BROWSER_SYSTEMS,
   type BrowserSystem,
 } from "./companies";
@@ -45,6 +46,29 @@ export interface DiscoveryRefreshResult {
   };
 }
 
+export type DiscoveryRefreshPhase =
+  | "idle"
+  | "starting"
+  | "api"
+  | "browser"
+  | "scoring"
+  | "complete"
+  | "failed";
+
+export interface DiscoveryRefreshProgress {
+  running: boolean;
+  phase: DiscoveryRefreshPhase;
+  completedSteps: number;
+  totalSteps: number;
+  completedSources: number;
+  totalSources: number;
+  currentSource: string | null;
+  message: string;
+  errors: number;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
 export class DiscoveryRefreshInProgressError extends Error {
   constructor() {
     super("A discovery scrape is already running.");
@@ -53,6 +77,27 @@ export class DiscoveryRefreshInProgressError extends Error {
 }
 
 let activeRefresh: Promise<DiscoveryRefreshResult> | null = null;
+let refreshProgress: DiscoveryRefreshProgress = {
+  running: false,
+  phase: "idle",
+  completedSteps: 0,
+  totalSteps: 0,
+  completedSources: 0,
+  totalSources: 0,
+  currentSource: null,
+  message: "No scrape is running.",
+  errors: 0,
+  startedAt: null,
+  finishedAt: null,
+};
+
+export function getDiscoveryRefreshProgress(): DiscoveryRefreshProgress {
+  return { ...refreshProgress };
+}
+
+function updateProgress(patch: Partial<DiscoveryRefreshProgress>) {
+  refreshProgress = { ...refreshProgress, ...patch };
+}
 
 function zeroCounts(): IngestCounts {
   return {
@@ -79,20 +124,66 @@ function browserResult(result: BrowserScrapeResult, counts: IngestCounts): Brows
   };
 }
 
-async function executeRefresh(): Promise<DiscoveryRefreshResult> {
-  const started = Date.now();
+async function executeRefresh(started: number): Promise<DiscoveryRefreshResult> {
   const config = await getDiscoveryConfig();
-  const api = await runDiscovery({ config });
   const disabled = new Set(config.disabledSources.map((source) => source.toLowerCase()));
+  const apiSourceCount = DISCOVERY_SOURCES.filter(
+    (source) => !disabled.has(source.name.toLowerCase()),
+  ).length;
   const supportedBrowserCompanies = BROWSER_COMPANIES.filter(
     (company) =>
       SCRAPABLE_BROWSER_SYSTEMS.includes(company.system) &&
       !disabled.has(company.name.toLowerCase()),
   );
+  const totalSources = apiSourceCount + supportedBrowserCompanies.length;
+  const totalSteps = totalSources + 1;
+  let completedSources = 0;
+  let sourceErrors = 0;
 
+  updateProgress({
+    phase: "api",
+    totalSources,
+    totalSteps,
+    message: `Refreshing ${apiSourceCount} API sources…`,
+  });
+  const api = await runDiscovery({
+    config,
+    onProgress: (result) => {
+      completedSources++;
+      if (result.error) sourceErrors++;
+      updateProgress({
+        completedSources,
+        completedSteps: completedSources,
+        currentSource: result.company,
+        errors: sourceErrors,
+        message: `API sources ${completedSources}/${apiSourceCount} · ${result.company}`,
+      });
+    },
+  });
+
+  if (supportedBrowserCompanies.length) {
+    updateProgress({
+      phase: "browser",
+      currentSource: null,
+      message: `Running ${supportedBrowserCompanies.length} browser sources…`,
+    });
+  }
   const scraped = supportedBrowserCompanies.length
     ? await scrapeBrowserCompanies({
         companies: supportedBrowserCompanies.map((company) => company.name),
+        onResult: (result) => {
+          completedSources++;
+          if (result.error) sourceErrors++;
+          updateProgress({
+            completedSources,
+            completedSteps: completedSources,
+            currentSource: result.company,
+            errors: sourceErrors,
+            message:
+              `Browser sources ${completedSources - apiSourceCount}/` +
+              `${supportedBrowserCompanies.length} · ${result.company}`,
+          });
+        },
       })
     : [];
   const browser: BrowserRefreshResult[] = [];
@@ -107,6 +198,12 @@ async function executeRefresh(): Promise<DiscoveryRefreshResult> {
     browser.push(browserResult(result, counts));
   }
 
+  updateProgress({
+    phase: "scoring",
+    completedSteps: completedSources,
+    currentSource: null,
+    message: "Scoring newly discovered jobs…",
+  });
   const judge = await scoreAllJobs({ onlyUnscored: true });
   const finished = Date.now();
   const browserCreated = browser.reduce((sum, result) => sum + result.created, 0);
@@ -136,10 +233,44 @@ async function executeRefresh(): Promise<DiscoveryRefreshResult> {
 export async function runDiscoveryRefresh(): Promise<DiscoveryRefreshResult> {
   if (activeRefresh) throw new DiscoveryRefreshInProgressError();
 
-  const refresh = executeRefresh();
+  const started = Date.now();
+  refreshProgress = {
+    running: true,
+    phase: "starting",
+    completedSteps: 0,
+    totalSteps: 0,
+    completedSources: 0,
+    totalSources: 0,
+    currentSource: null,
+    message: "Preparing discovery sources…",
+    errors: 0,
+    startedAt: new Date(started).toISOString(),
+    finishedAt: null,
+  };
+  const refresh = executeRefresh(started);
   activeRefresh = refresh;
   try {
-    return await refresh;
+    const result = await refresh;
+    updateProgress({
+      running: false,
+      phase: "complete",
+      completedSteps: refreshProgress.totalSteps,
+      completedSources: refreshProgress.totalSources,
+      currentSource: null,
+      message: "Scrape complete.",
+      errors: result.totals.errors,
+      finishedAt: result.finishedAt,
+    });
+    return result;
+  } catch (error) {
+    updateProgress({
+      running: false,
+      phase: "failed",
+      currentSource: null,
+      message: error instanceof Error ? error.message : String(error),
+      finishedAt: new Date().toISOString(),
+    });
+    throw error;
   } finally {
     if (activeRefresh === refresh) activeRefresh = null;
   }

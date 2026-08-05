@@ -23,10 +23,10 @@ export interface JudgeStatus {
 // GET /api/judge/status — a single snapshot powering the Judge hub: how many
 // postings are scored, the fit-band distribution, which tier lists and résumé
 // signals feed the score, and the current salary target. Counts run over the
-// same population the judge scores (non-Workday, entry-level).
+// same entry-level population the judge scores, regardless of application platform.
 export async function GET() {
   try {
-    const base = { isWorkday: false, isEntryLevel: true } as const;
+    const base = { isEntryLevel: true } as const;
 
     const [eligible, scored, strong, possible, agentScored, avgAgg, lastAgg, companyTiers, locationTiers, criteria, profile] =
       await Promise.all([

@@ -106,7 +106,6 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
 
   const jobs = await prisma.job.findMany({
     where: {
-      isWorkday: false,
       isEntryLevel: true,
       ...(opts.country ? { country: opts.country } : {}),
       ...(opts.onlyUnscored ? { fitScore: null } : {}),
