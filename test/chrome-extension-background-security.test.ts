@@ -10,11 +10,10 @@ const manifest = JSON.parse(
     new URL("../apps/chrome-extension/manifest.json", import.meta.url),
     "utf8",
   ),
-) as { externally_connectable?: { matches?: string[] } };
-const optionsSource = readFileSync(
-  new URL("../apps/chrome-extension/options/options.js", import.meta.url),
-  "utf8",
-);
+) as {
+  externally_connectable?: { matches?: string[] };
+  options_page?: string;
+};
 
 describe("Chrome extension background security", () => {
   it("revalidates enablement and the live tab before autofill", () => {
@@ -60,6 +59,6 @@ describe("Chrome extension background security", () => {
     ]);
     expect(backgroundSource).not.toContain("dashboardOrigin");
     expect(backgroundSource).not.toContain("isAllowedDashboardSender");
-    expect(optionsSource).not.toContain("dashboardOrigin");
+    expect(manifest.options_page).toBeUndefined();
   });
 });

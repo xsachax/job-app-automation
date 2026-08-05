@@ -222,14 +222,29 @@
     }
   ];
 
-  function buildEffectiveProfile(profile = {}) {
+  function renderCoverLetter(template, context, profile) {
+    const replacements = {
+      company: String(context?.company || "").trim(),
+      title: String(context?.jobTitle || context?.title || "").trim(),
+      firstname: String(profile.firstName || "").trim(),
+      lastname: String(profile.lastName || "").trim()
+    };
+    const rendered = String(template || "").replace(
+      /\{\{\s*(company|title|firstName|lastName)\s*\}\}/gi,
+      (match, key) => replacements[String(key).toLowerCase()] || match
+    );
+    return /\{\{[^{}]+\}\}/.test(rendered) ? "" : rendered;
+  }
+
+  function buildEffectiveProfile(profile = {}, context = {}) {
     const firstName = String(profile.firstName || "").trim();
     const lastName = String(profile.lastName || "").trim();
 
     return {
       ...profile,
       preferredName: String(profile.preferredName || firstName).trim(),
-      fullName: [firstName, lastName].filter(Boolean).join(" ")
+      fullName: [firstName, lastName].filter(Boolean).join(" "),
+      coverLetter: renderCoverLetter(profile.coverLetter, context, profile)
     };
   }
 
@@ -240,11 +255,36 @@
       : rawValue.replace(/\s+/g, " ");
   }
 
+  function sanitizeStoredProfile(rawProfile) {
+    if (!rawProfile || typeof rawProfile !== "object" || Array.isArray(rawProfile)) {
+      throw new Error("The autofill profile is invalid.");
+    }
+
+    const profile = {};
+    for (const field of fields) {
+      if (field.stored === false) continue;
+      const rawValue = rawProfile[field.key];
+      const maxLength = field.key === "coverLetter" ? 20_000 : 1_000;
+      let value =
+        typeof rawValue === "string" ? rawValue.trim().slice(0, maxLength) : "";
+
+      if (
+        ["workAuthorization", "requiresSponsorship"].includes(field.key) &&
+        !["", "yes", "no"].includes(value)
+      ) {
+        value = "";
+      }
+      profile[field.key] = value;
+    }
+    return profile;
+  }
+
   const api = Object.freeze({
     groups,
     fields,
     buildEffectiveProfile,
-    formatControlValue
+    formatControlValue,
+    sanitizeStoredProfile
   });
   root.JobAutofillProfile = api;
 

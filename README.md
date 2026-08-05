@@ -171,8 +171,8 @@ The Chrome extension is optional and needs no build or Web Store publication. Fo
 | **Overview** | Discovery stats, US/CA entry-level counts, companies covered, by-category and by-company breakdowns. |
 | **Jobs** | Time-sorted US / CA queues of discovered postings. Filter by category, date, skills, sponsorship, employment type, source, min salary, min fit, remote, warm intro and applied status; sort by newest / company / best fit / salary. Each card links out or launches the optional autofill assistant, tracks its progress, and lets you mark status. |
 | **Companies** | Coverage of every API and browser-scraped source. |
-| **Settings** | Connect/test the optional Chrome extension and edit discovery configuration — countries, max YoE, degree/internship gates, keywords, scraper query terms, per-source enable/disable. |
-| **Profile** | Import your contact details, résumé PDF URL (or pasted text), target roles, skills and qualifications, and your LinkedIn Connections.csv (for warm-intro tagging), then run the fit judge. |
+| **Settings** | Install/test the optional Chrome extension and edit discovery configuration — countries, max YoE, degree/internship gates, keywords, scraper query terms, per-source enable/disable. |
+| **Profile** | Manage application autofill details, résumé PDF URL (or pasted text), target roles, skills and qualifications, and your LinkedIn Connections.csv (for warm-intro tagging), then run the fit judge. |
 | **Workday** | Read-only list of flagged Workday jobs with apply links. |
 
 ---
@@ -182,20 +182,20 @@ The Chrome extension is optional and needs no build or Web Store publication. Fo
 The Manifest V3 extension is plain JavaScript under `apps/chrome-extension`; loading it
 unpacked is enough for local use:
 
-1. Start the dashboard with `npm run dev` and open `http://localhost:3000`.
-   The sidebar's **Install extension** button jumps directly to this setup panel.
-2. Open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select
-   this repository's `apps/chrome-extension` directory.
-3. Open the extension's options page, fill the local profile, and copy its extension ID.
-4. Paste the ID in dashboard **Settings → Chrome autofill extension**.
-5. On **Jobs**, click a posting title or **Open** action. The extension opens the application
+1. Start the dashboard and select **Install extension** in the sidebar.
+2. Enable **Developer mode**, click **Load unpacked**, and select this repository's
+   `apps/chrome-extension` directory.
+3. Add your application details on **Profile → Application autofill**, then save.
+4. On **Jobs**, click a posting title or **Open** action. The extension opens the application
    with a progress panel. After reviewing the page, open the extension from Chrome's toolbar
    and click **Autofill current page**.
 
-The profile and application progress stay in that Chrome profile via `chrome.storage.local`.
+The app profile is the source of truth. A mapped autofill copy and application progress stay
+in that Chrome profile via `chrome.storage.local`.
 The assistant skips uploads and consent checkboxes, reports unknown fields, and never presses
 a submit button. Turn it off globally from its browser-owned popup. If it is off,
-disconnected, or not configured, dashboard job links behave as normal external links.
+disconnected, or not configured, dashboard job links behave as normal external links. The
+unpacked extension has a stable ID, so no ID copy/paste is needed.
 
 ---
 
@@ -416,7 +416,7 @@ app/                 Next.js dashboard (pages) + API routes under app/api
   workday/           Workday flag-only list
   api/               jobs (+ facets, [id]), config, judge (score/review), profile, …
 apps/
-  chrome-extension/  unpacked Manifest V3 extension (popup, options, form panel, icons)
+  chrome-extension/  unpacked Manifest V3 extension (popup, form panel, icons)
 lib/
   chromeExtension.ts typed dashboard ↔ Chrome extension messaging client
   discovery/         catalog, adapters.ts (API fetchers), browser.ts (Playwright),

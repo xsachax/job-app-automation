@@ -20,8 +20,12 @@ interface Matcher {
 
 interface ProfileSchema {
   fields: unknown[];
-  buildEffectiveProfile(profile: Record<string, string>): Record<string, string>;
+  buildEffectiveProfile(
+    profile: Record<string, string>,
+    context?: { company?: string; jobTitle?: string; title?: string },
+  ): Record<string, string>;
   formatControlValue(value: string, controlKind: string): string;
+  sanitizeStoredProfile(profile: unknown): Record<string, string>;
 }
 
 const require = createRequire(import.meta.url);
@@ -29,6 +33,53 @@ const matcher = require("../apps/chrome-extension/lib/field-matcher.js") as Matc
 const profileSchema = require(
   "../apps/chrome-extension/lib/profile-schema.js",
 ) as ProfileSchema;
+
+describe("Chrome extension profile storage", () => {
+  it("keeps only known, bounded profile fields", () => {
+    const profile = profileSchema.sanitizeStoredProfile({
+      firstName: " Jane ",
+      workAuthorization: "maybe",
+      requiresSponsorship: "no",
+      coverLetter: ` ${"x".repeat(20_100)} `,
+      unexpectedSecret: "drop me",
+    });
+
+    expect(profile.firstName).toBe("Jane");
+    expect(profile.workAuthorization).toBe("");
+    expect(profile.requiresSponsorship).toBe("no");
+    expect(profile.coverLetter).toHaveLength(20_000);
+    expect(profile).not.toHaveProperty("unexpectedSecret");
+    expect(() => profileSchema.sanitizeStoredProfile(null)).toThrow(
+      "The autofill profile is invalid.",
+    );
+  });
+
+  it("renders supported cover-letter placeholders for the active job", () => {
+    expect(
+      profileSchema.buildEffectiveProfile(
+        {
+          firstName: "Jane",
+          lastName: "Doe",
+          coverLetter:
+            "Dear {{ company }} team,\nI am applying for {{title}}.\n{{firstName}} {{lastName}}",
+        },
+        { company: "Acme", jobTitle: "Software Engineer" },
+      ).coverLetter,
+    ).toBe(
+      "Dear Acme team,\nI am applying for Software Engineer.\nJane Doe",
+    );
+
+    expect(
+      profileSchema.buildEffectiveProfile(
+        {
+          firstName: "Jane",
+          coverLetter: "Dear {{company}} team,\n{{firstName}}",
+        },
+        { jobTitle: "Software Engineer" },
+      ).coverLetter,
+    ).toBe("");
+  });
+});
 
 describe("Chrome extension field matching", () => {
   it("matches autocomplete metadata and common labels", () => {

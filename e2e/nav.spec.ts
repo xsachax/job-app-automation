@@ -37,7 +37,6 @@ test.describe("sidebar nav", () => {
   });
 
   test("extension install button opens the minimal Chrome setup", async ({ page }) => {
-    const extensionId = "abcdefghijklmnopabcdefghijklmnop";
     let openRequested = false;
     await page.route("**/api/chrome-extension/open", async (route) => {
       openRequested = route.request().method() === "POST";
@@ -66,7 +65,7 @@ test.describe("sidebar nav", () => {
                 ok: true,
                 enabled: true,
                 extensionId: id,
-                version: "0.1.0",
+                version: "0.2.0",
               });
             },
           },
@@ -82,16 +81,13 @@ test.describe("sidebar nav", () => {
     const setup = page.locator("#chrome-extension");
     await expect(setup).toBeVisible();
     await expect(setup.getByRole("button")).toHaveCount(1);
+    await expect(
+      setup.getByText("Connected to extension version 0.2.0."),
+    ).toBeVisible();
     await setup.getByRole("button", { name: "Open Chrome extensions" }).click();
     expect(openRequested).toBe(true);
 
-    await setup.getByLabel("Chrome extension ID").fill(extensionId);
-    await expect(
-      setup.getByText("Connected to extension version 0.1.0."),
-    ).toBeVisible();
-    expect(
-      await page.evaluate(() => localStorage.getItem("jobAutofillExtensionId")),
-    ).toBe(extensionId);
+    await expect(setup.getByLabel("Chrome extension ID")).toHaveCount(0);
     await expect(setup).not.toContainText("localhost");
     await expect(setup).not.toContainText("127.0.0.1");
   });
@@ -111,6 +107,6 @@ test.describe("sidebar nav", () => {
     await expect(
       setup.getByRole("button", { name: "Open Chrome extensions" }),
     ).toBeDisabled();
-    await expect(setup.getByLabel("Chrome extension ID")).toBeDisabled();
+    await expect(setup.getByLabel("Chrome extension ID")).toHaveCount(0);
   });
 });

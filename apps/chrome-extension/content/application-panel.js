@@ -299,7 +299,10 @@
       groups.get(key).push(control);
     }
 
-    const effectiveProfile = profileSchema.buildEffectiveProfile(state.profile);
+    const effectiveProfile = profileSchema.buildEffectiveProfile(
+      state.profile,
+      state.session
+    );
     const questions = [];
 
     for (const [key, elements] of groups) {

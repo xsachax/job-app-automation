@@ -1,6 +1,7 @@
-export const CHROME_EXTENSION_ID_STORAGE_KEY = "jobAutofillExtensionId";
+import type { ProfileData } from "./settings";
 
-const CHROME_EXTENSION_ID_PATTERN = /^[a-p]{32}$/;
+export const CHROME_AUTOFILL_EXTENSION_ID =
+  "naihpjhebnkenkfdlblbefoimhhcdfcl";
 
 export interface BrowserIdentityLike {
   userAgent?: string;
@@ -75,19 +76,23 @@ export interface AutofillJob {
   url: string;
 }
 
-function browserStorage(): Storage {
-  if (typeof localStorage === "undefined") {
-    throw new Error("Browser storage is unavailable.");
-  }
-  return localStorage;
-}
-
-export function normalizeChromeExtensionId(value: string): string {
-  return value.trim().toLowerCase();
-}
-
-export function isChromeExtensionId(value: string): boolean {
-  return CHROME_EXTENSION_ID_PATTERN.test(normalizeChromeExtensionId(value));
+export interface AutofillProfile {
+  firstName: string;
+  preferredName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  addressLine1: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+  linkedinUrl: string;
+  githubUrl: string;
+  portfolioUrl: string;
+  workAuthorization: "" | "yes" | "no";
+  requiresSponsorship: "" | "yes" | "no";
+  coverLetter: string;
 }
 
 export function isGoogleChromeBrowser(
@@ -113,29 +118,33 @@ export function isGoogleChromeBrowser(
   );
 }
 
-export function readChromeExtensionId(storage?: Pick<Storage, "getItem">): string {
-  return normalizeChromeExtensionId(
-    (storage ?? browserStorage()).getItem(CHROME_EXTENSION_ID_STORAGE_KEY) ?? "",
-  );
+function text(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
 }
 
-export function saveChromeExtensionId(
-  value: string,
-  storage?: Pick<Storage, "setItem" | "removeItem">,
-): string {
-  const extensionId = normalizeChromeExtensionId(value);
-  const target = storage ?? browserStorage();
+function choice(value: unknown): "" | "yes" | "no" {
+  return value === true ? "yes" : value === false ? "no" : "";
+}
 
-  if (!extensionId) {
-    target.removeItem(CHROME_EXTENSION_ID_STORAGE_KEY);
-    return "";
-  }
-  if (!isChromeExtensionId(extensionId)) {
-    throw new Error("Chrome extension IDs contain 32 letters from a through p.");
-  }
-
-  target.setItem(CHROME_EXTENSION_ID_STORAGE_KEY, extensionId);
-  return extensionId;
+export function buildAutofillProfile(profile: ProfileData): AutofillProfile {
+  return {
+    firstName: text(profile.firstName),
+    preferredName: text(profile.preferredName),
+    lastName: text(profile.lastName),
+    email: text(profile.email),
+    phone: text(profile.phone),
+    addressLine1: text(profile.addressLine1),
+    city: text(profile.city),
+    state: text(profile.state),
+    postalCode: text(profile.postalCode),
+    country: text(profile.country),
+    linkedinUrl: text(profile.linkedin),
+    githubUrl: text(profile.github),
+    portfolioUrl: text(profile.website) || text(profile.portfolio),
+    workAuthorization: choice(profile.workAuthorized),
+    requiresSponsorship: choice(profile.requiresSponsorship),
+    coverLetter: text(profile.coverLetterTemplate),
+  };
 }
 
 export function getChromeRuntime(): ChromeRuntimeLike | null {
@@ -148,16 +157,9 @@ export function getChromeRuntime(): ChromeRuntimeLike | null {
 }
 
 export function sendChromeExtensionMessage<T extends ChromeExtensionResponse>(
-  extensionId: string,
   message: unknown,
   runtime: ChromeRuntimeLike | null = getChromeRuntime(),
 ): Promise<T> {
-  const normalizedId = normalizeChromeExtensionId(extensionId);
-  if (!isChromeExtensionId(normalizedId)) {
-    return Promise.reject(
-      new Error("Chrome extension IDs contain 32 letters from a through p."),
-    );
-  }
   if (!runtime) {
     return Promise.reject(
       new Error("Chrome did not expose extension messaging to this dashboard."),
@@ -165,7 +167,7 @@ export function sendChromeExtensionMessage<T extends ChromeExtensionResponse>(
   }
 
   return new Promise<T>((resolve, reject) => {
-    runtime.sendMessage(normalizedId, message, (rawResponse) => {
+    runtime.sendMessage(CHROME_AUTOFILL_EXTENSION_ID, message, (rawResponse) => {
       const runtimeMessage = runtime.lastError?.message;
       if (runtimeMessage) {
         reject(new Error(runtimeMessage));
@@ -187,38 +189,44 @@ export function sendChromeExtensionMessage<T extends ChromeExtensionResponse>(
 }
 
 export function pingAutofillExtension(
-  extensionId: string,
   runtime?: ChromeRuntimeLike | null,
 ): Promise<AutofillPingResponse> {
+  return sendChromeExtensionMessage({ type: "JOB_AUTOFILL_PING" }, runtime);
+}
+
+export function syncAutofillProfile(
+  profile: ProfileData,
+  runtime?: ChromeRuntimeLike | null,
+): Promise<ChromeExtensionResponse> {
   return sendChromeExtensionMessage(
-    extensionId,
-    { type: "JOB_AUTOFILL_PING" },
+    {
+      type: "JOB_AUTOFILL_SET_PROFILE",
+      profile: buildAutofillProfile(profile),
+    },
     runtime,
   );
 }
 
 export function launchAutofillApplication(
-  extensionId: string,
   job: AutofillJob,
+  profile: ProfileData,
   runtime?: ChromeRuntimeLike | null,
 ): Promise<AutofillLaunchResponse> {
   return sendChromeExtensionMessage(
-    extensionId,
     {
       type: "JOB_AUTOFILL_LAUNCH",
       ...job,
+      profile: buildAutofillProfile(profile),
     },
     runtime,
   );
 }
 
 export function getAutofillProgress(
-  extensionId: string,
   sessionId: string,
   runtime?: ChromeRuntimeLike | null,
 ): Promise<AutofillProgressResponse> {
   return sendChromeExtensionMessage(
-    extensionId,
     {
       type: "JOB_AUTOFILL_GET_PROGRESS",
       sessionId,
