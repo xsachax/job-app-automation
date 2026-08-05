@@ -171,7 +171,8 @@ The Chrome extension is optional and needs no build or Web Store publication. Fo
 | **Overview** | Discovery stats, US/CA entry-level counts, companies covered, by-category and by-company breakdowns. |
 | **Jobs** | Time-sorted US / CA queues of discovered postings. Filter by category, date, skills, sponsorship, employment type, source, min salary, min fit, remote, warm intro and applied status; sort by newest / company / best fit / salary. Each card links out or launches the optional autofill assistant, tracks its progress, and lets you mark status. |
 | **Companies** | Coverage of every API and browser-scraped source. |
-| **Settings** | Install/test the optional Chrome extension and edit discovery configuration — countries, max YoE, degree/internship gates, keywords, scraper query terms, per-source enable/disable. |
+| **Extension** | Install the optional Chrome extension and see its live connection status. |
+| **Settings** | Edit discovery configuration — countries, max YoE, degree/internship gates, keywords, scraper query terms, per-source enable/disable. |
 | **Profile** | Manage application autofill details, résumé PDF URL (or pasted text), target roles, skills and qualifications, and your LinkedIn Connections.csv (for warm-intro tagging), then run the fit judge. |
 | **Workday** | Read-only list of flagged Workday jobs with apply links. |
 
@@ -182,7 +183,7 @@ The Chrome extension is optional and needs no build or Web Store publication. Fo
 The Manifest V3 extension is plain JavaScript under `apps/chrome-extension`; loading it
 unpacked is enough for local use:
 
-1. Start the dashboard and select **Install extension** in the sidebar.
+1. Start the dashboard and select **Extension** in the sidebar.
 2. Enable **Developer mode**, click **Load unpacked**, and select this repository's
    `apps/chrome-extension` directory.
 3. Add your application details on **Profile → Application autofill**, then save.

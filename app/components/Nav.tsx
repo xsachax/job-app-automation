@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { useChromeExtensionStatus } from "./extension/useChromeExtensionStatus";
 
 const primaryLinks = [
   { href: "/", label: "Overview" },
@@ -19,8 +20,8 @@ const tierLinks = [
 const profileLink = { href: "/profile", label: "Profile" };
 const settingsLink = { href: "/settings", label: "Settings" };
 const extensionSetupLink = {
-  href: "/settings#chrome-extension",
-  label: "Install extension",
+  href: "/extension",
+  label: "Extension",
 };
 
 function linkClass(active: boolean, indented = false) {
@@ -35,6 +36,7 @@ function linkClass(active: boolean, indented = false) {
 
 export function Nav() {
   const path = usePathname();
+  const { status: extensionStatus } = useChromeExtensionStatus();
   const isActive = (href: string) => (href === "/" ? path === "/" : path.startsWith(href));
   const tiersActive = tierLinks.some((l) => isActive(l.href));
 
@@ -47,6 +49,14 @@ export function Nav() {
     setWasActive(tiersActive);
     if (tiersActive) setTiersOpen(true);
   }
+
+  const extensionIndicator = {
+    checking: { label: "Offline", dot: "bg-gray-400 animate-pulse" },
+    connected: { label: "Online", dot: "bg-green-500" },
+    off: { label: "Offline", dot: "bg-red-500" },
+    unavailable: { label: "Offline", dot: "bg-red-500" },
+    unsupported: { label: "Offline", dot: "bg-gray-400" },
+  }[extensionStatus.state];
 
   return (
     <nav className="flex flex-1 flex-col gap-1">
@@ -108,14 +118,28 @@ export function Nav() {
 
       <Link
         href={extensionSetupLink.href}
-        className={
-          linkClass(false) +
-          " mt-auto flex items-center justify-between border border-indigo-200 text-indigo-700 dark:border-indigo-900 dark:text-indigo-300"
-        }
-        title="Install or connect the Chrome autofill extension"
+        aria-current={isActive(extensionSetupLink.href) ? "page" : undefined}
+        className={linkClass(isActive(extensionSetupLink.href)) + " mt-auto"}
+        title={`Chrome autofill extension: ${extensionIndicator.label}`}
       >
-        <span>{extensionSetupLink.label}</span>
-        <span aria-hidden>+</span>
+        <span className="flex items-center justify-between gap-2">
+          <span>{extensionSetupLink.label}</span>
+          <span
+            aria-hidden="true"
+            className={
+              "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap text-[10px] font-medium " +
+              (isActive(extensionSetupLink.href)
+                ? "text-indigo-100"
+                : "text-gray-500 dark:text-gray-400")
+            }
+          >
+            <span className={`h-2 w-2 rounded-full ${extensionIndicator.dot}`} />
+            {extensionIndicator.label}
+          </span>
+          <span className="sr-only">
+            Status: {extensionIndicator.label}
+          </span>
+        </span>
       </Link>
 
       <Link

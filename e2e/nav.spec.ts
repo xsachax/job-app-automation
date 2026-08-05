@@ -36,7 +36,21 @@ test.describe("sidebar nav", () => {
     expect(labels.slice(-2)).toEqual(["Profile", "Settings"]);
   });
 
-  test("extension install button opens the minimal Chrome setup", async ({ page }) => {
+  test("interactive links and buttons show the pointer cursor", async ({ page }) => {
+    await page.goto("/");
+    const nav = page.getByRole("navigation");
+
+    await expect(nav.getByRole("link", { name: "Overview" })).toHaveCSS(
+      "cursor",
+      "pointer",
+    );
+    await expect(nav.getByTestId("nav-tier-lists-toggle")).toHaveCSS(
+      "cursor",
+      "pointer",
+    );
+  });
+
+  test("extension sidebar status links to its own setup page", async ({ page }) => {
     let openRequested = false;
     await page.route("**/api/chrome-extension/open", async (route) => {
       openRequested = route.request().method() === "POST";
@@ -75,14 +89,16 @@ test.describe("sidebar nav", () => {
 
     await page.goto("/");
     const nav = page.getByRole("navigation");
-    await nav.getByRole("link", { name: "Install extension", exact: true }).click();
+    await expect(nav.getByText("Online", { exact: true })).toBeVisible();
+    await nav.getByRole("link", { name: /Extension/ }).click();
 
-    await expect(page).toHaveURL(/\/settings#chrome-extension$/);
+    await expect(page).toHaveURL(/\/extension$/);
     const setup = page.locator("#chrome-extension");
     await expect(setup).toBeVisible();
     await expect(setup.getByRole("button")).toHaveCount(1);
+    await expect(setup.getByText("Connected", { exact: true })).toBeVisible();
     await expect(
-      setup.getByText("Connected to extension version 0.2.0."),
+      setup.getByText("Version 0.2.0 is ready for autofill."),
     ).toBeVisible();
     await setup.getByRole("button", { name: "Open Chrome extensions" }).click();
     expect(openRequested).toBe(true);
@@ -95,14 +111,17 @@ test.describe("sidebar nav", () => {
   test("extension setup is clearly unsupported outside Google Chrome", async ({
     page,
   }) => {
-    await page.goto("/settings#chrome-extension");
+    await page.goto("/extension");
     const setup = page.locator("#chrome-extension");
 
     await expect(
       setup.getByText("Supported only in Google Chrome."),
     ).toBeVisible();
     await expect(
-      setup.getByText("Unsupported browser. Open this dashboard in Google Chrome."),
+      setup.getByText("Unsupported browser", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      setup.getByText("Open this dashboard in desktop Google Chrome."),
     ).toBeVisible();
     await expect(
       setup.getByRole("button", { name: "Open Chrome extensions" }),
