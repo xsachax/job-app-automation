@@ -107,11 +107,15 @@ test("a connected extension launches a job and streams progress", async ({ page 
   );
   expect(messages.map((entry) => entry.message.type)).toEqual([
     "JOB_AUTOFILL_PING",
+    "JOB_AUTOFILL_PING",
     "JOB_AUTOFILL_LAUNCH",
     "JOB_AUTOFILL_GET_PROGRESS",
   ]);
   expect(messages.every((entry) => entry.id === CHROME_AUTOFILL_EXTENSION_ID)).toBe(
     true,
   );
-  expect(messages[1]?.message.profile).toBeDefined();
+  expect(
+    messages.find((entry) => entry.message.type === "JOB_AUTOFILL_LAUNCH")
+      ?.message.profile,
+  ).toBeDefined();
 });
