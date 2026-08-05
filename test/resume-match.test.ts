@@ -38,7 +38,7 @@ describe("scoreResumeFit", () => {
       ml,
     );
     const miss = scoreResumeFit(
-      { title: "ML Engineer", description: "A machine that is learning to walk." },
+      { title: "Research Engineer", description: "A machine that is learning to walk." },
       ml,
     );
     expect(hit.matchedSkills).toContain("machine learning");
@@ -69,6 +69,37 @@ describe("scoreResumeFit", () => {
       expect.arrayContaining(["Kubernetes", "Terraform"]),
     );
     expect(r.missingSignals).not.toContain("AWS");
+  });
+
+  it("treats common skill aliases as the same résumé evidence", () => {
+    const r = scoreResumeFit(
+      {
+        title: "Platform Engineer",
+        description: "Build with Go, PostgreSQL, Node.js, GCP, Kubernetes, JavaScript and TypeScript.",
+        skills: ["go", "postgres", "node.js", "gcp", "kubernetes", "javascript", "typescript"],
+      },
+      {
+        skills: ["Golang", "PostgreSQL", "NodeJS", "Google Cloud", "K8s", "JS", "TS"],
+      },
+    );
+
+    expect(r.matchedSkills).toHaveLength(7);
+    expect(r.missingSignals).toEqual([]);
+  });
+
+  it("recognizes aliases found only in parsed résumé text", () => {
+    const r = scoreResumeFit(
+      {
+        title: "Machine Learning Engineer",
+        skills: ["machine learning", "next.js", "postgres", "pytorch"],
+      },
+      {
+        skills: ["Python"],
+        text: "Technical Skills: ML, Next, PostgreSQL, Torch",
+      },
+    );
+
+    expect(r.missingSignals).toEqual([]);
   });
 
   it("clamps into 0..100 and handles an empty resume", () => {

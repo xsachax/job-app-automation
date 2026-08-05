@@ -66,7 +66,42 @@ const MULTI = SKILL_VOCAB.filter((s) => /\s/.test(s));
 const SINGLE = SKILL_VOCAB.filter((s) => !/\s/.test(s));
 
 function normalize(s: string): string {
-  return s.toLowerCase();
+  return s.toLowerCase().trim();
+}
+
+const SKILL_CANONICAL_BY_ALIAS: Readonly<Record<string, string>> = {
+  "amazon web services": "aws",
+  cpp: "c++",
+  csharp: "c#",
+  "google cloud": "gcp",
+  "google cloud platform": "gcp",
+  golang: "go",
+  js: "javascript",
+  k8s: "kubernetes",
+  "large language model": "llm",
+  "large language models": "llm",
+  ml: "machine learning",
+  next: "next.js",
+  nextjs: "next.js",
+  nodejs: "node.js",
+  postgresql: "postgres",
+  sklearn: "scikit-learn",
+  torch: "pytorch",
+  ts: "typescript",
+};
+
+export function canonicalSkill(skill: string): string {
+  const normalized = normalize(skill);
+  return SKILL_CANONICAL_BY_ALIAS[normalized] ?? normalized;
+}
+
+export function skillVariants(skill: string): string[] {
+  const canonical = canonicalSkill(skill);
+  const variants = new Set([canonical]);
+  for (const [alias, target] of Object.entries(SKILL_CANONICAL_BY_ALIAS)) {
+    if (target === canonical) variants.add(alias);
+  }
+  return [...variants];
 }
 
 // Whole-token match. Boundaries key off [a-z0-9] only, so sentence punctuation
@@ -87,18 +122,6 @@ export function extractSkills(input: { title: string; description?: string | nul
     if (hasToken(text, s)) found.add(canonicalSkill(s));
   }
   return [...found].sort();
-}
-
-// Collapse near-synonyms so the filter facet is clean.
-function canonicalSkill(s: string): string {
-  const map: Record<string, string> = {
-    golang: "go",
-    nextjs: "next.js",
-    nodejs: "node.js",
-    postgresql: "postgres",
-    "google cloud": "gcp",
-  };
-  return map[s] ?? s;
 }
 
 // ---------------------------------------------------------------------------

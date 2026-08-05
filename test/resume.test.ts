@@ -39,6 +39,18 @@ describe("parseWithFallback (deterministic resume parser)", () => {
     expect(parsed.summary).toMatch(/full-stack/i);
   });
 
+  it("removes category labels from grouped skill lines", () => {
+    const grouped = parseWithFallback(`Sacha Arseneault
+
+TECHNICAL SKILLS
+Languages: Go, Python
+Frameworks/Libraries: Next, React
+Tools: Docker, Git
+`);
+
+    expect(grouped.skills).toEqual(["Go", "Python", "Next", "React", "Docker", "Git"]);
+  });
+
   it("degrades gracefully on empty input", () => {
     expect(parseWithFallback("")).toEqual({});
   });

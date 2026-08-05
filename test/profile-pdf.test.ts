@@ -68,6 +68,16 @@ describe("resume PDF ingest", () => {
     expect(asset.mimeType).toBe("application/pdf");
   });
 
+  it("merges parsed résumé skills with manually saved skills", async () => {
+    await saveProfile({ skills: ["Go"] });
+
+    const result = await refreshProfile("sample-data/resume.sample.txt");
+
+    expect(result.profile.skills).toEqual(
+      expect.arrayContaining(["Go", "TypeScript", "Next.js", "PostgreSQL"]),
+    );
+  });
+
   it("migrates legacy Canadian location and eligibility answers", async () => {
     await saveProfile({
       country: "Canada",
