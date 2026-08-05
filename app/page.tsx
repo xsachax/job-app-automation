@@ -8,6 +8,7 @@ import {
 } from "@/lib/discovery/categories";
 import { cls, PageHeader, CategoryBadge } from "./components/ui";
 import { CompanyLogo } from "./components/CompanyLogo";
+import { ScanButton } from "./components/ScanButton";
 
 export const dynamic = "force-dynamic";
 
@@ -69,12 +70,15 @@ export default async function OverviewPage() {
       <PageHeader
         title="Overview"
         subtitle="Fresh entry-level software roles across US & Canada, scraped from company career sites."
-      />
+      >
+        <ScanButton />
+      </PageHeader>
 
       <div className="mb-6 rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-sm text-indigo-900 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200">
         <b>Discovery mode.</b> This pipeline finds currently-open entry-level roles (SWE, DevOps, ML and
         related) requiring ≤ 2 years of experience and a bachelor&apos;s degree or below. Auto-apply and
-        resume matching are paused — run <code className="rounded bg-indigo-100 px-1 dark:bg-indigo-900/60">npm run discover</code> to refresh the queue.
+        resume matching are paused. Use <b>Run scrape</b> to refresh API and supported browser sources,
+        including Shopify, and score newly discovered jobs.
       </div>
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
@@ -119,7 +123,7 @@ export default async function OverviewPage() {
               {byCompany.length === 0 && (
                 <tr>
                   <td className="px-4 py-3 text-gray-400" colSpan={2}>
-                    No roles yet — run <code className="rounded bg-gray-100 px-1 dark:bg-gray-800 dark:text-gray-200">npm run discover</code> to populate the queue.
+                    No roles yet — use <b>Run scrape</b> above to populate the queue.
                   </td>
                 </tr>
               )}
