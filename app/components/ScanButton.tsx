@@ -31,7 +31,7 @@ interface Notice {
   text: string;
 }
 
-export function ScanButton() {
+export function ScanButton({ onComplete }: { onComplete?: () => void }) {
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const router = useRouter();
@@ -59,6 +59,7 @@ export function ScanButton() {
           failureSummary,
       });
       router.refresh();
+      onComplete?.();
     } catch (e) {
       setNotice({ tone: "error", text: (e as Error).message });
     } finally {

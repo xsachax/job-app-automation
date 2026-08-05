@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../components/api";
 import { FilterBar } from "../components/jobs/FilterBar";
 import { JobCard } from "../components/jobs/JobCard";
+import { ScanButton } from "../components/ScanButton";
 import type { ApplicationStatus, Country, FilterState, Job, JobFacets, MultiFilterKey } from "../components/jobs/types";
 import { DEFAULT_FILTERS } from "../components/jobs/types";
 import { PageHeader } from "../components/ui";
@@ -115,6 +116,7 @@ export default function JobsPage() {
   const [updatingIds, setUpdatingIds] = useState<Set<string>>(() => new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [refreshVersion, setRefreshVersion] = useState(0);
   const [extensionConnection, setExtensionConnection] =
     useState<ExtensionConnection>("none");
   const [extensionMessage, setExtensionMessage] = useState<string | null>(null);
@@ -146,7 +148,7 @@ export default function JobsPage() {
     return () => {
       active = false;
     };
-  }, [jobsUrl]);
+  }, [jobsUrl, refreshVersion]);
 
   useEffect(() => {
     let active = true;
@@ -166,7 +168,7 @@ export default function JobsPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [refreshVersion]);
 
   useEffect(() => {
     if (!isGoogleChromeBrowser()) return;
@@ -290,6 +292,12 @@ export default function JobsPage() {
     setError(null);
   }
 
+  function handleScrapeComplete() {
+    startRefresh();
+    setFacetsLoading(true);
+    setRefreshVersion((version) => version + 1);
+  }
+
   function handleCountryChange(nextCountry: Country) {
     if (nextCountry === country) return;
     startRefresh();
@@ -379,7 +387,9 @@ export default function JobsPage() {
       <PageHeader
         title="Jobs"
         subtitle="Currently-open entry-level software roles (≤ 2 yrs experience), scraped from company career sites — every platform including Workday. Filter by Platform; Workday roles are badged and always applied to manually. US and Canada tracked separately."
-      />
+      >
+        <ScanButton onComplete={handleScrapeComplete} />
+      </PageHeader>
 
       <div className="mb-4 flex gap-1 rounded-lg border border-gray-200 bg-gray-50 p-1 dark:border-gray-800 dark:bg-gray-900">
         {COUNTRIES.map((countryOption) => (
