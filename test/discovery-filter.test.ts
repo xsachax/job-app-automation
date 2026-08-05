@@ -39,6 +39,7 @@ describe("isSoftwareRole", () => {
     expect(isSoftwareRole("Machine Learning Engineer")).toBe(true);
     expect(isSoftwareRole("Site Reliability Engineer")).toBe(true);
     expect(isSoftwareRole("DevOps Engineer")).toBe(true);
+    expect(isSoftwareRole("Search Relevance Engineers")).toBe(true);
   });
 
   it("rejects non-software roles", () => {

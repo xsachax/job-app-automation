@@ -24,6 +24,9 @@ interface RawCard {
   href: string;
   externalId: string;
   postedAt: string | null;
+  description?: string;
+  location?: string;
+  country?: Country;
 }
 
 interface SiteRule {
@@ -35,6 +38,13 @@ interface SiteRule {
   pages?: number;
   // Advance to the next page of results; return false when there is no more.
   next?: (page: Page, n: number) => Promise<boolean>;
+  // Some sites expose all relevant geographies on one page rather than honoring
+  // separate country URLs.
+  singlePage?: boolean;
+  // Load the full posting after cards are collected so the YoE gate can inspect
+  // real qualifications instead of accepting a title-only result.
+  hydrate?: (page: Page, card: RawCard) => Promise<RawCard>;
+  shouldHydrate?: (card: RawCard) => boolean;
 }
 
 // Generic DOM harvester: collect anchors whose href matches `pattern`, using the
@@ -65,7 +75,8 @@ function anchorHarvest(pattern: RegExp) {
 // of these SPAs wrap an entire card in one anchor, or their location filter is
 // ignored, which would yield polluted titles / wrong countries). Apple renders
 // real postings server-side with a stable /details/<id> URL and a country-scoped
-// search, so it extracts cleanly.
+// search. Shopify's Engineering & Data page exposes clean craft panels and full
+// detail pages after client rendering.
 const RULES: Partial<Record<BrowserSystem, SiteRule>> = {
   apple: {
     origin: "https://jobs.apple.com",
@@ -78,6 +89,56 @@ const RULES: Partial<Record<BrowserSystem, SiteRule>> = {
       await link.click();
       await page.waitForTimeout(2500);
       return true;
+    },
+  },
+  shopify: {
+    origin: "https://www.shopify.com",
+    singlePage: true,
+    extract: async (page) => {
+      const cards: RawCard[] = [];
+      const toggles = page.locator('button[aria-controls^="subdiscipline-"]');
+      const count = await toggles.count();
+      for (let index = 0; index < count; index++) {
+        const toggle = toggles.nth(index);
+        const panelId = await toggle.getAttribute("aria-controls");
+        if (!panelId) continue;
+        await toggle.click({ force: true });
+        const rows = await page.locator(`#${panelId} a[href*="/careers/"]`).evaluateAll((anchors) =>
+          anchors.map((anchor) => {
+            const href = (anchor as HTMLAnchorElement).href;
+            return {
+              title: (anchor.querySelector("h4")?.textContent ?? "")
+                .replace(/\s+/g, " ")
+                .trim(),
+              location: (anchor.querySelector(".location")?.textContent ?? "")
+                .replace(/\s+/g, " ")
+                .trim(),
+              href,
+              externalId: href.match(/_([0-9a-f-]{36})$/i)?.[1] ?? href,
+              postedAt: null,
+            };
+          }),
+        );
+        cards.push(...rows);
+      }
+      return cards
+        .filter((card) => card.title && /^[0-9a-f-]{36}$/i.test(card.externalId))
+        .map((card) => ({
+          ...card,
+          // "Remote - Americas" includes Canada. Store one canonical card in the
+          // Canadian list rather than duplicating the same requisition in both.
+          country: /\b(americas|global|canada)\b/i.test(card.location ?? "") ? "CA" : "OTHER",
+        }));
+    },
+    shouldHydrate: ({ title }) =>
+      !/\b(senior|staff|managers?|lead|director|head|principal|internships?|co-op)\b/i.test(title),
+    hydrate: async (page, card) => {
+      await page.goto(card.href, { waitUntil: "domcontentloaded", timeout: 45000 });
+      await page.getByText("About the role", { exact: true }).waitFor({ timeout: 30000 });
+      const description = await page
+        .locator('[itemtype="https://schema.org/JobPosting"]')
+        .innerText();
+      return { ...card, description };
     },
   },
 };
@@ -107,6 +168,13 @@ async function scrapeUrl(
     if (!advanced) break;
   }
 
+  if (rule.hydrate) {
+    for (let index = 0; index < all.length; index++) {
+      if (rule.shouldHydrate && !rule.shouldHydrate(all[index])) continue;
+      all[index] = await rule.hydrate(page, all[index]);
+    }
+  }
+
   const seen = new Set<string>();
   const out: DiscoveryPosting[] = [];
   for (const c of all) {
@@ -118,11 +186,11 @@ async function scrapeUrl(
     out.push({
       company: company.name,
       title: c.title,
-      location: country === "CA" ? "Canada" : "United States",
-      country,
+      location: c.location ?? (country === "CA" ? "Canada" : "United States"),
+      country: c.country ?? country,
       applyUrl,
       externalId: c.externalId,
-      description: "",
+      description: c.description ?? "",
       postedAt: toDate(c.postedAt),
       system: company.system,
     });
@@ -169,11 +237,18 @@ export async function scrapeBrowserCompany(
       if (t === "image" || t === "media" || t === "font") return route.abort();
       return route.continue();
     });
-    const us = await scrapeUrl(page, company, company.searchUrlUS, "US", rule).catch(() => []);
-    const ca = await scrapeUrl(page, company, company.searchUrlCA, "CA", rule).catch(() => []);
-    res.usFound = us.length;
-    res.caFound = ca.length;
-    res.postings = [...us, ...ca];
+    if (rule.singlePage) {
+      const postings = await scrapeUrl(page, company, company.searchUrlCA, "CA", rule);
+      res.usFound = postings.filter((posting) => posting.country === "US").length;
+      res.caFound = postings.filter((posting) => posting.country === "CA").length;
+      res.postings = postings;
+    } else {
+      const us = await scrapeUrl(page, company, company.searchUrlUS, "US", rule).catch(() => []);
+      const ca = await scrapeUrl(page, company, company.searchUrlCA, "CA", rule).catch(() => []);
+      res.usFound = us.length;
+      res.caFound = ca.length;
+      res.postings = [...us, ...ca];
+    }
   } catch (e) {
     res.error = e instanceof Error ? e.message : String(e);
   } finally {
