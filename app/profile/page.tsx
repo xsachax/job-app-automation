@@ -85,7 +85,6 @@ function Chips({ items, empty }: { items: string[] | undefined; empty: string })
 
 function CountryAutofillSection({
   title,
-  countryLabel,
   locationLabel,
   locationPlaceholder,
   location,
@@ -96,7 +95,6 @@ function CountryAutofillSection({
   onSponsorshipChange,
 }: {
   title: string;
-  countryLabel: string;
   locationLabel: string;
   locationPlaceholder: string;
   location?: string;
@@ -107,7 +105,10 @@ function CountryAutofillSection({
   onSponsorshipChange: (value: boolean | null) => void;
 }) {
   return (
-    <section className="rounded-xl border border-gray-200 p-4 dark:border-gray-800">
+    <section
+      aria-label={title}
+      className="rounded-xl border border-gray-200 p-4 dark:border-gray-800"
+    >
       <h3 className="text-sm font-semibold">{title}</h3>
       <div className="mt-4 grid gap-4">
         <FieldShell label={locationLabel}>
@@ -119,9 +120,9 @@ function CountryAutofillSection({
             onChange={(event) => onLocationChange(event.target.value)}
           />
         </FieldShell>
-        <FieldShell label={`${countryLabel} work authorization`}>
+        <FieldShell label="Do you have work authorization?">
           <select
-            aria-label={`${countryLabel} work authorization`}
+            aria-label="Do you have work authorization?"
             className={cls.input}
             value={booleanChoice(workAuthorized)}
             onChange={(event) =>
@@ -133,9 +134,9 @@ function CountryAutofillSection({
             <option value="no">No</option>
           </select>
         </FieldShell>
-        <FieldShell label={`${countryLabel} visa sponsorship`}>
+        <FieldShell label="Do you need visa sponsorship?">
           <select
-            aria-label={`${countryLabel} visa sponsorship`}
+            aria-label="Do you need visa sponsorship?"
             className={cls.input}
             value={booleanChoice(requiresSponsorship)}
             onChange={(event) =>
@@ -465,7 +466,6 @@ export default function ProfilePage() {
             <div className="mt-6 grid gap-4 lg:grid-cols-2">
               <CountryAutofillSection
                 title="Jobs in the United States"
-                countryLabel="United States"
                 locationLabel="US location"
                 locationPlaceholder="New York, NY or Remote"
                 location={profile.usLocation}
@@ -481,7 +481,6 @@ export default function ProfilePage() {
               />
               <CountryAutofillSection
                 title="Jobs in Canada"
-                countryLabel="Canada"
                 locationLabel="Canada location"
                 locationPlaceholder="Toronto, ON or Remote"
                 location={profile.caLocation}
