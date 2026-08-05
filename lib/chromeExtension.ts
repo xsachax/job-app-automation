@@ -1,4 +1,9 @@
 export const CHROME_EXTENSION_ID_STORAGE_KEY = "jobAutofillExtensionId";
+export const CHROME_EXTENSION_LOCAL_PATH = "apps/chrome-extension";
+export const CHROME_EXTENSIONS_PAGE = "chrome://extensions";
+export const CHROME_WEB_STORE_URL =
+  process.env.NEXT_PUBLIC_CHROME_EXTENSION_STORE_URL ||
+  "https://chromewebstore.google.com/";
 
 const CHROME_EXTENSION_ID_PATTERN = /^[a-p]{32}$/;
 

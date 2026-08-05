@@ -35,4 +35,22 @@ test.describe("sidebar nav", () => {
     ).map((l) => l.trim());
     expect(labels.slice(-2)).toEqual(["Profile", "Settings"]);
   });
+
+  test("extension install button opens setup with a Web Store fallback", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    const nav = page.getByRole("navigation");
+    await nav.getByRole("link", { name: "Install extension", exact: true }).click();
+
+    await expect(page).toHaveURL(/\/settings#chrome-extension$/);
+    const setup = page.locator("#chrome-extension");
+    await expect(setup).toBeVisible();
+    await expect(
+      setup.getByRole("button", { name: "Copy Chrome setup URL" }),
+    ).toBeVisible();
+    await expect(
+      setup.getByRole("link", { name: "Open Chrome Web Store ↗" }),
+    ).toHaveAttribute("href", /^https:\/\/chromewebstore\.google\.com\//);
+  });
 });

@@ -183,6 +183,7 @@ The Manifest V3 extension is plain JavaScript under `apps/chrome-extension`; loa
 unpacked is enough for local use:
 
 1. Start the dashboard with `npm run dev` and open `http://localhost:3000`.
+   The sidebar's **Install extension** button jumps directly to this setup panel.
 2. Open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select
    this repository's `apps/chrome-extension` directory.
 3. Open the extension's options page. Fill the local profile and keep **Allowed dashboard
@@ -193,6 +194,10 @@ unpacked is enough for local use:
 5. On **Jobs**, click a posting title or **Open** action. The extension opens the application
    with a progress panel. After reviewing the page, open the extension from Chrome's toolbar
    and click **Autofill current page**.
+
+The setup panel also links to the Chrome Web Store. Until this extension is published, that
+button opens the store home page; set `NEXT_PUBLIC_CHROME_EXTENSION_STORE_URL` to the exact
+listing URL once one exists.
 
 The profile and application progress stay in that Chrome profile via `chrome.storage.local`.
 The assistant skips uploads and consent checkboxes, reports unknown fields, and never presses
