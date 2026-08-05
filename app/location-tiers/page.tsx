@@ -20,16 +20,17 @@ export default function LocationTiersPage() {
   return (
     <TierBoard
       title="Location tiers"
-      subtitle="Rank the places you'd actually work S→F. Tiers nudge the fit score of every job in that location, so those postings rise to the top. The board lists the most popular locations from your discovered jobs."
+      subtitle="Rank the places you'd actually work S→F. Tiers nudge the fit score of every job in that location, while unrated locations stay neutral like E tier. The board lists the most popular locations from your discovered jobs."
       endpoint="/api/location-tiers"
       itemsKey="locations"
       field="location"
       noun="locations"
       emptyPool="No locations discovered yet."
       searchPlaceholder="Search locations…"
-      searchAriaLabel="Search unranked locations"
+      searchAriaLabel="Search unrated locations"
       renderIcon={() => <LocationPin />}
       countLabel={(count) => `${count} open role${count === 1 ? "" : "s"}`}
+      poolNote="Unrated locations stay neutral at the same score as E tier."
     />
   );
 }

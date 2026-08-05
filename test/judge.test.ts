@@ -314,23 +314,21 @@ describe("scoreAllJobs location axis", () => {
 });
 
 describe("scoreAllJobs company axis", () => {
-  it("ranks a job at a tiered company above an identical one at an unranked company", async () => {
+  it("treats an unrated company exactly like neutral E tier", async () => {
     await saveProfile({
       skills: ["TypeScript", "React"],
       targetRoles: ["Software Engineer"],
       summary: "Entry-level software engineer shipping web apps.",
     });
-    // "C" is a neutral tier (0 modifier); the unranked company takes the -8
-    // default penalty, so the ranked job must edge out its unranked twin.
-    await prisma.companyTier.create({ data: { company: "Ranked Co", tier: "C" } });
+    await prisma.companyTier.create({ data: { company: "Neutral Co", tier: "E" } });
 
     const desc = "Build customer features with TypeScript and React.";
-    const ranked = await makeJob({
-      key: "ranked-co",
+    const neutral = await makeJob({
+      key: "neutral-co",
       title: "Software Engineer I",
       description: desc,
       skills: ["TypeScript", "React"],
-      company: "Ranked Co",
+      company: "Neutral Co",
     });
     const unranked = await makeJob({
       key: "unranked-co",
@@ -342,14 +340,12 @@ describe("scoreAllJobs company axis", () => {
 
     await scoreAllJobs();
 
-    const rankedJob = await prisma.job.findUniqueOrThrow({ where: { id: ranked.id } });
+    const neutralJob = await prisma.job.findUniqueOrThrow({ where: { id: neutral.id } });
     const unrankedJob = await prisma.job.findUniqueOrThrow({ where: { id: unranked.id } });
 
-    expect(rankedJob.fitScore ?? 0).toBeGreaterThan(unrankedJob.fitScore ?? 0);
+    expect(neutralJob.fitScore).toBe(unrankedJob.fitScore);
     const unrankedReasons = JSON.parse(unrankedJob.fitReasons ?? "[]") as string[];
-    expect(unrankedReasons).toEqual(
-      expect.arrayContaining([expect.stringContaining("unranked")]),
-    );
+    expect(unrankedReasons.some((r) => r.includes("unranked"))).toBe(false);
     expect(unrankedReasons.some((r) => r.includes("is tier"))).toBe(false);
   });
 });

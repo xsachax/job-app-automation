@@ -199,19 +199,19 @@ model ConnectionSet {
   updatedAt DateTime @updatedAt
 }
 
-// User-defined company tier ranking (S/A/B/C/D/F). Keyed by the company display
+// User-defined company tier ranking (S/A/B/C/D/E/F). Keyed by the company display
 // name; the assigned tier nudges that company's fit score in the judge.
 model CompanyTier {
   company   String   @id
-  tier      String // S | A | B | C | D | F
+  tier      String // S | A | B | C | D | E | F
   updatedAt DateTime @updatedAt
 }
 
-// User-defined location tier ranking (S/A/B/C/D/F). Keyed by the canonical
+// User-defined location tier ranking (S/A/B/C/D/E/F). Keyed by the canonical
 // "City, ST" | "Remote" string from lib/locations.normalizeLocation; the assigned
 // tier nudges the fit score of every job in that location.
 model LocationTier {
   location  String   @id
-  tier      String // S | A | B | C | D | F
+  tier      String // S | A | B | C | D | E | F
   updatedAt DateTime @updatedAt
 }

@@ -302,7 +302,7 @@ export default function JudgePage() {
               <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Company tiers</span>
               <span className="text-2xl font-bold tabular-nums">{status.companyTiers}</span>
             </div>
-            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">companies ranked S++–F</p>
+            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">companies rated S–F</p>
             <span className="mt-3 inline-block text-sm font-medium text-indigo-600 dark:text-indigo-400">Open company tiers →</span>
           </Link>
 
@@ -312,7 +312,7 @@ export default function JudgePage() {
               <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Location tiers</span>
               <span className="text-2xl font-bold tabular-nums">{status.locationTiers}</span>
             </div>
-            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">locations ranked S++–F</p>
+            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">locations rated S–F</p>
             <span className="mt-3 inline-block text-sm font-medium text-indigo-600 dark:text-indigo-400">Open location tiers →</span>
           </Link>
         </div>

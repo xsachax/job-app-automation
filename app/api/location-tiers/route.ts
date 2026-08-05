@@ -54,7 +54,7 @@ export async function GET() {
 }
 
 // PUT /api/location-tiers — assign (or clear) one location's tier. A null/empty
-// tier removes the ranking so the location returns to the unranked pool.
+// tier removes the ranking so the location returns to the neutral unrated pool.
 export async function PUT(req: NextRequest) {
   let body: { location?: unknown; tier?: unknown };
   try {
