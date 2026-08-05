@@ -40,4 +40,12 @@ describe("Chrome extension panel security", () => {
       'add(sectionPrompt(first), 0.55, "section");',
     );
   });
+
+  it("keeps uncertain matches out of autofill and marks them for review", () => {
+    expect(panelSource).toContain('analysis.status === "uncertain"');
+    expect(panelSource).toContain('"data-job-autofill-review"');
+    expect(panelSource).toMatch(
+      /for \(const question of questions\)[\s\S]*question\.status !== "ready"[\s\S]*continue/,
+    );
+  });
 });

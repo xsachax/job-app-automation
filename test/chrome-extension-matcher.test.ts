@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 
 interface MatchDefinition {
-  definition: { key: string };
+  definition: { key: string; label: string };
   score: number;
 }
 
@@ -17,6 +17,25 @@ interface Matcher {
     },
     definitions: unknown[],
   ): MatchDefinition | null;
+  analyzeDefinition(
+    context: {
+      autocomplete?: string;
+      signals: { text: string; weight: number; source?: string }[];
+      controlKind: string;
+    },
+    definitions: unknown[],
+  ): {
+    status: "none" | "uncertain" | "confident";
+    match: MatchDefinition | null;
+    confidence: number;
+    candidates: MatchDefinition[];
+    reason: string;
+  };
+  resolveEligibilityAnswer(
+    definitionKey: string,
+    signals: { text: string; weight: number; source?: string }[],
+    profile: Record<string, string>,
+  ): string;
 }
 
 interface ProfileSchema {
@@ -96,6 +115,41 @@ describe("Chrome extension profile storage", () => {
     expect(profileSchema.sanitizeStoredProfile({ addressLine1: "secret" })).not
       .toHaveProperty("addressLine1");
   });
+
+  it("derives split location and phone values used by ATS forms", () => {
+    expect(
+      profileSchema.buildEffectiveProfile(
+        {
+          location: "Toronto, ON, Canada",
+          phone: "+1 (416) 555-0199",
+        },
+        { country: "CA" },
+      ),
+    ).toMatchObject({
+      city: "Toronto",
+      region: "ON",
+      country: "Canada",
+      phoneCountryCode: "+1",
+      phoneNational: "(416) 555-0199",
+    });
+    expect(
+      profileSchema.buildEffectiveProfile({
+        phone: "+14165550199",
+      }),
+    ).toMatchObject({
+      phoneCountryCode: "+1",
+      phoneNational: "4165550199",
+    });
+    expect(
+      profileSchema.buildEffectiveProfile(
+        { phone: "+44 20 7946 0958" },
+        { country: "US" },
+      ),
+    ).toMatchObject({
+      phoneCountryCode: "+44",
+      phoneNational: "20 7946 0958",
+    });
+  });
 });
 
 describe("Chrome extension field matching", () => {
@@ -149,7 +203,6 @@ describe("Chrome extension field matching", () => {
       ["Supervisor city", "text", ""],
       ["Please state your desired salary", "text", ""],
       ["Phone extension", "text", ""],
-      ["Country calling code", "text", ""],
     ];
 
     expect(companyWebsite).toBeNull();
@@ -169,6 +222,7 @@ describe("Chrome extension field matching", () => {
 
     const legitimateLabels = [
       ["Phone number", "phone"],
+      ["Country calling code", "phoneCountryCode"],
       ["Country of residence", "country"],
     ];
     for (const [label, key] of legitimateLabels) {
@@ -234,17 +288,64 @@ describe("Chrome extension field matching", () => {
     ).toBe("Sach");
   });
 
-  it("leaves compound or negated sponsorship questions for manual review", () => {
+  it("transforms standard compound and negated eligibility questions", () => {
+    const profile = {
+      workAuthorization: "yes",
+      requiresSponsorship: "no",
+    };
+    const transformedQuestions = [
+      {
+        prompt:
+          "Are you legally authorized to work in the United States without sponsorship?",
+        key: "workAuthorization",
+        answer: "yes",
+      },
+      {
+        prompt: "Can you work without requiring sponsorship?",
+        key: "workAuthorization",
+        answer: "yes",
+      },
+      {
+        prompt: "Do you not require visa sponsorship?",
+        key: "requiresSponsorship",
+        answer: "yes",
+      },
+      {
+        prompt:
+          "Can you work in the United States without the need for visa sponsorship?",
+        key: "workAuthorization",
+        answer: "yes",
+      },
+      {
+        prompt: "Don't you require sponsorship?",
+        key: "requiresSponsorship",
+        answer: "yes",
+      },
+    ];
+    for (const { prompt, key, answer } of transformedQuestions) {
+      const signals = [{ text: prompt, weight: 1, source: "prompt" }];
+      const match = matcher.findBestDefinition(
+        { signals, controlKind: "choice" },
+        profileSchema.fields,
+      );
+      expect(match?.definition.key, prompt).toBe(key);
+      expect(
+        matcher.resolveEligibilityAnswer(key, signals, profile),
+        prompt,
+      ).toBe(answer);
+    }
+  });
+
+  it("leaves unmodeled or unsafe eligibility questions for manual review", () => {
     const unsafeQuestions = [
-      "Are you legally authorized to work in the United States without sponsorship?",
-      "Can you work without requiring sponsorship?",
-      "Do you not require visa sponsorship?",
-      "Can you work in the United States without the need for visa sponsorship?",
-      "Don't you require sponsorship?",
       "Are you not legally authorized to work?",
       "Can you obtain visa sponsorship?",
       "Do you already have visa sponsorship?",
       "Do you need work authorization?",
+      "What days can you work?",
+      "How many hours per week can you work?",
+      "Are you able to work overtime?",
+      "Can you work weekends or night shifts?",
     ];
 
     for (const question of unsafeQuestions) {
