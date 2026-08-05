@@ -26,8 +26,16 @@ test.describe("profile page", () => {
     await expect(page.getByLabel("Street address")).toHaveCount(0);
     await expect(page.getByLabel("US location")).toBeVisible();
     await expect(page.getByLabel("Canada location")).toBeVisible();
-    await expect(page.getByLabel("United States work authorization")).toBeVisible();
-    await expect(page.getByLabel("Canada work authorization")).toBeVisible();
+    await expect(
+      page
+        .getByRole("region", { name: "Jobs in the United States" })
+        .getByLabel("Do you have work authorization?"),
+    ).toBeVisible();
+    await expect(
+      page
+        .getByRole("region", { name: "Jobs in Canada" })
+        .getByLabel("Do you need visa sponsorship?"),
+    ).toBeVisible();
     await expect(page.getByLabel("Default cover letter")).toBeVisible();
     await expect(page.getByLabel("Pasted or parsed resume text")).toHaveCount(0);
     await expect(page.getByText(/never influence fit scores/i)).toBeVisible();
@@ -69,7 +77,10 @@ test.describe("profile page", () => {
     await page.goto("/profile");
     await page.getByLabel("First name").fill("Jane");
     await page.getByLabel("Email").fill("jane@example.com");
-    await page.getByLabel("United States visa sponsorship").selectOption("no");
+    const usSection = page.getByRole("region", {
+      name: "Jobs in the United States",
+    });
+    await usSection.getByLabel("Do you need visa sponsorship?").selectOption("no");
     await page.getByRole("button", { name: "Save profile", exact: true }).click();
     await expect(page.getByText(/Chrome autofill synced/)).toBeVisible();
 
@@ -93,7 +104,7 @@ test.describe("profile page", () => {
       },
     });
 
-    await page.getByLabel("United States visa sponsorship").selectOption("");
+    await usSection.getByLabel("Do you need visa sponsorship?").selectOption("");
     const clearResponse = page.waitForResponse(
       (response) =>
         response.url().endsWith("/api/profile") &&
