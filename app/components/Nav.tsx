@@ -57,6 +57,10 @@ export function Nav() {
     unavailable: { label: "Offline", dot: "bg-red-500" },
     unsupported: { label: "Offline", dot: "bg-gray-400" },
   }[extensionStatus.state];
+  const extensionGlow =
+    extensionStatus.state === "connected"
+      ? " border border-green-400/70 shadow-[0_0_12px_rgba(34,197,94,0.35)] dark:border-green-500/70"
+      : " border border-transparent";
 
   return (
     <nav className="flex flex-1 flex-col gap-1">
@@ -119,7 +123,11 @@ export function Nav() {
       <Link
         href={extensionSetupLink.href}
         aria-current={isActive(extensionSetupLink.href) ? "page" : undefined}
-        className={linkClass(isActive(extensionSetupLink.href)) + " mt-auto"}
+        className={
+          linkClass(isActive(extensionSetupLink.href)) +
+          " mt-auto transition-all motion-reduce:transition-none" +
+          extensionGlow
+        }
         title={`Chrome autofill extension: ${extensionIndicator.label}`}
       >
         <span className="flex items-center justify-between gap-2">

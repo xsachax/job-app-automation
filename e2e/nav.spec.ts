@@ -90,7 +90,12 @@ test.describe("sidebar nav", () => {
     await page.goto("/");
     const nav = page.getByRole("navigation");
     await expect(nav.getByText("Online", { exact: true })).toBeVisible();
-    await nav.getByRole("link", { name: /Extension/ }).click();
+    const extensionLink = nav.getByRole("link", { name: /Extension/ });
+    await expect(extensionLink).toHaveCSS(
+      "box-shadow",
+      /rgba\(34, 197, 94, 0\.35\)/,
+    );
+    await extensionLink.click();
 
     await expect(page).toHaveURL(/\/extension$/);
     const setup = page.locator("#chrome-extension");
