@@ -12,6 +12,7 @@ const STORAGE_DEFAULTS = {
   profile: {},
   applicationSessions: {}
 };
+const SESSION_PROFILES_KEY = "applicationSessionProfiles";
 const MAX_RESUME_BASE64_LENGTH = Math.ceil((5 * 1024 * 1024 * 4) / 3) + 4;
 
 const PANEL_FILES = [
@@ -23,6 +24,7 @@ const PANEL_FILES = [
 ];
 
 let sessionMutationQueue = Promise.resolve();
+let sessionProfileMutationQueue = Promise.resolve();
 let enablementMutationQueue = Promise.resolve();
 let enablementVersion = 0;
 let requestedEnabled;
@@ -64,6 +66,53 @@ async function replaceProfile(rawProfile) {
   return profile;
 }
 
+function transientStorage() {
+  return chrome.storage.session || chrome.storage.local;
+}
+
+function mutateSessionProfiles(mutator) {
+  const operation = sessionProfileMutationQueue.then(async () => {
+    const storage = transientStorage();
+    const stored = await storage.get({ [SESSION_PROFILES_KEY]: {} });
+    const profiles = stored[SESSION_PROFILES_KEY] || {};
+    const result = await mutator(profiles);
+    await storage.set({ [SESSION_PROFILES_KEY]: profiles });
+    return result;
+  });
+  sessionProfileMutationQueue = operation.catch(() => undefined);
+  return operation;
+}
+
+async function saveSessionProfile(sessionId, rawProfile) {
+  const profile = sanitizeProfile(rawProfile);
+  await mutateSessionProfiles((profiles) => {
+    profiles[sessionId] = profile;
+  });
+  return profile;
+}
+
+async function profileForSession(sessionId) {
+  const stored = await transientStorage().get({
+    [SESSION_PROFILES_KEY]: {}
+  });
+  const profiles = stored[SESSION_PROFILES_KEY] || {};
+  if (Object.prototype.hasOwnProperty.call(profiles, sessionId)) {
+    return profiles[sessionId];
+  }
+  const { profile = {} } = await chrome.storage.local.get({ profile: {} });
+  return saveSessionProfile(sessionId, profile);
+}
+
+async function pruneSessionProfiles(sessionIds) {
+  await mutateSessionProfiles((profiles) => {
+    for (const sessionId of Object.keys(profiles)) {
+      if (!sessionIds.has(sessionId)) {
+        delete profiles[sessionId];
+      }
+    }
+  });
+}
+
 function sanitizeResumeFile(rawFile) {
   if (rawFile == null) {
     return null;
@@ -101,7 +150,7 @@ function sanitizeResumeFile(rawFile) {
 
 async function replaceResumeFile(rawFile) {
   const resumeFile = sanitizeResumeFile(rawFile);
-  await (chrome.storage.session || chrome.storage.local).set({ resumeFile });
+  await transientStorage().set({ resumeFile });
   return resumeFile;
 }
 
@@ -174,6 +223,7 @@ function mutateSessions(mutator) {
     }
 
     await chrome.storage.local.set({ applicationSessions });
+    await pruneSessionProfiles(new Set(Object.keys(applicationSessions)));
     return result;
   });
 
@@ -516,12 +566,10 @@ async function configureEmbeddedFrameAgents(
     }
     try {
       if (frameAvailability === undefined) {
-        const { profile = {} } = await chrome.storage.local.get({
-          profile: {}
+        const profile = await profileForSession(session.id);
+        const { resumeFile = null } = await transientStorage().get({
+          resumeFile: null
         });
-        const { resumeFile = null } = await (
-          chrome.storage.session || chrome.storage.local
-        ).get({ resumeFile: null });
         frameAvailability = profileAvailabilityFor(
           profile,
           resumeFile,
@@ -615,13 +663,11 @@ async function runEmbeddedFrameAction(session, messageType, { force = false } = 
 
 async function injectPanel(session, { autofill = false } = {}) {
   const expectedEnablementVersion = enablementVersion;
-  const { enabled, profile } = await chrome.storage.local.get({
-    enabled: true,
-    profile: {}
+  const { enabled } = await chrome.storage.local.get({ enabled: true });
+  const profile = await profileForSession(session.id);
+  const { resumeFile = null } = await transientStorage().get({
+    resumeFile: null
   });
-  const { resumeFile = null } = await (
-    chrome.storage.session || chrome.storage.local
-  ).get({ resumeFile: null });
   const profileAvailability = profileAvailabilityFor(
     profile,
     resumeFile,
@@ -740,8 +786,11 @@ async function launchApplication(payload) {
   if (!isHttpUrl(context.url)) {
     throw new Error("The application URL must use HTTP or HTTPS.");
   }
+  let profile;
   if (Object.prototype.hasOwnProperty.call(payload, "profile")) {
-    await replaceProfile(payload.profile);
+    profile = sanitizeProfile(payload.profile);
+  } else {
+    ({ profile = {} } = await chrome.storage.local.get({ profile: {} }));
   }
   if (Object.prototype.hasOwnProperty.call(payload, "resumeFile")) {
     await replaceResumeFile(payload.resumeFile);
@@ -754,6 +803,7 @@ async function launchApplication(payload) {
 
   const session = createSession(context, tab.id);
   await saveNewSession(session);
+  await saveSessionProfile(session.id, profile);
 
   const currentTab = await chrome.tabs.get(tab.id);
   if (currentTab.status === "complete") {
@@ -773,6 +823,7 @@ async function startCurrentTab(payload) {
   }
 
   let session = await findSessionByTab(payload.tabId);
+  let created = false;
   if (!session) {
     session = createSession(
       cleanJobContext({
@@ -782,8 +833,13 @@ async function startCurrentTab(payload) {
       payload.tabId
     );
     await saveNewSession(session);
+    created = true;
   } else if (session.panelDismissed) {
     session = await updateSession(session.id, { panelDismissed: false });
+  }
+  if (created) {
+    const { profile = {} } = await chrome.storage.local.get({ profile: {} });
+    await saveSessionProfile(session.id, profile);
   }
 
   const result = await injectPanel(session, { autofill: Boolean(payload.autofill) });
@@ -938,13 +994,7 @@ async function handleInternalMessage(message, sender) {
       };
     }
     case "JOB_AUTOFILL_GET_PROFILE": {
-      const { enabled, profile = {} } = await chrome.storage.local.get({
-        enabled: true,
-        profile: {}
-      });
-      const { resumeFile = null } = await (
-        chrome.storage.session || chrome.storage.local
-      ).get({ resumeFile: null });
+      const { enabled } = await chrome.storage.local.get({ enabled: true });
       const tabId = sender.tab?.id;
       const senderUrl = sender.url || sender.tab?.url;
       const session = Number.isInteger(tabId)
@@ -964,6 +1014,10 @@ async function handleInternalMessage(message, sender) {
       ) {
         return { ok: false, error: "The application session is not active." };
       }
+      const profile = await profileForSession(session.id);
+      const { resumeFile = null } = await transientStorage().get({
+        resumeFile: null
+      });
       return { ok: true, profile, resumeFile };
     }
     case "JOB_AUTOFILL_SET_ENABLED":

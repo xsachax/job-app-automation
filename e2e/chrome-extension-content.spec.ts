@@ -450,6 +450,100 @@ test("fills split phone and location controls with canonical values", async ({
   await expect(page.locator("#country")).toHaveValue("CA");
 });
 
+test("fills structured education and recurring application questions", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `
+      <label>School <input id="school"></label>
+      <label>Degree
+        <select id="degree">
+          <option value="">Select</option>
+          <option value="BS">Bachelor of Science</option>
+          <option value="MS">Master of Science</option>
+        </select>
+      </label>
+      <label>Discipline <input id="discipline"></label>
+      <label>Graduation date <input id="graduation-date" type="month"></label>
+      <label>GPA (Undergraduate) <input id="undergraduate-gpa"></label>
+      <label>GPA (Graduate) <input id="graduate-gpa"></label>
+      <label>GPA (Doctorate) <input id="doctorate-gpa"></label>
+      <label>SAT Score <input id="sat"></label>
+      <label>ACT Score <input id="act"></label>
+      <label>GRE Score <input id="gre"></label>
+      <label>How did you hear about this job?
+        <select id="source">
+          <option value="">Select</option>
+          <option value="company">Company Website</option>
+          <option value="linkedin">LinkedIn</option>
+        </select>
+      </label>
+      <label>Active Security Clearance(s)
+        <select id="clearance">
+          <option value="">Select</option>
+          <option value="none">None</option>
+          <option value="secret">Secret</option>
+        </select>
+      </label>
+      <label>SpaceX &amp; SpaceXAI Employment History
+        <select id="spacex-history">
+          <option value="">Select</option>
+          <option value="never">I have never been employed by SpaceX</option>
+          <option value="former">I am a former SpaceX employee</option>
+        </select>
+      </label>
+      <fieldset>
+        <legend>Can you perform all of the essential functions of this role with or without reasonable accommodations?</legend>
+        <label><input type="radio" name="essential-functions" value="yes"> Yes</label>
+        <label><input type="radio" name="essential-functions" value="no"> No</label>
+      </fieldset>
+      <label>Citizenship Status
+        <select id="citizenship">
+          <option value="">Select</option>
+          <option value="citizen">U.S. Citizen</option>
+          <option value="green-card">Green Card Holder</option>
+        </select>
+      </label>
+    `,
+    profile: {
+      school: "University of Ottawa",
+      degree: "Bachelor's degree",
+      fieldOfStudy: "Computer Science",
+      graduationDate: "2026-05",
+      undergraduateGpa: "3.8",
+      graduateGpa: "3.9",
+      doctorateGpa: "4.0",
+      satScore: "1450",
+      actScore: "33",
+      greScore: "325",
+      heardAboutJob: "LinkedIn",
+      securityClearances: "None",
+      spacexEmploymentHistory: "Never employed",
+      canPerformEssentialFunctions: "yes",
+      citizenshipStatus: "Permanent resident",
+    },
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 15 });
+  await expect(page.locator("#school")).toHaveValue("University of Ottawa");
+  await expect(page.locator("#degree")).toHaveValue("BS");
+  await expect(page.locator("#discipline")).toHaveValue("Computer Science");
+  await expect(page.locator("#graduation-date")).toHaveValue("2026-05");
+  await expect(page.locator("#undergraduate-gpa")).toHaveValue("3.8");
+  await expect(page.locator("#graduate-gpa")).toHaveValue("3.9");
+  await expect(page.locator("#doctorate-gpa")).toHaveValue("4.0");
+  await expect(page.locator("#sat")).toHaveValue("1450");
+  await expect(page.locator("#act")).toHaveValue("33");
+  await expect(page.locator("#gre")).toHaveValue("325");
+  await expect(page.locator("#source")).toHaveValue("linkedin");
+  await expect(page.locator("#clearance")).toHaveValue("none");
+  await expect(page.locator("#spacex-history")).toHaveValue("never");
+  await expect(
+    page.locator('input[name="essential-functions"][value="yes"]'),
+  ).toBeChecked();
+  await expect(page.locator("#citizenship")).toHaveValue("green-card");
+});
+
 test("fills contenteditable fields on generic application forms", async ({ page }) => {
   await installContentPanel(page, {
     html: `
@@ -553,6 +647,31 @@ test("flags ambiguous fields instead of guessing", async ({ page }) => {
   ).toBeVisible();
 });
 
+test("does not reuse saved answers for generic or reversed questions", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `
+      <label>Please specify
+        <input id="source-details" name="application_source">
+      </label>
+      <fieldset>
+        <legend>Are you unable to perform the essential functions of this role?</legend>
+        <label><input type="radio" name="unable" value="yes"> Yes</label>
+        <label><input type="radio" name="unable" value="no"> No</label>
+      </fieldset>
+    `,
+    profile: {
+      heardAboutJob: "Employee referral",
+      canPerformEssentialFunctions: "yes",
+    },
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 0 });
+  await expect(page.locator("#source-details")).toHaveValue("");
+  await expect(page.locator('input[name="unable"]:checked')).toHaveCount(0);
+});
+
 test("rescans fields added by a hydrated application step", async ({ page }) => {
   await installContentPanel(page, {
     html: `<main id="application"></main>`,
@@ -607,6 +726,7 @@ test("uploads the saved PDF only to a recognized resume input", async ({ page })
     html: `
       <label>Resume / CV <input id="resume" type="file" style="display:none"></label>
       <label>Cover letter <input id="cover-letter" type="file"></label>
+      <label>Attach <input id="generic-attachment" type="file"></label>
     `,
     profile: {},
     resumeFile: {
@@ -639,6 +759,11 @@ test("uploads the saved PDF only to a recognized resume input", async ({ page })
   expect(
     await page
       .locator("#cover-letter")
+      .evaluate((input: HTMLInputElement) => input.files?.length || 0),
+  ).toBe(0);
+  expect(
+    await page
+      .locator("#generic-attachment")
       .evaluate((input: HTMLInputElement) => input.files?.length || 0),
   ).toBe(0);
 });

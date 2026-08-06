@@ -231,6 +231,65 @@ export function minRequiredYoE(text: string): number | null {
   const re = /(?:at least\s*|minimum(?:\s*of)?\s*|min\.?\s*)?(\d{1,2})\s*\+?\s*(?:-|to|–)?\s*(?:\d{1,2})?\s*(?:years?|yrs?)\b/gi;
   let min: number | null = null;
   for (const m of text.matchAll(re)) {
+    const start = m.index ?? 0;
+    const end = start + m[0].length;
+    // Keep requirement words in the same sentence or list item as the year count.
+    const lineStart = text.lastIndexOf("\n", start - 1) + 1;
+    const nextLineBreak = text.indexOf("\n", end);
+    const lineEnd = nextLineBreak < 0 ? text.length : nextLineBreak;
+    const line = text.slice(lineStart, lineEnd);
+    const relativeStart = start - lineStart;
+    const relativeEnd = end - lineStart;
+    const clauseStart =
+      Math.max(
+        line.lastIndexOf(".", relativeStart - 1),
+        line.lastIndexOf(";", relativeStart - 1),
+        line.lastIndexOf("!", relativeStart - 1),
+        line.lastIndexOf("?", relativeStart - 1),
+      ) + 1;
+    const followingBoundaries = [".", ";", "!", "?"]
+      .map((separator) => line.indexOf(separator, relativeEnd))
+      .filter((index) => index >= 0);
+    const clauseEnd = followingBoundaries.length
+      ? Math.min(...followingBoundaries)
+      : line.length;
+    const previousLineEnd = Math.max(0, lineStart - 1);
+    const previousLineStart = text.lastIndexOf("\n", previousLineEnd - 1) + 1;
+    const previousLine = text.slice(previousLineStart, previousLineEnd).trim();
+    const headingContext =
+      /^(?:(?:minimum|basic|required|preferred) )?(?:qualifications?|requirements?|what you bring|you have):?$/i.test(
+        previousLine,
+      )
+        ? previousLine
+        : "";
+    const context = `${headingContext} ${line.slice(clauseStart, clauseEnd)}`;
+    const prefix = line.slice(clauseStart, relativeStart);
+    const suffix = line.slice(relativeEnd, clauseEnd);
+    const explicitLowerBound =
+      /^(?:at least\s*|minimum(?:\s*of)?\s*|min\.?\s*)/i.test(m[0]);
+    const workContext =
+      /^\s+(?:of\s+(?!service|tenure)\w+|(?:in|with)\s+\w+|working|building|developing|designing|using|leading|managing)\b/i.test(
+        suffix,
+      );
+    const requirementContext =
+      /\b(?:experience|experienced|required|requires?|requirements?|qualifications?|minimum|must have|should have|you have|possess)\b/i.test(
+        context,
+      ) ||
+      /\byears?\s+of\s+(?!service|tenure)\w+/i.test(`${m[0]}${suffix}`) ||
+      explicitLowerBound ||
+      workContext;
+    const serviceContext =
+      /^\s+of\s+(?:service|tenure)\b/i.test(suffix) ||
+      (/\b(?:benefits?|equity awards?|sabbatical|vest(?:s|ed|ing)?|tenure|anniversary|service award)\b/i.test(
+        context,
+      ) &&
+        !/\bexperience\b/i.test(context));
+    const upperBound =
+      /\b(?:up to|at most|no more than|less than|fewer than|maximum(?: of)?|under)\s*$/i.test(
+        prefix,
+      );
+    if (!requirementContext || serviceContext || upperBound) continue;
+
     const n = Number.parseInt(m[1], 10);
     if (Number.isFinite(n) && n >= 0 && n <= 40) {
       min = min === null ? n : Math.min(min, n);

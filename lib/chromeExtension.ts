@@ -90,10 +90,28 @@ export interface AutofillProfile {
   lastName: string;
   email: string;
   phone: string;
+  country: string;
   location: string;
   linkedinUrl: string;
   githubUrl: string;
   portfolioUrl: string;
+  school: string;
+  degree: string;
+  fieldOfStudy: string;
+  graduationDate: string;
+  relevantExperienceYears: string;
+  certifications: string;
+  undergraduateGpa: string;
+  graduateGpa: string;
+  doctorateGpa: string;
+  satScore: string;
+  actScore: string;
+  greScore: string;
+  heardAboutJob: string;
+  securityClearances: string;
+  spacexEmploymentHistory: string;
+  canPerformEssentialFunctions: "" | "yes" | "no";
+  citizenshipStatus: string;
   workAuthorization: "" | "yes" | "no";
   requiresSponsorship: "" | "yes" | "no";
   coverLetter: string;
@@ -136,30 +154,82 @@ function choice(value: unknown): "" | "yes" | "no" {
   return value === true ? "yes" : value === false ? "no" : "";
 }
 
+function listText(value: unknown): string {
+  if (!Array.isArray(value)) return "";
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .join(", ");
+}
+
 export function buildAutofillProfile(
   profile: ProfileData,
   country?: string | null,
 ): AutofillProfile {
   const normalizedCountry = country?.trim().toLowerCase();
   const isCanada = normalizedCountry === "ca" || normalizedCountry === "canada";
+  const isUnitedStates =
+    normalizedCountry === "us" ||
+    normalizedCountry === "usa" ||
+    normalizedCountry === "united states" ||
+    normalizedCountry === "united states of america";
+  const hasCountryContext = isCanada || isUnitedStates;
   return {
     firstName: text(profile.firstName),
     preferredName: text(profile.preferredName),
     lastName: text(profile.lastName),
     email: text(profile.email),
     phone: text(profile.phone),
-    location: isCanada
-      ? text(profile.caLocation)
-      : text(profile.usLocation) || text(profile.location),
+    country: !hasCountryContext
+      ? ""
+      : isCanada
+        ? text(profile.caCountry) || "Canada"
+        : text(profile.usCountry) || "United States",
+    location: !hasCountryContext
+      ? ""
+      : isCanada
+        ? text(profile.caLocation)
+        : text(profile.usLocation) || text(profile.location),
     linkedinUrl: text(profile.linkedin),
     githubUrl: text(profile.github),
     portfolioUrl: text(profile.website) || text(profile.portfolio),
-    workAuthorization: isCanada
-      ? choice(profile.caWorkAuthorized)
-      : choice(profile.usWorkAuthorized ?? profile.workAuthorized),
-    requiresSponsorship: isCanada
-      ? choice(profile.caRequiresSponsorship)
-      : choice(profile.usRequiresSponsorship ?? profile.requiresSponsorship),
+    school: text(profile.school),
+    degree: text(profile.degree),
+    fieldOfStudy: text(profile.fieldOfStudy),
+    graduationDate: text(profile.graduationDate),
+    relevantExperienceYears:
+      typeof profile.relevantExperienceYears === "number" &&
+      Number.isFinite(profile.relevantExperienceYears) &&
+      profile.relevantExperienceYears >= 0
+        ? String(profile.relevantExperienceYears)
+        : "",
+    certifications: listText(profile.certifications),
+    undergraduateGpa: text(profile.undergraduateGpa),
+    graduateGpa: text(profile.graduateGpa),
+    doctorateGpa: text(profile.doctorateGpa),
+    satScore: text(profile.satScore),
+    actScore: text(profile.actScore),
+    greScore: text(profile.greScore),
+    heardAboutJob: text(profile.heardAboutJob),
+    securityClearances: listText(profile.securityClearances),
+    spacexEmploymentHistory: text(profile.spacexEmploymentHistory),
+    canPerformEssentialFunctions: choice(profile.canPerformEssentialFunctions),
+    citizenshipStatus: !hasCountryContext
+      ? ""
+      : isCanada
+        ? text(profile.caCitizenshipStatus)
+        : text(profile.usCitizenshipStatus),
+    workAuthorization: !hasCountryContext
+      ? ""
+      : isCanada
+        ? choice(profile.caWorkAuthorized)
+        : choice(profile.usWorkAuthorized ?? profile.workAuthorized),
+    requiresSponsorship: !hasCountryContext
+      ? ""
+      : isCanada
+        ? choice(profile.caRequiresSponsorship)
+        : choice(profile.usRequiresSponsorship ?? profile.requiresSponsorship),
     coverLetter: text(profile.coverLetterTemplate),
   };
 }

@@ -13,6 +13,7 @@ type RefreshModule = typeof import("../lib/profile/refresh");
 let prisma: Prisma;
 let saveProfile: SaveProfile;
 let saveCriteria: SaveCriteria;
+let buildQualificationContext: JudgeModule["buildQualificationContext"];
 let buildResumeContext: JudgeModule["buildResumeContext"];
 let scoreAllJobs: JudgeModule["scoreAllJobs"];
 let buildJudgeBatch: AgentModule["buildJudgeBatch"];
@@ -49,6 +50,7 @@ async function makeJob(opts: {
   salaryCurrency?: string;
   location?: string;
   postedAt?: Date;
+  minYoE?: number;
 }) {
   return prisma.job.create({
     data: {
@@ -71,6 +73,7 @@ async function makeJob(opts: {
       salaryCurrency: opts.salaryCurrency ?? null,
       location: opts.location ?? null,
       postedAt: opts.postedAt ?? null,
+      minYoE: opts.minYoE ?? null,
     },
   });
 }
@@ -78,7 +81,7 @@ async function makeJob(opts: {
 beforeAll(async () => {
   ({ prisma } = await import("../lib/db"));
   ({ saveProfile, saveCriteria } = await import("../lib/settings"));
-  ({ buildResumeContext, scoreAllJobs } = await import("../lib/judge/judge"));
+  ({ buildQualificationContext, buildResumeContext, scoreAllJobs } = await import("../lib/judge/judge"));
   ({ buildJudgeBatch, applyJudgeScores } = await import("../lib/judge/agent"));
   ({ refreshProfile } = await import("../lib/profile/refresh"));
 });
@@ -105,6 +108,26 @@ describe("buildResumeContext", () => {
     expect(ctx.titles).toEqual(["Software Engineer"]);
     expect(ctx.summary).toContain("Computer Science");
     expect(ctx.text).toContain("Built React");
+  });
+
+  it("uses structured qualifications instead of legacy free-form text", () => {
+    const profile = {
+      degree: "Bachelor's degree",
+      fieldOfStudy: "Computer Science",
+      graduationDate: "2026-05",
+      relevantExperienceYears: 1.5,
+      certifications: ["AWS Certified Cloud Practitioner"],
+      qualifications: "Legacy text that should not be scored.",
+    };
+
+    const qualifications = buildQualificationContext(profile);
+    const ctx = buildResumeContext(profile);
+
+    expect(qualifications).toContain("Education: Bachelor's degree in Computer Science");
+    expect(qualifications).toContain("Graduation date: 2026-05");
+    expect(qualifications).toContain("Relevant experience: 1.5 years");
+    expect(qualifications).toContain("AWS Certified Cloud Practitioner");
+    expect(ctx.text).not.toContain("Legacy text");
   });
 });
 
@@ -254,6 +277,7 @@ describe("scoreAllJobs freshness axis", () => {
       targetRoles: ["Software Engineer"],
       summary: "Entry-level software engineer shipping web apps.",
     });
+
     const now = Date.now();
     const shared = {
       title: "Software Engineer I",
@@ -282,6 +306,62 @@ describe("scoreAllJobs freshness axis", () => {
     );
     expect(JSON.parse(staleJob.fitReasons ?? "[]")).toEqual(
       expect.arrayContaining([expect.stringMatching(/^Gap: Posted more than 30 days ago/)]),
+    );
+  });
+});
+
+describe("scoreAllJobs experience axis", () => {
+  it("compares the saved experience value with the posting requirement", async () => {
+    await saveProfile({
+      skills: ["TypeScript"],
+      targetRoles: ["Software Engineer"],
+      relevantExperienceYears: 2,
+    });
+    const job = await makeJob({
+      key: "experience-fit",
+      title: "Software Engineer I",
+      description: "Build TypeScript services. Requires 2+ years of experience.",
+      skills: ["TypeScript"],
+      minYoE: 2,
+    });
+
+    await scoreAllJobs();
+    const matching = await prisma.job.findUniqueOrThrow({ where: { id: job.id } });
+
+    await saveProfile({ relevantExperienceYears: 0 });
+    await scoreAllJobs({ force: true });
+    const short = await prisma.job.findUniqueOrThrow({ where: { id: job.id } });
+
+    expect(matching.fitScore ?? 0).toBeGreaterThan(short.fitScore ?? 0);
+    expect(JSON.parse(matching.fitReasons ?? "[]")).toEqual(
+      expect.arrayContaining([expect.stringMatching(/meets the 2\+ year requirement/)]),
+    );
+    expect(JSON.parse(short.fitReasons ?? "[]")).toEqual(
+      expect.arrayContaining([expect.stringMatching(/below the 2\+ year requirement/)]),
+    );
+  });
+
+  it("does not penalize non-requirement tenure phrases", async () => {
+    await saveProfile({
+      skills: ["TypeScript"],
+      targetRoles: ["Software Engineer"],
+      relevantExperienceYears: 1,
+    });
+    const job = await makeJob({
+      key: "benefit-tenure",
+      title: "Software Engineer I",
+      description:
+        "Build TypeScript products. Benefits include a paid sabbatical after 5 years of service.",
+      skills: ["TypeScript"],
+      minYoE: 5,
+    });
+
+    await scoreAllJobs();
+    const scored = await prisma.job.findUniqueOrThrow({ where: { id: job.id } });
+    const reasons = JSON.parse(scored.fitReasons ?? "[]") as string[];
+
+    expect(reasons).not.toEqual(
+      expect.arrayContaining([expect.stringMatching(/saved experience|year requirement/i)]),
     );
   });
 });

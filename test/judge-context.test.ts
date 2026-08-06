@@ -18,6 +18,15 @@ const PERSONAL = {
   raceEthnicity: "EthnicitySentinelXQ",
   veteranStatus: "VeteranSentinelXQ",
   disabilityStatus: "DisabilitySentinelXQ",
+  undergraduateGpa: "GpaSentinelXQ",
+  graduateGpa: "GraduateGpaSentinelXQ",
+  doctorateGpa: "DoctorateGpaSentinelXQ",
+  satScore: "SatSentinelXQ",
+  actScore: "ActSentinelXQ",
+  greScore: "GreSentinelXQ",
+  heardAboutJob: "SourceSentinelXQ",
+  usCitizenshipStatus: "CitizenshipSentinelXQ",
+  caCitizenshipStatus: "CanadaCitizenshipSentinelXQ",
 } as const;
 
 function fullyPopulatedProfile(): ProfileData {
@@ -31,6 +40,9 @@ function fullyPopulatedProfile(): ProfileData {
     titles: ["Backend Engineer"],
     summary: "Entry-level engineer building reliable web systems.",
     qualifications: "B.S. Computer Science, 2026. Internship at a fintech startup.",
+    securityClearances: ["ClearanceSentinelXQ"],
+    spacexEmploymentHistory: "SpaceXHistorySentinelXQ",
+    canPerformEssentialFunctions: true,
     resumeText: "Experienced with distributed systems and Node.js services.",
     coverLetterTemplate: "Dear hiring manager, ZylpharaCoverSentinel ...",
   };
@@ -55,6 +67,8 @@ describe("buildResumeContext — judge input", () => {
     }
     // The cover-letter template is also personal boilerplate, not a fit signal.
     expect(blob).not.toContain("zylpharacoversentinel");
+    expect(blob).not.toContain("clearancesentinelxq");
+    expect(blob).not.toContain("spacexhistorysentinelxq");
   });
 
   it("only exposes the four resume context keys", () => {

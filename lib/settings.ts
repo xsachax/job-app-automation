@@ -48,13 +48,33 @@ export interface ProfileData {
   resumeUrl?: string; // public/direct URL to the user's PDF resume
   resumeText?: string; // pasted or parsed plain-text resume content
   targetRoles?: string[]; // roles the user wants the discovery judge to favor
-  qualifications?: string; // degree, graduation date, projects, constraints
+  qualifications?: string; // legacy free-form value; structured fields below take precedence
+  school?: string;
+  degree?: string;
+  fieldOfStudy?: string;
+  graduationDate?: string; // YYYY-MM
+  relevantExperienceYears?: number | null;
+  certifications?: string[];
+  undergraduateGpa?: string;
+  graduateGpa?: string;
+  doctorateGpa?: string;
+  satScore?: string;
+  actScore?: string;
+  greScore?: string;
+  heardAboutJob?: string;
+  securityClearances?: string[];
+  spacexEmploymentHistory?: string;
+  canPerformEssentialFunctions?: boolean | null;
+  usCitizenshipStatus?: string;
+  caCitizenshipStatus?: string;
   // Common compliance / eligibility questions.
   workAuthorized?: boolean | null; // legacy; migrated to country-specific answers
   requiresSponsorship?: boolean | null; // legacy; migrated to country-specific answers
+  usCountry?: string;
   usLocation?: string;
   usWorkAuthorized?: boolean | null;
   usRequiresSponsorship?: boolean | null;
+  caCountry?: string;
   caLocation?: string;
   caWorkAuthorized?: boolean | null;
   caRequiresSponsorship?: boolean | null;
@@ -85,9 +105,29 @@ export const DEFAULT_PROFILE: ProfileData = {
   resumeText: "",
   targetRoles: [],
   qualifications: "",
+  school: "",
+  degree: "",
+  fieldOfStudy: "",
+  graduationDate: "",
+  relevantExperienceYears: null,
+  certifications: [],
+  undergraduateGpa: "",
+  graduateGpa: "",
+  doctorateGpa: "",
+  satScore: "",
+  actScore: "",
+  greScore: "",
+  heardAboutJob: "",
+  securityClearances: [],
+  spacexEmploymentHistory: "",
+  canPerformEssentialFunctions: null,
+  usCitizenshipStatus: "",
+  caCitizenshipStatus: "",
+  usCountry: "United States",
   usLocation: "",
   usWorkAuthorized: null,
   usRequiresSponsorship: null,
+  caCountry: "Canada",
   caLocation: "",
   caWorkAuthorized: null,
   caRequiresSponsorship: null,

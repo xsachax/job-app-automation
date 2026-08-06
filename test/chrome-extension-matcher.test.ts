@@ -8,7 +8,12 @@ interface MatchDefinition {
 
 interface Matcher {
   normalizeText(value: string): string;
-  scoreChoice(savedValue: string, optionValue: string, optionLabel: string): number;
+  scoreChoice(
+    savedValue: string,
+    optionValue: string,
+    optionLabel: string,
+    fieldKey?: string,
+  ): number;
   findBestDefinition(
     context: {
       autocomplete?: string;
@@ -65,6 +70,14 @@ describe("Chrome extension profile storage", () => {
       firstName: " Jane ",
       workAuthorization: "maybe",
       requiresSponsorship: "no",
+      country: "United States",
+      school: "University of Ottawa",
+      degree: "Bachelor's degree",
+      undergraduateGpa: "3.85",
+      satScore: "9999",
+      actScore: "36",
+      graduationDate: "2025-05",
+      canPerformEssentialFunctions: "yes",
       coverLetter: ` ${"x".repeat(20_100)} `,
       unexpectedSecret: "drop me",
     });
@@ -72,6 +85,14 @@ describe("Chrome extension profile storage", () => {
     expect(profile.firstName).toBe("Jane");
     expect(profile.workAuthorization).toBe("");
     expect(profile.requiresSponsorship).toBe("no");
+    expect(profile.country).toBe("United States");
+    expect(profile.school).toBe("University of Ottawa");
+    expect(profile.degree).toBe("Bachelor's degree");
+    expect(profile.undergraduateGpa).toBe("3.85");
+    expect(profile.satScore).toBe("");
+    expect(profile.actScore).toBe("36");
+    expect(profile.graduationDate).toBe("2025-05");
+    expect(profile.canPerformEssentialFunctions).toBe("yes");
     expect(profile.coverLetter).toHaveLength(20_000);
     expect(profile).not.toHaveProperty("unexpectedSecret");
     expect(() => profileSchema.sanitizeStoredProfile(null)).toThrow(
@@ -112,6 +133,9 @@ describe("Chrome extension profile storage", () => {
     expect(
       profileSchema.buildEffectiveProfile({}, { country: "US" }).country,
     ).toBe("United States");
+    expect(profileSchema.buildEffectiveProfile({ country: "Canada" }).country).toBe(
+      "Canada",
+    );
     expect(profileSchema.sanitizeStoredProfile({ addressLine1: "secret" })).not
       .toHaveProperty("addressLine1");
   });
@@ -149,6 +173,14 @@ describe("Chrome extension profile storage", () => {
       phoneCountryCode: "+44",
       phoneNational: "20 7946 0958",
     });
+    expect(
+      profileSchema.buildEffectiveProfile({ graduationDate: "2025-05" }),
+    ).toMatchObject({
+      graduationDate: "May 2025",
+      graduationDateInput: "2025-05",
+      graduationMonth: "May",
+      graduationYear: "2025",
+    });
   });
 });
 
@@ -181,6 +213,192 @@ describe("Chrome extension field matching", () => {
     expect(email?.score).toBe(120);
     expect(linkedIn?.definition.key).toBe("linkedinUrl");
     expect(github?.definition.key).toBe("githubUrl");
+  });
+
+  it("recognizes the reported education and application fields", () => {
+    const reportedFields = [
+      ["Country", "select", "country"],
+      ["Location (City)", "text", "city"],
+      ["School", "text", "school"],
+      ["Degree", "select", "degree"],
+      ["How did you hear about this job?", "select", "heardAboutJob"],
+      ["GPA (Undergraduate)", "text", "undergraduateGpa"],
+      ["GPA (Graduate)", "text", "graduateGpa"],
+      ["GPA (Doctorate)", "text", "doctorateGpa"],
+      ["SAT Score", "text", "satScore"],
+      ["ACT Score", "text", "actScore"],
+      ["GRE Score", "text", "greScore"],
+      ["Active Security Clearance(s)", "select", "securityClearances"],
+      [
+        "SpaceX & SpaceXAI Employment History",
+        "select",
+        "spacexEmploymentHistory",
+      ],
+      [
+        "Can you perform all of the essential functions of this role with or without reasonable accommodations?",
+        "choice",
+        "canPerformEssentialFunctions",
+      ],
+      [
+        "Are you legally authorized to work in the United States? Required",
+        "choice",
+        "workAuthorization",
+      ],
+      ["Citizenship Status", "select", "citizenshipStatus"],
+      ["Discipline", "text", "fieldOfStudy"],
+    ];
+
+    for (const [label, controlKind, key] of reportedFields) {
+      expect(
+        matcher.findBestDefinition(
+          {
+            signals: [{ text: label, weight: 1, source: "label" }],
+            controlKind,
+          },
+          profileSchema.fields,
+        )?.definition.key,
+        label,
+      ).toBe(key);
+    }
+
+    for (const [label, controlKind] of [
+      ["Attach", "file"],
+      ["Please specify", "text"],
+    ]) {
+      expect(
+        matcher.findBestDefinition(
+          {
+            signals: [{ text: label, weight: 1, source: "label" }],
+            controlKind,
+          },
+          profileSchema.fields,
+        ),
+        label,
+      ).toBeNull();
+    }
+  });
+
+  it("maps common structured profile values to ATS options", () => {
+    expect(
+      matcher.scoreChoice(
+        "Bachelor's degree",
+        "Bachelor of Science",
+        "Bachelor of Science",
+        "degree",
+      ),
+    ).toBe(100);
+    expect(
+      matcher.scoreChoice(
+        "Company career site",
+        "company_website",
+        "Company Website",
+      ),
+    ).toBe(100);
+    expect(
+      matcher.scoreChoice(
+        "Permanent resident",
+        "green_card",
+        "Green Card Holder",
+      ),
+    ).toBe(100);
+    expect(
+      matcher.scoreChoice(
+        "Previously employed by SpaceX",
+        "former",
+        "I am a former SpaceX employee",
+        "spacexEmploymentHistory",
+      ),
+    ).toBe(100);
+  });
+
+  it("keeps degree abbreviations from colliding with region options", () => {
+    expect(matcher.scoreChoice("MA", "MA", "Massachusetts", "region")).toBe(100);
+    expect(matcher.scoreChoice("MA", "MS", "Mississippi", "region")).toBeLessThan(
+      90,
+    );
+    expect(
+      matcher.scoreChoice("Master's degree", "MS", "Master of Science", "degree"),
+    ).toBe(100);
+  });
+
+  it("does not let state metadata override an explicit city label", () => {
+    expect(
+      matcher.findBestDefinition(
+        {
+          signals: [
+            { text: "City only", weight: 1, source: "label" },
+            { text: "state", weight: 0.76, source: "name" },
+          ],
+          controlKind: "text",
+        },
+        profileSchema.fields,
+      )?.definition.key,
+    ).toBe("city");
+  });
+
+  it("leaves generic follow-ups and reversed accommodation questions unanswered", () => {
+    for (const label of [
+      "Please specify",
+      "Please specify (optional)",
+      "Please specify if applicable",
+      "If you selected Other above, please specify",
+    ]) {
+      expect(
+        matcher.findBestDefinition(
+          {
+            signals: [
+              { text: label, weight: 1, source: "label" },
+              { text: "application_source", weight: 0.76, source: "name" },
+            ],
+            controlKind: "text",
+          },
+          profileSchema.fields,
+        ),
+        label,
+      ).toBeNull();
+    }
+    expect(
+      matcher.findBestDefinition(
+        {
+          signals: [
+            { text: "Please specify (optional)", weight: 0.92, source: "nearby" },
+            { text: "application_source", weight: 0.76, source: "name" },
+          ],
+          controlKind: "text",
+        },
+        profileSchema.fields,
+      ),
+    ).toBeNull();
+    expect(
+      matcher.findBestDefinition(
+        {
+          signals: [
+            { text: "School", weight: 1, source: "label" },
+            { text: "Please specify", weight: 0.84, source: "placeholder" },
+          ],
+          controlKind: "text",
+        },
+        profileSchema.fields,
+      )?.definition.key,
+    ).toBe("school");
+
+    for (const label of [
+      "Are you unable to perform the essential functions of this role?",
+      "Can you not perform the essential functions of this role?",
+      "Do you require a reasonable accommodation to perform the essential functions?",
+      "Can you perform the essential functions without reasonable accommodation?",
+    ]) {
+      expect(
+        matcher.findBestDefinition(
+          {
+            signals: [{ text: label, weight: 1, source: "label" }],
+            controlKind: "choice",
+          },
+          profileSchema.fields,
+        ),
+        label,
+      ).toBeNull();
+    }
   });
 
   it("does not mistake excluded labels for profile fields", () => {

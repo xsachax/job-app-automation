@@ -3,6 +3,7 @@
     { key: "identity", label: "Identity" },
     { key: "contact", label: "Contact and location" },
     { key: "links", label: "Professional links" },
+    { key: "education", label: "Education and credentials" },
     { key: "eligibility", label: "Application defaults" }
   ];
 
@@ -175,13 +176,15 @@
       autocomplete: ["address-level2"],
       aliases: [
         "city",
+        "location city",
+        "city only",
         "current city",
         "address section city",
         "city town",
         "town city",
         "municipality"
       ],
-      exactAliases: ["city"],
+      exactAliases: ["city", "location city"],
       controls: ["text", "combobox"]
     },
     {
@@ -202,6 +205,8 @@
         "current province"
       ],
       excludeAliases: [
+        "location city",
+        "city only",
         "please state",
         "state your",
         "employment status",
@@ -215,7 +220,6 @@
       key: "country",
       label: "Country",
       group: "contact",
-      stored: false,
       input: "text",
       autocomplete: ["country", "country-name"],
       aliases: [
@@ -280,6 +284,270 @@
       excludeAliases: ["company website"],
       controls: ["text"],
       placeholder: "https://janedoe.dev"
+    },
+    {
+      key: "school",
+      label: "School",
+      group: "education",
+      input: "text",
+      aliases: [
+        "school",
+        "school name",
+        "university",
+        "university name",
+        "college",
+        "college name",
+        "educational institution",
+        "institution name",
+        "school attended"
+      ],
+      exactAliases: ["school", "university", "college"],
+      excludeAliases: ["high school diploma", "school discipline"],
+      controls: ["text", "select", "combobox"]
+    },
+    {
+      key: "degree",
+      label: "Degree",
+      group: "education",
+      input: "select",
+      aliases: [
+        "degree",
+        "degree type",
+        "degree level",
+        "highest degree",
+        "highest level of education",
+        "education level",
+        "academic degree",
+        "qualification earned"
+      ],
+      exactAliases: ["degree"],
+      excludeAliases: ["degree discipline", "degree field"],
+      controls: ["text", "select", "combobox"]
+    },
+    {
+      key: "fieldOfStudy",
+      label: "Field of study",
+      group: "education",
+      input: "text",
+      aliases: [
+        "field of study",
+        "degree field",
+        "academic discipline",
+        "discipline",
+        "major",
+        "major field",
+        "program of study",
+        "area of study",
+        "concentration"
+      ],
+      exactAliases: ["discipline", "major"],
+      excludeAliases: [
+        "disciplinary action",
+        "disciplinary history",
+        "discipline record",
+        "employee discipline"
+      ],
+      controls: ["text", "select", "combobox"]
+    },
+    {
+      key: "graduationDate",
+      label: "Graduation date",
+      group: "education",
+      input: "text",
+      aliases: [
+        "graduation date",
+        "expected graduation date",
+        "date of graduation",
+        "degree completion date",
+        "graduation month and year"
+      ],
+      controls: ["text", "select", "combobox"]
+    },
+    {
+      key: "graduationMonth",
+      label: "Graduation month",
+      group: "education",
+      stored: false,
+      input: "text",
+      aliases: ["graduation month", "expected graduation month"],
+      controls: ["text", "select", "combobox"]
+    },
+    {
+      key: "graduationYear",
+      label: "Graduation year",
+      group: "education",
+      stored: false,
+      input: "text",
+      aliases: ["graduation year", "expected graduation year", "year graduated"],
+      controls: ["text", "select", "combobox"]
+    },
+    {
+      key: "relevantExperienceYears",
+      label: "Relevant experience",
+      group: "education",
+      input: "text",
+      aliases: [
+        "years of experience",
+        "relevant experience",
+        "professional experience",
+        "years of professional experience",
+        "total years of experience"
+      ],
+      controls: ["text", "select", "combobox"]
+    },
+    {
+      key: "certifications",
+      label: "Certifications",
+      group: "education",
+      input: "text",
+      aliases: [
+        "certifications",
+        "professional certifications",
+        "technical certifications",
+        "licenses and certifications",
+        "certificates"
+      ],
+      exactAliases: ["certifications"],
+      controls: ["text", "textarea", "select", "combobox"]
+    },
+    {
+      key: "undergraduateGpa",
+      label: "Undergraduate GPA",
+      group: "education",
+      input: "text",
+      aliases: [
+        "gpa undergraduate",
+        "undergraduate gpa",
+        "undergrad gpa",
+        "bachelors gpa",
+        "bachelor gpa"
+      ],
+      controls: ["text", "select", "combobox"]
+    },
+    {
+      key: "graduateGpa",
+      label: "Graduate GPA",
+      group: "education",
+      input: "text",
+      aliases: [
+        "gpa graduate",
+        "graduate gpa",
+        "masters gpa",
+        "master gpa"
+      ],
+      controls: ["text", "select", "combobox"]
+    },
+    {
+      key: "doctorateGpa",
+      label: "Doctorate GPA",
+      group: "education",
+      input: "text",
+      aliases: [
+        "gpa doctorate",
+        "doctorate gpa",
+        "doctoral gpa",
+        "phd gpa"
+      ],
+      controls: ["text", "select", "combobox"]
+    },
+    {
+      key: "satScore",
+      label: "SAT score",
+      group: "education",
+      input: "text",
+      aliases: ["sat score", "sat total score", "sat composite score"],
+      controls: ["text", "select", "combobox"]
+    },
+    {
+      key: "actScore",
+      label: "ACT score",
+      group: "education",
+      input: "text",
+      aliases: ["act score", "act composite score"],
+      controls: ["text", "select", "combobox"]
+    },
+    {
+      key: "greScore",
+      label: "GRE score",
+      group: "education",
+      input: "text",
+      aliases: ["gre score", "gre total score", "graduate record examination score"],
+      controls: ["text", "select", "combobox"]
+    },
+    {
+      key: "heardAboutJob",
+      label: "How you heard about the job",
+      group: "eligibility",
+      input: "select",
+      aliases: [
+        "how did you hear about this job",
+        "how did you hear about this position",
+        "how did you hear about us",
+        "where did you hear about this job",
+        "where did you find this job",
+        "job discovery source",
+        "application source"
+      ],
+      controls: ["text", "select", "combobox"]
+    },
+    {
+      key: "securityClearances",
+      label: "Active security clearances",
+      group: "eligibility",
+      input: "text",
+      aliases: [
+        "active security clearances",
+        "active security clearance",
+        "security clearances",
+        "security clearance",
+        "clearance level",
+        "clearance status"
+      ],
+      controls: ["text", "textarea", "select", "combobox"]
+    },
+    {
+      key: "spacexEmploymentHistory",
+      label: "SpaceX employment history",
+      group: "eligibility",
+      input: "select",
+      aliases: [
+        "spacex spacexai employment history",
+        "spacex and spacexai employment history",
+        "spacex employment history",
+        "previous spacex employment",
+        "previously employed by spacex"
+      ],
+      controls: ["choice", "select", "combobox"]
+    },
+    {
+      key: "canPerformEssentialFunctions",
+      label: "Ability to perform essential functions",
+      group: "eligibility",
+      input: "select",
+      aliases: [
+        "perform all of the essential functions",
+        "perform all essential functions",
+        "perform the essential functions",
+        "perform essential job functions",
+        "with or without reasonable accommodations",
+        "with or without reasonable accommodation"
+      ],
+      controls: ["choice", "select", "combobox"]
+    },
+    {
+      key: "citizenshipStatus",
+      label: "Citizenship status",
+      group: "eligibility",
+      input: "select",
+      aliases: [
+        "citizenship status",
+        "current citizenship status",
+        "citizenship",
+        "nationality status"
+      ],
+      exactAliases: ["citizenship status"],
+      excludeAliases: ["citizenship required", "citizenship requirement"],
+      controls: ["text", "choice", "select", "combobox"]
     },
     {
       key: "workAuthorization",
@@ -429,13 +697,44 @@
     return { countryCode, national };
   }
 
+  function graduationParts(value) {
+    const match = String(value || "").trim().match(/^(\d{4})-(0[1-9]|1[0-2])$/);
+    if (!match) {
+      return { date: "", input: "", month: "", year: "" };
+    }
+    const months = [
+      "January",
+      "February",
+      "March",
+      "April",
+      "May",
+      "June",
+      "July",
+      "August",
+      "September",
+      "October",
+      "November",
+      "December"
+    ];
+    const month = months[Number(match[2]) - 1];
+    return {
+      date: `${month} ${match[1]}`,
+      input: match[0],
+      month,
+      year: match[1]
+    };
+  }
+
   function buildEffectiveProfile(profile = {}, context = {}) {
     const firstName = String(profile.firstName || "").trim();
     const lastName = String(profile.lastName || "").trim();
-    const country = String(context.country || "").trim().toLowerCase();
+    const country = String(context.country || profile.country || "")
+      .trim()
+      .toLowerCase();
     const location = String(profile.location || "").trim();
     const locationValues = locationParts(location);
     const phoneValues = phoneParts(profile.phone, country);
+    const graduationValues = graduationParts(profile.graduationDate);
 
     return {
       ...profile,
@@ -449,9 +748,13 @@
       country:
         country === "ca" || country === "canada"
           ? "Canada"
-          : country === "us" || country === "united states"
+          : ["us", "usa", "u s", "u s a", "united states", "united states of america"].includes(country)
             ? "United States"
-            : "",
+            : String(profile.country || context.country || "").trim(),
+      graduationDate: graduationValues.date,
+      graduationDateInput: graduationValues.input,
+      graduationMonth: graduationValues.month,
+      graduationYear: graduationValues.year,
       coverLetter: renderCoverLetter(profile.coverLetter, context, profile)
     };
   }
@@ -477,8 +780,58 @@
         typeof rawValue === "string" ? rawValue.trim().slice(0, maxLength) : "";
 
       if (
-        ["workAuthorization", "requiresSponsorship"].includes(field.key) &&
+        [
+          "workAuthorization",
+          "requiresSponsorship",
+          "canPerformEssentialFunctions"
+        ].includes(field.key) &&
         !["", "yes", "no"].includes(value)
+      ) {
+        value = "";
+      }
+      if (
+        ["undergraduateGpa", "graduateGpa", "doctorateGpa"].includes(field.key) &&
+        value &&
+        (!/^\d{1,2}(?:\.\d{1,3})?$/.test(value) ||
+          Number(value) < 0 ||
+          Number(value) > 10)
+      ) {
+        value = "";
+      }
+      if (
+        field.key === "satScore" &&
+        value &&
+        (!/^\d{3,4}$/.test(value) || Number(value) < 400 || Number(value) > 2400)
+      ) {
+        value = "";
+      }
+      if (
+        field.key === "actScore" &&
+        value &&
+        (!/^\d{1,2}$/.test(value) || Number(value) < 1 || Number(value) > 36)
+      ) {
+        value = "";
+      }
+      if (
+        field.key === "greScore" &&
+        value &&
+        (!/^\d{3,4}$/.test(value) || Number(value) < 130 || Number(value) > 1600)
+      ) {
+        value = "";
+      }
+      if (
+        field.key === "graduationDate" &&
+        value &&
+        !/^\d{4}-(?:0[1-9]|1[0-2])$/.test(value)
+      ) {
+        value = "";
+      }
+      if (
+        field.key === "relevantExperienceYears" &&
+        value &&
+        (!/^\d{1,2}(?:\.\d)?$/.test(value) ||
+          Number(value) < 0 ||
+          Number(value) > 60)
       ) {
         value = "";
       }

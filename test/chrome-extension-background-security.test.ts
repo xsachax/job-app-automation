@@ -84,6 +84,27 @@ describe("Chrome extension background security", () => {
     expect(backgroundSource).not.toContain("resumeFile: frameResumeFile");
   });
 
+  it("freezes country-scoped profile answers per application session", () => {
+    const launchSource = backgroundSource.slice(
+      backgroundSource.indexOf("async function launchApplication"),
+      backgroundSource.indexOf("async function startCurrentTab"),
+    );
+    expect(backgroundSource).toContain(
+      'const SESSION_PROFILES_KEY = "applicationSessionProfiles"',
+    );
+    expect(launchSource).toContain("profile = sanitizeProfile(payload.profile)");
+    expect(launchSource).not.toContain("replaceProfile(payload.profile)");
+    expect(backgroundSource).toMatch(
+      /const session = createSession\(context, tab\.id\);[\s\S]*saveNewSession\(session\);[\s\S]*saveSessionProfile\(session\.id, profile\)/,
+    );
+    expect(backgroundSource).toMatch(
+      /async function injectPanel[\s\S]*profileForSession\(session\.id\)/,
+    );
+    expect(backgroundSource).toMatch(
+      /case "JOB_AUTOFILL_GET_PROFILE"[\s\S]*profileForSession\(session\.id\)/,
+    );
+  });
+
   it("uses Chrome's manifest allowlist without a second configured origin", () => {
     expect(manifest.externally_connectable?.matches).toEqual([
       "http://localhost/*",

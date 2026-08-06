@@ -104,6 +104,48 @@ describe("classifyEntryLevel", () => {
     ).toBe(false);
   });
 
+  it("ignores benefit-tenure dates that are not experience requirements", () => {
+    const verdict = classifyEntryLevel({
+      title: "Software Engineer",
+      description:
+        "Early-career role building web products. Benefits include a paid sabbatical after 5 years of service.",
+    });
+
+    expect(verdict.minYearsExperience).toBeNull();
+    expect(verdict.isEntryLevel).toBe(true);
+
+    expect(
+      classifyEntryLevel({
+        title: "Software Engineer",
+        description:
+          "No previous experience required. 401(k) vesting occurs over 3 years.",
+      }).minYearsExperience,
+    ).toBeNull();
+    expect(
+      classifyEntryLevel({
+        title: "Software Engineer",
+        description: "Equity awards vest over 3-4 years.",
+      }).minYearsExperience,
+    ).toBeNull();
+  });
+
+  it("recognizes experience under plural qualification headings", () => {
+    const verdict = classifyEntryLevel({
+      title: "Software Engineer",
+      description: "Qualifications:\n3 years of software development.",
+    });
+
+    expect(verdict.minYearsExperience).toBe(3);
+    expect(verdict.isEntryLevel).toBe(false);
+
+    const lowerBound = classifyEntryLevel({
+      title: "Software Engineer",
+      description: "At least 5 years working with React.",
+    });
+    expect(lowerBound.minYearsExperience).toBe(5);
+    expect(lowerBound.isEntryLevel).toBe(false);
+  });
+
   it("rejects roles requiring an advanced degree", () => {
     const v = classifyEntryLevel({
       title: "Machine Learning Engineer",

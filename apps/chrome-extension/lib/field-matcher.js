@@ -45,6 +45,13 @@
     "metadata",
     "platform"
   ]);
+  const degreeChoiceKeys = new Set([
+    "bachelors degree",
+    "masters degree",
+    "doctorate",
+    "associate degree",
+    "high school diploma"
+  ]);
   const choiceAliases = {
     "united states": [
       "us",
@@ -55,6 +62,97 @@
       "united states of america"
     ],
     canada: ["can", "canada"],
+    "bachelors degree": [
+      "bachelor",
+      "bachelors",
+      "bachelor s",
+      "bachelor s degree",
+      "bachelor degree",
+      "bachelors degree",
+      "bachelor of science",
+      "bachelor of arts",
+      "bs",
+      "b s",
+      "ba",
+      "b a",
+      "bsc"
+    ],
+    "masters degree": [
+      "master",
+      "masters",
+      "master s",
+      "master s degree",
+      "master degree",
+      "masters degree",
+      "master of science",
+      "master of arts",
+      "ms",
+      "m s",
+      "ma",
+      "m a",
+      "msc"
+    ],
+    doctorate: ["doctorate", "doctoral degree", "phd", "ph d"],
+    "associate degree": ["associate", "associates", "associate s", "associate degree"],
+    "high school diploma": [
+      "high school",
+      "high school diploma",
+      "secondary school",
+      "secondary school diploma"
+    ],
+    "company career site": [
+      "company career site",
+      "company careers site",
+      "company website",
+      "career site",
+      "careers page"
+    ],
+    linkedin: ["linkedin", "linked in"],
+    "employee referral": [
+      "employee referral",
+      "referred by employee",
+      "current employee",
+      "employee"
+    ],
+    "never employed": [
+      "never employed",
+      "never employed by spacex",
+      "never worked at spacex",
+      "i have never been employed by spacex"
+    ],
+    "previously employed by spacex": [
+      "previously employed by spacex",
+      "former spacex employee",
+      "i am a former spacex employee"
+    ],
+    "previously employed by spacexai": [
+      "previously employed by spacexai",
+      "former spacexai employee",
+      "i am a former spacexai employee"
+    ],
+    "u s citizen": [
+      "u s citizen",
+      "us citizen",
+      "united states citizen",
+      "citizen of the united states"
+    ],
+    "permanent resident": [
+      "permanent resident",
+      "lawful permanent resident",
+      "green card holder"
+    ],
+    "protected individual": [
+      "protected individual",
+      "protected person",
+      "asylee",
+      "refugee"
+    ],
+    "canadian citizen": ["canadian citizen", "citizen of canada"],
+    "work permit holder": [
+      "work permit holder",
+      "valid work permit",
+      "open work permit"
+    ],
     alabama: ["al", "alabama"],
     alaska: ["ak", "alaska"],
     arizona: ["az", "arizona"],
@@ -134,6 +232,8 @@
     return String(value || "")
       .replace(/LinkedIn/gi, "Linkedin")
       .replace(/GitHub/gi, "Github")
+      .replace(/SpaceXAI/gi, "Spacexai")
+      .replace(/SpaceX/gi, "Spacex")
       .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
       .normalize("NFKD")
       .replace(/[\u0300-\u036f]/g, "")
@@ -329,6 +429,71 @@
     return definition.key === "requiresSponsorship";
   }
 
+  function hasGenericExplicitLabel(signals) {
+    const generic = (value) => {
+      const normalized = normalizeText(value)
+        .replace(
+          /^(?:if|when) (?:you )?(?:(?:selected|select|choose|chose) )?other(?: above)? /,
+          ""
+        )
+        .replace(/^other /, "")
+        .replace(/\b(?:if|when) applicable\b/g, "")
+        .replace(/\b(?:below|here|optional)\b/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+      return /^(?:please )?specify(?: your (?:answer|response)| details)?$/.test(
+        normalized
+      );
+    };
+    for (const source of ["label", "aria", "nearby", "prompt", "placeholder"]) {
+      const explicit = (signals || []).filter(
+        (signal) => signal.source === source
+      );
+      if (explicit.length) {
+        return explicit.some((signal) => generic(signal.text));
+      }
+    }
+    return false;
+  }
+
+  function canPerformDefinitionMatches(definition, signals) {
+    if (definition.key !== "canPerformEssentialFunctions") {
+      return true;
+    }
+    const normalized = (signals || [])
+      .filter((signal) => !machineSignalSources.has(signal.source))
+      .map((signal) => normalizeText(signal.text))
+      .filter(Boolean)
+      .join(" ");
+    const explicitlyAllowsAccommodation =
+      /\bwith (?:or )?without\b.{0,24}\baccommodations?\b/.test(normalized);
+    const excludesAccommodation =
+      /\bwithout\b.{0,24}\baccommodations?\b|\bno accommodations?\b/.test(
+        normalized
+      );
+    if (
+      !normalized ||
+      /\b(?:unable|cannot|can t|not able)\b/.test(normalized) ||
+      /\b(?:not|never)\b.{0,12}\bperform\b|\bperform\b.{0,12}\b(?:not|never)\b/.test(
+        normalized
+      ) ||
+      /\b(?:need|require|request)\b.{0,24}\b(?:an? )?(?:reasonable )?accommodations?\b/.test(
+        normalized
+      ) ||
+      (excludesAccommodation && !explicitlyAllowsAccommodation)
+    ) {
+      return false;
+    }
+    return (
+      /\b(?:can you|are you able to|ability to)\b.{0,48}\bperform\b.{0,48}\bessential functions?\b/.test(
+        normalized
+      ) ||
+      /\bperform\b.{0,32}\bessential functions?\b.{0,48}\bwith or without\b.{0,24}\baccommodations?\b/.test(
+        normalized
+      )
+    );
+  }
+
   function invertYesNo(value) {
     return value === "yes" ? "no" : value === "no" ? "yes" : "";
   }
@@ -362,7 +527,9 @@
     if (
       isExcluded(definition, context.signals || []) ||
       hasThirdPartyContext(definition, context.signals) ||
-      !eligibilityDefinitionMatches(definition, context.signals)
+      hasGenericExplicitLabel(context.signals) ||
+      !eligibilityDefinitionMatches(definition, context.signals) ||
+      !canPerformDefinitionMatches(definition, context.signals)
     ) {
       return 0;
     }
@@ -465,7 +632,7 @@
     return analysis.status === "confident" ? analysis.match : null;
   }
 
-  function canonicalChoice(value) {
+  function canonicalChoice(value, fieldKey) {
     const normalized = normalizeText(value);
 
     if (["yes", "true", "y", "1", "affirmative"].includes(normalized)) {
@@ -475,6 +642,9 @@
       return "no";
     }
     for (const [canonical, aliases] of Object.entries(choiceAliases)) {
+      if (degreeChoiceKeys.has(canonical) && fieldKey !== "degree") {
+        continue;
+      }
       if (aliases.includes(normalized)) {
         return canonical;
       }
@@ -483,10 +653,10 @@
     return normalized;
   }
 
-  function scoreChoice(savedValue, optionValue, optionLabel) {
-    const saved = canonicalChoice(savedValue);
-    const value = canonicalChoice(optionValue);
-    const label = canonicalChoice(optionLabel);
+  function scoreChoice(savedValue, optionValue, optionLabel, fieldKey) {
+    const saved = canonicalChoice(savedValue, fieldKey);
+    const value = canonicalChoice(optionValue, fieldKey);
+    const label = canonicalChoice(optionLabel, fieldKey);
 
     if (!saved) {
       return 0;
