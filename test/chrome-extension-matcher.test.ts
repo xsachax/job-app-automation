@@ -78,6 +78,13 @@ describe("Chrome extension profile storage", () => {
       actScore: "36",
       graduationDate: "2025-05",
       canPerformEssentialFunctions: "yes",
+      pronouns: "They/them",
+      pronounsOther: "Ze/hir",
+      gender: "Non-binary",
+      raceEthnicity: "Middle Eastern or North African",
+      disabilityStatus: "no",
+      veteranStatus: "Not a protected veteran",
+      spacexEmploymentHistory: "Never employed",
       coverLetter: ` ${"x".repeat(20_100)} `,
       unexpectedSecret: "drop me",
     });
@@ -93,8 +100,15 @@ describe("Chrome extension profile storage", () => {
     expect(profile.actScore).toBe("36");
     expect(profile.graduationDate).toBe("2025-05");
     expect(profile.canPerformEssentialFunctions).toBe("yes");
+    expect(profile.pronouns).toBe("They/them");
+    expect(profile.pronounsOther).toBe("Ze/hir");
+    expect(profile.gender).toBe("Non-binary");
+    expect(profile.raceEthnicity).toBe("Middle Eastern or North African");
+    expect(profile.disabilityStatus).toBe("no");
+    expect(profile.veteranStatus).toBe("Not a protected veteran");
     expect(profile.coverLetter).toHaveLength(20_000);
     expect(profile).not.toHaveProperty("unexpectedSecret");
+    expect(profile).not.toHaveProperty("spacexEmploymentHistory");
     expect(() => profileSchema.sanitizeStoredProfile(null)).toThrow(
       "The autofill profile is invalid.",
     );
@@ -217,10 +231,10 @@ describe("Chrome extension field matching", () => {
 
   it("recognizes the reported education and application fields", () => {
     const reportedFields = [
-      ["Country", "select", "country"],
+      ["Country* Required", "select", "country"],
       ["Location (City)", "text", "city"],
-      ["School", "text", "school"],
-      ["Degree", "select", "degree"],
+      ["School* Required", "text", "school"],
+      ["Degree* Required", "select", "degree"],
       ["How did you hear about this job?", "select", "heardAboutJob"],
       ["GPA (Undergraduate)", "text", "undergraduateGpa"],
       ["GPA (Graduate)", "text", "graduateGpa"],
@@ -229,11 +243,6 @@ describe("Chrome extension field matching", () => {
       ["ACT Score", "text", "actScore"],
       ["GRE Score", "text", "greScore"],
       ["Active Security Clearance(s)", "select", "securityClearances"],
-      [
-        "SpaceX & SpaceXAI Employment History",
-        "select",
-        "spacexEmploymentHistory",
-      ],
       [
         "Can you perform all of the essential functions of this role with or without reasonable accommodations?",
         "choice",
@@ -244,8 +253,13 @@ describe("Chrome extension field matching", () => {
         "choice",
         "workAuthorization",
       ],
-      ["Citizenship Status", "select", "citizenshipStatus"],
+      ["Citizenship Status* Required", "select", "citizenshipStatus"],
       ["Discipline", "text", "fieldOfStudy"],
+      ["Pronouns (optional)", "select", "pronouns"],
+      ["Gender identity* Required", "choice", "gender"],
+      ["Race / Ethnicity (Optional)", "select", "raceEthnicity"],
+      ["Disability status Required", "choice", "disabilityStatus"],
+      ["Protected veteran status Optional", "select", "veteranStatus"],
     ];
 
     for (const [label, controlKind, key] of reportedFields) {
@@ -264,6 +278,7 @@ describe("Chrome extension field matching", () => {
     for (const [label, controlKind] of [
       ["Attach", "file"],
       ["Please specify", "text"],
+      ["SpaceX & SpaceXAI Employment History", "select"],
     ]) {
       expect(
         matcher.findBestDefinition(
@@ -303,10 +318,67 @@ describe("Chrome extension field matching", () => {
     ).toBe(100);
     expect(
       matcher.scoreChoice(
-        "Previously employed by SpaceX",
-        "former",
-        "I am a former SpaceX employee",
-        "spacexEmploymentHistory",
+        "She/her",
+        "she_her",
+        "She / Her / Hers",
+        "pronouns",
+      ),
+    ).toBe(100);
+    expect(matcher.scoreChoice("Woman", "female", "Female", "gender")).toBe(100);
+    expect(
+      matcher.scoreChoice(
+        "Black or African American",
+        "opaque-1",
+        "Black / African American",
+        "raceEthnicity",
+      ),
+    ).toBe(100);
+    expect(
+      matcher.scoreChoice(
+        "Native Hawaiian or Other Pacific Islander",
+        "opaque-2",
+        "Native Hawaiian or Pacific Islander",
+        "raceEthnicity",
+      ),
+    ).toBe(100);
+    expect(
+      matcher.scoreChoice(
+        "American Indian or Alaska Native",
+        "opaque-3",
+        "American Indian / Alaskan Native",
+        "raceEthnicity",
+      ),
+    ).toBe(100);
+    expect(
+      matcher.scoreChoice(
+        "Protected veteran",
+        "protected",
+        "I identify as one or more classifications of a protected veteran",
+        "veteranStatus",
+      ),
+    ).toBe(100);
+    expect(
+      matcher.scoreChoice(
+        "Protected veteran",
+        "not-protected",
+        "I am not a protected veteran",
+        "veteranStatus",
+      ),
+    ).toBe(0);
+    expect(
+      matcher.scoreChoice(
+        "Not a protected veteran",
+        "protected",
+        "I am a protected veteran",
+        "veteranStatus",
+      ),
+    ).toBe(0);
+    expect(
+      matcher.scoreChoice(
+        "Prefer not to answer",
+        "decline",
+        "I do not wish to answer",
+        "disabilityStatus",
       ),
     ).toBe(100);
   });
@@ -397,6 +469,71 @@ describe("Chrome extension field matching", () => {
           profileSchema.fields,
         ),
         label,
+      ).toBeNull();
+    }
+  });
+
+  it("matches generic Other details only with identifying question context", () => {
+    const contextualFields = [
+      ["Degree", "degreeOther"],
+      ["How did you hear about this opportunity?", "heardAboutJobOther"],
+      ["Citizenship status", "citizenshipStatusOther"],
+      ["Pronouns", "pronounsOther"],
+      ["Gender identity", "genderOther"],
+      ["Race and ethnicity", "raceEthnicityOther"],
+    ];
+
+    for (const [prompt, key] of contextualFields) {
+      const analysis = matcher.analyzeDefinition(
+        {
+          signals: [
+            { text: "Please specify", weight: 1, source: "label" },
+            { text: prompt, weight: 0.92, source: "prompt" },
+          ],
+          controlKind: "text",
+        },
+        profileSchema.fields,
+      );
+      expect(analysis.status, prompt).toBe("confident");
+      expect(analysis.match?.definition.key, prompt).toBe(key);
+    }
+
+    expect(
+      matcher.findBestDefinition(
+        {
+          signals: [
+            { text: "Please specify", weight: 1, source: "label" },
+            {
+              text: "Voluntary self-identification",
+              weight: 0.92,
+              source: "section",
+            },
+          ],
+          controlKind: "text",
+        },
+        profileSchema.fields,
+      ),
+    ).toBeNull();
+
+    for (const context of [
+      "This organization does not discriminate on the basis of gender, race, or other protected characteristics",
+      "A degree may be required for some positions at this company",
+      "Citizenship background checks are completed after an offer",
+      "You may add pronouns to your email signature after joining",
+      "Voluntary self-identification includes gender identity and sexual orientation",
+    ]) {
+      expect(
+        matcher.findBestDefinition(
+          {
+            signals: [
+              { text: "Please specify", weight: 1, source: "label" },
+              { text: context, weight: 0.92, source: "nearby" },
+            ],
+            controlKind: "text",
+          },
+          profileSchema.fields,
+        ),
+        context,
       ).toBeNull();
     }
   });

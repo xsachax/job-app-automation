@@ -97,6 +97,7 @@ export interface AutofillProfile {
   portfolioUrl: string;
   school: string;
   degree: string;
+  degreeOther: string;
   fieldOfStudy: string;
   graduationDate: string;
   relevantExperienceYears: string;
@@ -108,12 +109,21 @@ export interface AutofillProfile {
   actScore: string;
   greScore: string;
   heardAboutJob: string;
+  heardAboutJobOther: string;
   securityClearances: string;
-  spacexEmploymentHistory: string;
   canPerformEssentialFunctions: "" | "yes" | "no";
   citizenshipStatus: string;
+  citizenshipStatusOther: string;
   workAuthorization: "" | "yes" | "no";
   requiresSponsorship: "" | "yes" | "no";
+  pronouns: string;
+  pronounsOther: string;
+  gender: string;
+  genderOther: string;
+  raceEthnicity: string;
+  raceEthnicityOther: string;
+  disabilityStatus: string;
+  veteranStatus: string;
   coverLetter: string;
 }
 
@@ -196,6 +206,8 @@ export function buildAutofillProfile(
     portfolioUrl: text(profile.website) || text(profile.portfolio),
     school: text(profile.school),
     degree: text(profile.degree),
+    degreeOther:
+      text(profile.degree) === "Other" ? text(profile.degreeOther) : "",
     fieldOfStudy: text(profile.fieldOfStudy),
     graduationDate: text(profile.graduationDate),
     relevantExperienceYears:
@@ -212,14 +224,26 @@ export function buildAutofillProfile(
     actScore: text(profile.actScore),
     greScore: text(profile.greScore),
     heardAboutJob: text(profile.heardAboutJob),
+    heardAboutJobOther:
+      text(profile.heardAboutJob) === "Other"
+        ? text(profile.heardAboutJobOther)
+        : "",
     securityClearances: listText(profile.securityClearances),
-    spacexEmploymentHistory: text(profile.spacexEmploymentHistory),
     canPerformEssentialFunctions: choice(profile.canPerformEssentialFunctions),
     citizenshipStatus: !hasCountryContext
       ? ""
       : isCanada
         ? text(profile.caCitizenshipStatus)
         : text(profile.usCitizenshipStatus),
+    citizenshipStatusOther: !hasCountryContext
+      ? ""
+      : isCanada
+        ? text(profile.caCitizenshipStatus) === "Other"
+          ? text(profile.caCitizenshipStatusOther)
+          : ""
+        : text(profile.usCitizenshipStatus) === "Other"
+          ? text(profile.usCitizenshipStatusOther)
+          : "",
     workAuthorization: !hasCountryContext
       ? ""
       : isCanada
@@ -230,6 +254,19 @@ export function buildAutofillProfile(
       : isCanada
         ? choice(profile.caRequiresSponsorship)
         : choice(profile.usRequiresSponsorship ?? profile.requiresSponsorship),
+    pronouns: text(profile.pronouns),
+    pronounsOther:
+      text(profile.pronouns) === "Other" ? text(profile.pronounsOther) : "",
+    gender: text(profile.gender),
+    genderOther:
+      text(profile.gender) === "Other" ? text(profile.genderOther) : "",
+    raceEthnicity: text(profile.raceEthnicity),
+    raceEthnicityOther:
+      text(profile.raceEthnicity) === "Other"
+        ? text(profile.raceEthnicityOther)
+        : "",
+    disabilityStatus: text(profile.disabilityStatus),
+    veteranStatus: text(profile.veteranStatus),
     coverLetter: text(profile.coverLetterTemplate),
   };
 }

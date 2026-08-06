@@ -51,6 +51,7 @@ export interface ProfileData {
   qualifications?: string; // legacy free-form value; structured fields below take precedence
   school?: string;
   degree?: string;
+  degreeOther?: string;
   fieldOfStudy?: string;
   graduationDate?: string; // YYYY-MM
   relevantExperienceYears?: number | null;
@@ -62,11 +63,21 @@ export interface ProfileData {
   actScore?: string;
   greScore?: string;
   heardAboutJob?: string;
+  heardAboutJobOther?: string;
   securityClearances?: string[];
-  spacexEmploymentHistory?: string;
   canPerformEssentialFunctions?: boolean | null;
   usCitizenshipStatus?: string;
+  usCitizenshipStatusOther?: string;
   caCitizenshipStatus?: string;
+  caCitizenshipStatusOther?: string;
+  pronouns?: string;
+  pronounsOther?: string;
+  gender?: string;
+  genderOther?: string;
+  raceEthnicity?: string;
+  raceEthnicityOther?: string;
+  veteranStatus?: string;
+  disabilityStatus?: string;
   // Common compliance / eligibility questions.
   workAuthorized?: boolean | null; // legacy; migrated to country-specific answers
   requiresSponsorship?: boolean | null; // legacy; migrated to country-specific answers
@@ -78,10 +89,6 @@ export interface ProfileData {
   caLocation?: string;
   caWorkAuthorized?: boolean | null;
   caRequiresSponsorship?: boolean | null;
-  gender?: string;
-  raceEthnicity?: string;
-  veteranStatus?: string;
-  disabilityStatus?: string;
   // Where the resume lives + what to attach.
   resumeSource?: string; // path or URL "Refresh Profile" reads from
   resumePath?: string; // file attached to applications
@@ -107,6 +114,7 @@ export const DEFAULT_PROFILE: ProfileData = {
   qualifications: "",
   school: "",
   degree: "",
+  degreeOther: "",
   fieldOfStudy: "",
   graduationDate: "",
   relevantExperienceYears: null,
@@ -118,11 +126,21 @@ export const DEFAULT_PROFILE: ProfileData = {
   actScore: "",
   greScore: "",
   heardAboutJob: "",
+  heardAboutJobOther: "",
   securityClearances: [],
-  spacexEmploymentHistory: "",
   canPerformEssentialFunctions: null,
   usCitizenshipStatus: "",
+  usCitizenshipStatusOther: "",
   caCitizenshipStatus: "",
+  caCitizenshipStatusOther: "",
+  pronouns: "",
+  pronounsOther: "",
+  gender: "",
+  genderOther: "",
+  raceEthnicity: "",
+  raceEthnicityOther: "",
+  veteranStatus: "",
+  disabilityStatus: "",
   usCountry: "United States",
   usLocation: "",
   usWorkAuthorized: null,
@@ -131,10 +149,6 @@ export const DEFAULT_PROFILE: ProfileData = {
   caLocation: "",
   caWorkAuthorized: null,
   caRequiresSponsorship: null,
-  gender: "",
-  raceEthnicity: "",
-  veteranStatus: "",
-  disabilityStatus: "",
   resumeSource: "",
   resumePath: "",
   coverLetterTemplate: "",
@@ -149,6 +163,7 @@ const LEGACY_PROFILE_KEYS = [
   "country",
   "workAuthorized",
   "requiresSponsorship",
+  "spacexEmploymentHistory",
 ] as const;
 
 function normalizeProfileData(data: ProfileData): ProfileData {

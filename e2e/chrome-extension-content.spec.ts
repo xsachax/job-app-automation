@@ -485,13 +485,6 @@ test("fills structured education and recurring application questions", async ({
           <option value="secret">Secret</option>
         </select>
       </label>
-      <label>SpaceX &amp; SpaceXAI Employment History
-        <select id="spacex-history">
-          <option value="">Select</option>
-          <option value="never">I have never been employed by SpaceX</option>
-          <option value="former">I am a former SpaceX employee</option>
-        </select>
-      </label>
       <fieldset>
         <legend>Can you perform all of the essential functions of this role with or without reasonable accommodations?</legend>
         <label><input type="radio" name="essential-functions" value="yes"> Yes</label>
@@ -502,6 +495,41 @@ test("fills structured education and recurring application questions", async ({
           <option value="">Select</option>
           <option value="citizen">U.S. Citizen</option>
           <option value="green-card">Green Card Holder</option>
+        </select>
+      </label>
+      <label>Pronouns
+        <select id="pronouns">
+          <option value="">Select</option>
+          <option value="she">She / Her / Hers</option>
+          <option value="they">They / Them / Theirs</option>
+        </select>
+      </label>
+      <fieldset>
+        <legend>Gender identity</legend>
+        <label><input type="radio" name="gender" value="female"> Female</label>
+        <label><input type="radio" name="gender" value="male"> Male</label>
+      </fieldset>
+      <label>Race / Ethnicity
+        <select id="race-ethnicity">
+          <option value="">Select</option>
+          <option value="black">Black / African American</option>
+          <option value="white">White</option>
+        </select>
+      </label>
+      <label>Disability status
+        <select id="disability">
+          <option value="">Select</option>
+          <option value="yes">Yes, I have a disability or have had one in the past</option>
+          <option value="no">No, I do not have a disability and have not had one in the past</option>
+          <option value="decline">I do not want to answer</option>
+        </select>
+      </label>
+      <label>Protected veteran status
+        <select id="veteran">
+          <option value="">Select</option>
+          <option value="protected">I identify as one or more classifications of a protected veteran</option>
+          <option value="not-protected">I am not a protected veteran</option>
+          <option value="decline">I do not wish to answer</option>
         </select>
       </label>
     `,
@@ -518,13 +546,17 @@ test("fills structured education and recurring application questions", async ({
       greScore: "325",
       heardAboutJob: "LinkedIn",
       securityClearances: "None",
-      spacexEmploymentHistory: "Never employed",
       canPerformEssentialFunctions: "yes",
       citizenshipStatus: "Permanent resident",
+      pronouns: "She/her",
+      gender: "Woman",
+      raceEthnicity: "Black or African American",
+      disabilityStatus: "no",
+      veteranStatus: "Not a protected veteran",
     },
   });
 
-  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 15 });
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 19 });
   await expect(page.locator("#school")).toHaveValue("University of Ottawa");
   await expect(page.locator("#degree")).toHaveValue("BS");
   await expect(page.locator("#discipline")).toHaveValue("Computer Science");
@@ -537,11 +569,52 @@ test("fills structured education and recurring application questions", async ({
   await expect(page.locator("#gre")).toHaveValue("325");
   await expect(page.locator("#source")).toHaveValue("linkedin");
   await expect(page.locator("#clearance")).toHaveValue("none");
-  await expect(page.locator("#spacex-history")).toHaveValue("never");
   await expect(
     page.locator('input[name="essential-functions"][value="yes"]'),
   ).toBeChecked();
   await expect(page.locator("#citizenship")).toHaveValue("green-card");
+  await expect(page.locator("#pronouns")).toHaveValue("she");
+  await expect(page.locator('input[name="gender"][value="female"]')).toBeChecked();
+  await expect(page.locator("#race-ethnicity")).toHaveValue("black");
+  await expect(page.locator("#disability")).toHaveValue("no");
+  await expect(page.locator("#veteran")).toHaveValue("not-protected");
+});
+
+test("fills generic Other details only when nearby context identifies them", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `
+      <section><h3>Degree</h3><label>Please specify <input id="degree-other"></label></section>
+      <section><h3>How did you hear about this opportunity?</h3><label>Please specify <input id="source-other"></label></section>
+      <section><h3>Citizenship status</h3><label>Please specify <input id="citizenship-other"></label></section>
+      <section><h3>Pronouns</h3><label>Please specify <input id="pronouns-other"></label></section>
+      <section><h3>Gender identity</h3><label>Please specify <input id="gender-other"></label></section>
+      <section><h3>Race and ethnicity</h3><label>Please specify <input id="race-other"></label></section>
+      <section><h3>Additional information</h3><label>Please specify <input id="ambiguous-other"></label></section>
+    `,
+    profile: {
+      degreeOther: "Diploma in Software Engineering",
+      heardAboutJobOther: "Hackathon",
+      citizenshipStatusOther: "Non-citizen national",
+      pronounsOther: "Ze/hir",
+      genderOther: "Genderqueer",
+      raceEthnicityOther: "West Asian",
+    },
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 6 });
+  await expect(page.locator("#degree-other")).toHaveValue(
+    "Diploma in Software Engineering",
+  );
+  await expect(page.locator("#source-other")).toHaveValue("Hackathon");
+  await expect(page.locator("#citizenship-other")).toHaveValue(
+    "Non-citizen national",
+  );
+  await expect(page.locator("#pronouns-other")).toHaveValue("Ze/hir");
+  await expect(page.locator("#gender-other")).toHaveValue("Genderqueer");
+  await expect(page.locator("#race-other")).toHaveValue("West Asian");
+  await expect(page.locator("#ambiguous-other")).toHaveValue("");
 });
 
 test("fills contenteditable fields on generic application forms", async ({ page }) => {

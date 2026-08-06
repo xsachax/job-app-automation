@@ -158,8 +158,112 @@ test.describe("profile page", () => {
     await expect(page.getByLabel("Undergraduate GPA")).toBeVisible();
     await expect(page.getByLabel("SAT score")).toBeVisible();
     await expect(page.getByLabel("Default cover letter")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Voluntary self-identification" }),
+    ).toBeVisible();
+    await expect(page.getByLabel("Pronouns")).toBeVisible();
+    await expect(page.getByLabel("Gender")).toBeVisible();
+    await expect(page.getByLabel("Race / ethnicity")).toBeVisible();
+    await expect(page.getByLabel("Disability status")).toBeVisible();
+    await expect(page.getByLabel("Protected veteran status")).toBeVisible();
+    await expect(page.getByText(/SpaceXAI Employment History/i)).toHaveCount(0);
     await expect(page.getByLabel("Pasted or parsed resume text")).toHaveCount(0);
     await expect(page.getByText(/never influence fit scores/i)).toBeVisible();
+  });
+
+  test("persists contextual Other answers without showing stale companion fields", async ({
+    page,
+  }) => {
+    await page.goto("/profile");
+    const originalProfile = await page.evaluate(async () =>
+      fetch("/api/profile").then((response) => response.json()),
+    );
+
+    try {
+      await page.evaluate(async (profile) => {
+        await fetch("/api/profile", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...profile,
+            degree: "",
+            heardAboutJob: "",
+            usCitizenshipStatus: "",
+            pronouns: "",
+            gender: "",
+            raceEthnicity: "",
+          }),
+        });
+      }, originalProfile);
+      await page.reload();
+
+      await expect(page.getByLabel("Please specify degree")).toHaveCount(0);
+      await expect(page.getByLabel("Please specify your pronouns")).toHaveCount(0);
+      await expect(page.getByLabel("Please self-describe your gender")).toHaveCount(
+        0,
+      );
+
+      await page.getByLabel("Degree").selectOption("Other");
+      await page
+        .getByLabel("Please specify degree")
+        .fill("Diploma in Software Engineering");
+      await page
+        .getByLabel("How did you hear about this job?")
+        .selectOption("Other");
+      await page
+        .getByLabel("Please specify how you heard about this job")
+        .fill("Hackathon");
+
+      const usSection = page.getByRole("region", {
+        name: "Jobs in the United States",
+      });
+      await usSection.getByLabel("Citizenship status").selectOption("Other");
+      await usSection
+        .getByLabel("Please specify citizenship status")
+        .fill("Non-citizen national");
+
+      await page.getByLabel("Pronouns").selectOption("Other");
+      await page.getByLabel("Please specify your pronouns").fill("Ze/hir");
+      await page.getByLabel("Gender").selectOption("Other");
+      await page
+        .getByLabel("Please self-describe your gender")
+        .fill("Genderqueer");
+      await page.getByLabel("Race / ethnicity").selectOption("Other");
+      await page
+        .getByLabel("Please specify your race / ethnicity")
+        .fill("West Asian");
+
+      await page.getByRole("button", { name: "Save profile", exact: true }).click();
+      await expect(page.getByText(/Profile saved/)).toBeVisible();
+      await page.reload();
+
+      await expect(page.getByLabel("Please specify degree")).toHaveValue(
+        "Diploma in Software Engineering",
+      );
+      await expect(
+        page.getByLabel("Please specify how you heard about this job"),
+      ).toHaveValue("Hackathon");
+      await expect(
+        usSection.getByLabel("Please specify citizenship status"),
+      ).toHaveValue("Non-citizen national");
+      await expect(page.getByLabel("Please specify your pronouns")).toHaveValue(
+        "Ze/hir",
+      );
+      await expect(page.getByLabel("Please self-describe your gender")).toHaveValue(
+        "Genderqueer",
+      );
+      await expect(
+        page.getByLabel("Please specify your race / ethnicity"),
+      ).toHaveValue("West Asian");
+    } finally {
+      await page.evaluate(async (profile) => {
+        await fetch("/api/profile", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(profile),
+        });
+      }, originalProfile);
+    }
   });
 
   test("syncs saved autofill details to Chrome without an ID field", async ({ page }) => {

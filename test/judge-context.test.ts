@@ -14,8 +14,12 @@ const PERSONAL = {
   github: "https://github.com/zq-hidden-handle",
   website: "https://zq-personal-site.test",
   portfolio: "https://zq-portfolio-hidden.test",
+  pronouns: "PronounsSentinelXQ",
+  pronounsOther: "PronounsOtherSentinelXQ",
   gender: "GenderSentinelXQ",
+  genderOther: "GenderOtherSentinelXQ",
   raceEthnicity: "EthnicitySentinelXQ",
+  raceEthnicityOther: "EthnicityOtherSentinelXQ",
   veteranStatus: "VeteranSentinelXQ",
   disabilityStatus: "DisabilitySentinelXQ",
   undergraduateGpa: "GpaSentinelXQ",
@@ -25,8 +29,11 @@ const PERSONAL = {
   actScore: "ActSentinelXQ",
   greScore: "GreSentinelXQ",
   heardAboutJob: "SourceSentinelXQ",
+  heardAboutJobOther: "SourceOtherSentinelXQ",
   usCitizenshipStatus: "CitizenshipSentinelXQ",
+  usCitizenshipStatusOther: "CitizenshipOtherSentinelXQ",
   caCitizenshipStatus: "CanadaCitizenshipSentinelXQ",
+  caCitizenshipStatusOther: "CanadaCitizenshipOtherSentinelXQ",
 } as const;
 
 function fullyPopulatedProfile(): ProfileData {
@@ -41,7 +48,6 @@ function fullyPopulatedProfile(): ProfileData {
     summary: "Entry-level engineer building reliable web systems.",
     qualifications: "B.S. Computer Science, 2026. Internship at a fintech startup.",
     securityClearances: ["ClearanceSentinelXQ"],
-    spacexEmploymentHistory: "SpaceXHistorySentinelXQ",
     canPerformEssentialFunctions: true,
     resumeText: "Experienced with distributed systems and Node.js services.",
     coverLetterTemplate: "Dear hiring manager, ZylpharaCoverSentinel ...",
@@ -68,7 +74,19 @@ describe("buildResumeContext — judge input", () => {
     // The cover-letter template is also personal boilerplate, not a fit signal.
     expect(blob).not.toContain("zylpharacoversentinel");
     expect(blob).not.toContain("clearancesentinelxq");
-    expect(blob).not.toContain("spacexhistorysentinelxq");
+  });
+
+  it("uses a self-described degree as a qualification signal", () => {
+    const ctx = buildResumeContext({
+      degree: "Other",
+      degreeOther: "Diploma in Software Engineering",
+      fieldOfStudy: "Distributed Systems",
+    });
+
+    expect(ctx.text).toContain(
+      "Education: Diploma in Software Engineering in Distributed Systems",
+    );
+    expect(ctx.text).not.toContain("Education: Other");
   });
 
   it("only exposes the four resume context keys", () => {

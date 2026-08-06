@@ -45,6 +45,13 @@
     "metadata",
     "platform"
   ]);
+  const genericContextSources = new Set([
+    "aria",
+    "nearby",
+    "placeholder",
+    "prompt",
+    "section"
+  ]);
   const degreeChoiceKeys = new Set([
     "bachelors degree",
     "masters degree",
@@ -114,21 +121,98 @@
       "current employee",
       "employee"
     ],
-    "never employed": [
-      "never employed",
-      "never employed by spacex",
-      "never worked at spacex",
-      "i have never been employed by spacex"
+    other: [
+      "other",
+      "self describe",
+      "self described",
+      "prefer to self describe",
+      "i prefer to self describe",
+      "another identity",
+      "another race or ethnicity",
+      "a gender not listed here",
+      "not listed",
+      "not listed above"
     ],
-    "previously employed by spacex": [
-      "previously employed by spacex",
-      "former spacex employee",
-      "i am a former spacex employee"
+    "prefer not to answer": [
+      "prefer not to answer",
+      "prefer not to say",
+      "decline to answer",
+      "decline to self identify",
+      "i decline to answer",
+      "choose not to disclose",
+      "i choose not to self identify",
+      "do not wish to disclose",
+      "i do not wish to answer",
+      "i don t wish to answer",
+      "i do not want to answer",
+      "i don t want to answer",
+      "i prefer not to answer"
     ],
-    "previously employed by spacexai": [
-      "previously employed by spacexai",
-      "former spacexai employee",
-      "i am a former spacexai employee"
+    "he him": ["he him", "he him his"],
+    "she her": ["she her", "she her hers"],
+    "they them": ["they them", "they them theirs"],
+    "use my name": ["use my name", "name only", "use name only"],
+    woman: ["woman", "female", "cisgender woman"],
+    man: ["man", "male", "cisgender man"],
+    "non binary": [
+      "non binary",
+      "nonbinary",
+      "gender non conforming",
+      "genderqueer"
+    ],
+    "american indian or alaska native": [
+      "american indian or alaska native",
+      "american indian or alaskan native",
+      "american indian alaska native",
+      "american indian alaskan native",
+      "native american",
+      "alaska native"
+    ],
+    asian: ["asian"],
+    "black or african american": [
+      "black or african american",
+      "black african american",
+      "black",
+      "african american"
+    ],
+    "hispanic or latino": [
+      "hispanic or latino",
+      "hispanic latino",
+      "hispanic or latino a x",
+      "hispanic",
+      "latino",
+      "latina",
+      "latinx"
+    ],
+    "middle eastern or north african": [
+      "middle eastern or north african",
+      "middle eastern north african",
+      "mena"
+    ],
+    "native hawaiian or other pacific islander": [
+      "native hawaiian or other pacific islander",
+      "native hawaiian or pacific islander",
+      "native hawaiian other pacific islander",
+      "native hawaiian",
+      "pacific islander"
+    ],
+    white: ["white", "caucasian"],
+    "two or more races": [
+      "two or more races",
+      "multiracial",
+      "multi racial",
+      "multiple races"
+    ],
+    "protected veteran": [
+      "protected veteran",
+      "i am a protected veteran",
+      "one or more classifications of a protected veteran",
+      "i identify as one or more classifications of a protected veteran"
+    ],
+    "not a protected veteran": [
+      "not a protected veteran",
+      "i am not a protected veteran",
+      "not protected veteran"
     ],
     "u s citizen": [
       "u s citizen",
@@ -232,8 +316,6 @@
     return String(value || "")
       .replace(/LinkedIn/gi, "Linkedin")
       .replace(/GitHub/gi, "Github")
-      .replace(/SpaceXAI/gi, "Spacexai")
-      .replace(/SpaceX/gi, "Spacex")
       .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
       .normalize("NFKD")
       .replace(/[\u0300-\u036f]/g, "")
@@ -280,6 +362,13 @@
       return false;
     }
     return editDistance(left, right) <= 1;
+  }
+
+  function normalizeExactSignal(value) {
+    return normalizeText(value)
+      .replace(/^(?:optional|required) /, "")
+      .replace(/ (?:optional|required)$/, "")
+      .trim();
   }
 
   function scoreText(value, alias) {
@@ -429,31 +518,57 @@
     return definition.key === "requiresSponsorship";
   }
 
+  function isGenericSpecifyText(value) {
+    const normalized = normalizeText(value)
+      .replace(
+        /^(?:if|when) (?:you )?(?:(?:selected|select|choose|chose) )?other(?: above)? /,
+        ""
+      )
+      .replace(/^other /, "")
+      .replace(/\b(?:if|when) applicable\b/g, "")
+      .replace(/\b(?:below|here|optional)\b/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    return /^(?:please )?specify(?: your (?:answer|response)| details)?$/.test(
+      normalized
+    );
+  }
+
   function hasGenericExplicitLabel(signals) {
-    const generic = (value) => {
-      const normalized = normalizeText(value)
-        .replace(
-          /^(?:if|when) (?:you )?(?:(?:selected|select|choose|chose) )?other(?: above)? /,
-          ""
-        )
-        .replace(/^other /, "")
-        .replace(/\b(?:if|when) applicable\b/g, "")
-        .replace(/\b(?:below|here|optional)\b/g, "")
-        .replace(/\s+/g, " ")
-        .trim();
-      return /^(?:please )?specify(?: your (?:answer|response)| details)?$/.test(
-        normalized
-      );
-    };
     for (const source of ["label", "aria", "nearby", "prompt", "placeholder"]) {
       const explicit = (signals || []).filter(
         (signal) => signal.source === source
       );
       if (explicit.length) {
-        return explicit.some((signal) => generic(signal.text));
+        return explicit.some((signal) => isGenericSpecifyText(signal.text));
       }
     }
     return false;
+  }
+
+  function genericContextMatches(definition, signals) {
+    if (!definition.allowGenericWithContext) {
+      return false;
+    }
+    return (definition.contextAliases || []).some((alias) =>
+      (signals || []).some(
+        (signal) => {
+          if (
+            !genericContextSources.has(signal.source) ||
+            isGenericSpecifyText(signal.text)
+          ) {
+            return false;
+          }
+          const context = normalizeText(signal.text);
+          const normalizedAlias = normalizeText(alias);
+          return [
+            normalizedAlias,
+            `${normalizedAlias} optional`,
+            `${normalizedAlias} required`
+          ].includes(context);
+        }
+      )
+    );
   }
 
   function canPerformDefinitionMatches(definition, signals) {
@@ -524,10 +639,13 @@
     if (!isCompatible(definition, context.controlKind)) {
       return 0;
     }
+    const genericLabel = hasGenericExplicitLabel(context.signals);
+    const contextualGeneric =
+      genericLabel && genericContextMatches(definition, context.signals);
     if (
       isExcluded(definition, context.signals || []) ||
       hasThirdPartyContext(definition, context.signals) ||
-      hasGenericExplicitLabel(context.signals) ||
+      (genericLabel && !contextualGeneric) ||
       !eligibilityDefinitionMatches(definition, context.signals) ||
       !canPerformDefinitionMatches(definition, context.signals)
     ) {
@@ -548,14 +666,17 @@
       return 120;
     }
 
-    let bestScore = 0;
+    let bestScore = contextualGeneric ? 88 : 0;
     const corroboratingSources = new Set();
+    if (contextualGeneric) {
+      corroboratingSources.add("generic-context");
+    }
     for (const signal of context.signals || []) {
       let signalScore = 0;
       for (const alias of definition.aliases || []) {
         if (
           (definition.exactAliases || []).includes(alias) &&
-          normalizeText(signal.text) !== normalizeText(alias)
+          normalizeExactSignal(signal.text) !== normalizeText(alias)
         ) {
           continue;
         }
@@ -659,6 +780,15 @@
     const label = canonicalChoice(optionLabel, fieldKey);
 
     if (!saved) {
+      return 0;
+    }
+    if (
+      fieldKey === "veteranStatus" &&
+      ((saved === "protected veteran" &&
+        [value, label].includes("not a protected veteran")) ||
+        (saved === "not a protected veteran" &&
+          [value, label].includes("protected veteran")))
+    ) {
       return 0;
     }
     if (saved === value || saved === label) {
