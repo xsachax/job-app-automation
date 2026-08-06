@@ -544,7 +544,13 @@
       : `element:${elementIdentity(control)}`;
   }
 
-  function resolveMatchedValue(match, kind, signals, effectiveProfile) {
+  function resolveMatchedValue(
+    match,
+    kind,
+    signals,
+    effectiveProfile,
+    nativeInputType
+  ) {
     if (!match) {
       return { value: "", safe: false };
     }
@@ -613,6 +619,19 @@
         available: state.profileAvailability.has("phoneNational")
       };
     }
+    if (
+      match.definition.key === "graduationDate" &&
+      nativeInputType === "month"
+    ) {
+      return {
+        value: profileSchema.formatControlValue(
+          effectiveProfile.graduationDateInput,
+          kind
+        ),
+        safe: true,
+        available: state.profileAvailability.has("graduationDate")
+      };
+    }
     return {
       value: profileSchema.formatControlValue(
         effectiveProfile[match.definition.key],
@@ -673,7 +692,8 @@
         match,
         kind,
         signals,
-        effectiveProfile
+        effectiveProfile,
+        inputType(elements[0])
       );
       const matchedValue = resolved.value;
       const answered = isAnswered(elements);
@@ -1110,7 +1130,7 @@
     );
   }
 
-  function rankOptions(options, value) {
+  function rankOptions(options, value, fieldKey) {
     return options
       .filter(
         (option) =>
@@ -1121,7 +1141,8 @@
         score: matcher.scoreChoice(
           value,
           option.value || option.getAttribute?.("data-value") || option.id,
-          optionText(option)
+          optionText(option),
+          fieldKey
         )
       }))
       .sort((left, right) => right.score - left.score);
@@ -1192,14 +1213,15 @@
     element.click?.();
     await wait(60);
 
-    let ranked = rankOptions(visibleComboOptions(element), value);
+    const fieldKey = question.match?.definition.key;
+    let ranked = rankOptions(visibleComboOptions(element), value, fieldKey);
     if (!hasUniqueChoice(ranked) && isInput(element) && !element.readOnly) {
       setNativeProperty(element, "value", value);
       const EventConstructor =
         element.ownerDocument?.defaultView?.Event || Event;
       element.dispatchEvent(new EventConstructor("input", { bubbles: true }));
       await wait(100);
-      ranked = rankOptions(visibleComboOptions(element), value);
+      ranked = rankOptions(visibleComboOptions(element), value, fieldKey);
     }
 
     if (!hasUniqueChoice(ranked)) {
@@ -1217,7 +1239,8 @@
       matcher.scoreChoice(
         value,
         element.value || element.getAttribute("data-value"),
-        element.getAttribute("aria-valuetext") || optionText(element)
+        element.getAttribute("aria-valuetext") || optionText(element),
+        fieldKey
       ) >= matcher.MINIMUM_SCORE;
     if (selected) {
       state.extensionValues.set(
@@ -1236,7 +1259,11 @@
     }
 
     if (isSelect(first)) {
-      const ranked = rankOptions(Array.from(first.options), value);
+      const ranked = rankOptions(
+        Array.from(first.options),
+        value,
+        question.match?.definition.key
+      );
       if (!hasUniqueChoice(ranked)) {
         return false;
       }
@@ -1250,7 +1277,11 @@
     }
 
     if (inputType(first) === "radio" || elementRole(first) === "radio") {
-      const ranked = rankOptions(question.elements, value);
+      const ranked = rankOptions(
+        question.elements,
+        value,
+        question.match?.definition.key
+      );
       if (!hasUniqueChoice(ranked)) {
         return false;
       }

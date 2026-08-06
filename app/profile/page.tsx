@@ -82,14 +82,16 @@ function formatSavedAt(value: string): string {
 }
 
 function splitCsv(value: string): string[] {
+  const seen = new Set<string>();
   return value
-    .split(",")
+    .split(/[,\n]/)
     .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function joinCsv(value: string[] | undefined): string {
-  return (value ?? []).join(", ");
+    .filter((item) => {
+      const key = item.toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 }
 
 function booleanChoice(value: boolean | null | undefined): string {
@@ -110,43 +112,113 @@ function FieldShell({ label, children, hint }: { label: string; children: React.
   );
 }
 
-function Chips({ items, empty }: { items: string[] | undefined; empty: string }) {
+function TagEditor({
+  label,
+  items,
+  placeholder,
+  empty,
+  onChange,
+}: {
+  label: string;
+  items: string[] | undefined;
+  placeholder: string;
+  empty: string;
+  onChange: (items: string[]) => void;
+}) {
+  const [draft, setDraft] = useState("");
   const list = items ?? [];
-  if (!list.length) return <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">{empty}</p>;
+
+  function addDraft() {
+    const additions = splitCsv(draft);
+    if (!additions.length) return;
+    onChange(splitCsv([...list, ...additions].join(",")));
+    setDraft("");
+  }
+
+  function removeAt(index: number) {
+    onChange(list.filter((_, itemIndex) => itemIndex !== index));
+  }
+
   return (
-    <div className="mt-2 flex flex-wrap gap-1.5">
-      {list.map((item) => (
-        <span
-          key={item}
-          className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-800 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-200"
+    <>
+      <div className="flex gap-2">
+        <input
+          aria-label={`Add ${label}`}
+          className={`${cls.input} placeholder:text-gray-500 dark:placeholder:text-gray-400`}
+          value={draft}
+          placeholder={placeholder}
+          onBlur={addDraft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter" && event.key !== ",") return;
+            event.preventDefault();
+            addDraft();
+          }}
+        />
+        <button
+          type="button"
+          className={cls.btn}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={addDraft}
+          disabled={!draft.trim()}
         >
-          {item}
-        </span>
-      ))}
-    </div>
+          Add
+        </button>
+      </div>
+      {list.length ? (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {list.map((item, index) => (
+            <span
+              key={`${item}-${index}`}
+              className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 py-0.5 pl-2 pr-1 text-xs font-medium text-indigo-800 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-200"
+            >
+              {item}
+              <button
+                type="button"
+                aria-label={`Remove ${item}`}
+                className="rounded-full px-1 text-indigo-500 hover:bg-indigo-100 hover:text-indigo-900 dark:text-indigo-300 dark:hover:bg-indigo-900 dark:hover:text-white"
+                onClick={() => removeAt(index)}
+              >
+                &times;
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">{empty}</p>
+      )}
+    </>
   );
 }
 
 function CountryAutofillSection({
   title,
+  country,
   locationLabel,
   locationPlaceholder,
   location,
   workAuthorized,
   requiresSponsorship,
+  citizenshipStatus,
+  citizenshipOptions,
   onLocationChange,
   onAuthorizationChange,
   onSponsorshipChange,
+  onCitizenshipStatusChange,
 }: {
   title: string;
+  country: string;
   locationLabel: string;
   locationPlaceholder: string;
   location?: string;
   workAuthorized?: boolean | null;
   requiresSponsorship?: boolean | null;
+  citizenshipStatus?: string;
+  citizenshipOptions?: { value: string; label: string }[];
   onLocationChange: (value: string) => void;
   onAuthorizationChange: (value: boolean | null) => void;
   onSponsorshipChange: (value: boolean | null) => void;
+  onCitizenshipStatusChange?: (value: string) => void;
 }) {
   return (
     <section
@@ -155,6 +227,14 @@ function CountryAutofillSection({
     >
       <h3 className="text-sm font-semibold">{title}</h3>
       <div className="mt-4 grid gap-4">
+        <FieldShell label="Country">
+          <input
+            aria-label="Country"
+            className={`${cls.input} bg-gray-50 text-gray-700 dark:bg-gray-900 dark:text-gray-300`}
+            value={country}
+            readOnly
+          />
+        </FieldShell>
         <FieldShell label={locationLabel}>
           <input
             aria-label={locationLabel}
@@ -192,6 +272,25 @@ function CountryAutofillSection({
             <option value="no">No</option>
           </select>
         </FieldShell>
+        {onCitizenshipStatusChange && citizenshipOptions?.length && (
+          <FieldShell label="Citizenship status">
+            <select
+              aria-label="Citizenship status"
+              className={cls.input}
+              value={citizenshipStatus ?? ""}
+              onChange={(event) =>
+                onCitizenshipStatusChange(event.target.value)
+              }
+            >
+              <option value="">Select an answer</option>
+              {citizenshipOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </FieldShell>
+        )}
       </div>
     </section>
   );
@@ -538,11 +637,21 @@ export default function ProfilePage() {
             <div className="mt-6 grid gap-4 lg:grid-cols-2">
               <CountryAutofillSection
                 title="Jobs in the United States"
-                locationLabel="US location"
-                locationPlaceholder="New York, NY or Remote"
+                country={profile.usCountry || "United States"}
+                locationLabel="US city / location"
+                locationPlaceholder="New York, NY"
                 location={profile.usLocation}
                 workAuthorized={profile.usWorkAuthorized}
                 requiresSponsorship={profile.usRequiresSponsorship}
+                citizenshipStatus={profile.usCitizenshipStatus}
+                citizenshipOptions={[
+                  { value: "U.S. citizen", label: "U.S. citizen" },
+                  { value: "U.S. national", label: "U.S. national" },
+                  { value: "Permanent resident", label: "Permanent resident" },
+                  { value: "Protected individual", label: "Protected individual" },
+                  { value: "Other", label: "Other" },
+                  { value: "Prefer not to answer", label: "Prefer not to answer" },
+                ]}
                 onLocationChange={(value) => setField("usLocation", value)}
                 onAuthorizationChange={(value) =>
                   setField("usWorkAuthorized", value)
@@ -550,20 +659,35 @@ export default function ProfilePage() {
                 onSponsorshipChange={(value) =>
                   setField("usRequiresSponsorship", value)
                 }
+                onCitizenshipStatusChange={(value) =>
+                  setField("usCitizenshipStatus", value)
+                }
               />
               <CountryAutofillSection
                 title="Jobs in Canada"
-                locationLabel="Canada location"
-                locationPlaceholder="Toronto, ON or Remote"
+                country={profile.caCountry || "Canada"}
+                locationLabel="Canada city / location"
+                locationPlaceholder="Toronto, ON"
                 location={profile.caLocation}
                 workAuthorized={profile.caWorkAuthorized}
                 requiresSponsorship={profile.caRequiresSponsorship}
+                citizenshipStatus={profile.caCitizenshipStatus}
+                citizenshipOptions={[
+                  { value: "Canadian citizen", label: "Canadian citizen" },
+                  { value: "Permanent resident", label: "Permanent resident" },
+                  { value: "Work permit holder", label: "Work permit holder" },
+                  { value: "Other", label: "Other" },
+                  { value: "Prefer not to answer", label: "Prefer not to answer" },
+                ]}
                 onLocationChange={(value) => setField("caLocation", value)}
                 onAuthorizationChange={(value) =>
                   setField("caWorkAuthorized", value)
                 }
                 onSponsorshipChange={(value) =>
                   setField("caRequiresSponsorship", value)
+                }
+                onCitizenshipStatusChange={(value) =>
+                  setField("caCitizenshipStatus", value)
                 }
               />
             </div>
@@ -702,46 +826,265 @@ export default function ProfilePage() {
           <section className={cls.card}>
             <h2 className="text-lg font-semibold text-gray-950 dark:text-gray-50">Judge signals</h2>
             <p className="mt-1 max-w-2xl text-sm text-gray-600 dark:text-gray-400">
-              Keep these concise. They become the deterministic baseline and the context exported to the Copilot agent.
+              Add explicit values instead of comma-editing or free-form qualification text.
+              These become the deterministic baseline and the context exported to the
+              Copilot agent.
             </p>
             <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <FieldShell label="Target roles" hint="Comma-separated roles the judge should prefer.">
-                <input
-                  className={`${cls.input} placeholder:text-gray-500 dark:placeholder:text-gray-400`}
-                  value={joinCsv(profile.targetRoles)}
-                  placeholder="Software Engineer, Full-stack Developer"
-                  onChange={(e) => setField("targetRoles", splitCsv(e.target.value))}
+              <FieldShell label="Target roles" hint="Add or remove each role explicitly.">
+                <TagEditor
+                  label="target role"
+                  items={profile.targetRoles}
+                  placeholder="Software Engineer"
+                  empty="No target roles yet."
+                  onChange={(items) => setField("targetRoles", items)}
                 />
-                <Chips items={profile.targetRoles} empty="No target roles yet." />
               </FieldShell>
-              <FieldShell label="Skills" hint="Comma-separated technologies, tools, and domains.">
-                <input
-                  className={`${cls.input} placeholder:text-gray-500 dark:placeholder:text-gray-400`}
-                  value={joinCsv(profile.skills)}
-                  placeholder="TypeScript, React, Python, SQL"
-                  onChange={(e) => setField("skills", splitCsv(e.target.value))}
+              <FieldShell label="Skills" hint="Add technologies, tools, and domains one at a time.">
+                <TagEditor
+                  label="skill"
+                  items={profile.skills}
+                  placeholder="TypeScript"
+                  empty="No skills yet."
+                  onChange={(items) => setField("skills", items)}
                 />
-                <Chips items={profile.skills} empty="No skills yet." />
               </FieldShell>
             </div>
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <FieldShell label="Short summary">
+            <div className="mt-4">
+              <FieldShell
+                label="Short summary"
+                hint="Keep this factual and under 400 characters."
+              >
                 <textarea
                   className={`${cls.input} min-h-28 placeholder:text-gray-500 dark:placeholder:text-gray-400`}
                   value={profile.summary ?? ""}
+                  maxLength={400}
                   placeholder="Entry-level software engineer focused on product engineering and reliable systems."
                   onChange={(e) => setField("summary", e.target.value)}
                 />
               </FieldShell>
-              <FieldShell label="Qualifications" hint="Degree, graduation date, internships, projects, authorization, or location constraints.">
-                <textarea
-                  className={`${cls.input} min-h-28 placeholder:text-gray-500 dark:placeholder:text-gray-400`}
-                  value={profile.qualifications ?? ""}
-                  placeholder="B.S. Computer Science, May 2026. Built ..."
-                  onChange={(e) => setField("qualifications", e.target.value)}
+            </div>
+
+            <div className="mt-6 border-t border-gray-200 pt-5 dark:border-gray-800">
+              <h3 className="text-sm font-semibold text-gray-950 dark:text-gray-50">
+                Education and qualifications
+              </h3>
+              <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                Structured values let the judge compare hard requirements directly and
+                let autofill target education fields reliably.
+              </p>
+              {profile.qualifications?.trim() && (
+                <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                  Legacy free-form qualifications are still used as a fallback.
+                  Structured qualification values take precedence for scoring without
+                  deleting that saved text.
+                </p>
+              )}
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <FieldShell label="School">
+                  <input
+                    aria-label="School"
+                    className={cls.input}
+                    value={profile.school ?? ""}
+                    autoComplete="organization"
+                    onChange={(event) => setField("school", event.target.value)}
+                  />
+                </FieldShell>
+                <FieldShell label="Degree">
+                  <select
+                    aria-label="Degree"
+                    className={cls.input}
+                    value={profile.degree ?? ""}
+                    onChange={(event) => setField("degree", event.target.value)}
+                  >
+                    <option value="">Select a degree</option>
+                    <option value="High school diploma">High school diploma</option>
+                    <option value="Associate degree">Associate degree</option>
+                    <option value="Bachelor's degree">Bachelor&apos;s degree</option>
+                    <option value="Master's degree">Master&apos;s degree</option>
+                    <option value="Doctorate">Doctorate</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </FieldShell>
+                <FieldShell label="Field of study / discipline">
+                  <input
+                    aria-label="Field of study / discipline"
+                    className={cls.input}
+                    value={profile.fieldOfStudy ?? ""}
+                    placeholder="Computer Science"
+                    onChange={(event) =>
+                      setField("fieldOfStudy", event.target.value)
+                    }
+                  />
+                </FieldShell>
+                <FieldShell label="Graduation date">
+                  <input
+                    aria-label="Graduation date"
+                    type="month"
+                    className={cls.input}
+                    value={profile.graduationDate ?? ""}
+                    onChange={(event) =>
+                      setField("graduationDate", event.target.value)
+                    }
+                  />
+                </FieldShell>
+                <FieldShell label="Relevant experience">
+                  <input
+                    aria-label="Relevant experience"
+                    type="number"
+                    min="0"
+                    max="50"
+                    step="0.5"
+                    className={cls.input}
+                    value={
+                      profile.relevantExperienceYears == null
+                        ? ""
+                        : String(profile.relevantExperienceYears)
+                    }
+                    onChange={(event) =>
+                      setField(
+                        "relevantExperienceYears",
+                        event.target.value === ""
+                          ? null
+                          : Number(event.target.value),
+                      )
+                    }
+                    placeholder="Years, for example 1.5"
+                  />
+                </FieldShell>
+                <FieldShell label="Certifications">
+                  <TagEditor
+                    label="certification"
+                    items={profile.certifications}
+                    placeholder="AWS Certified Cloud Practitioner"
+                    empty="No certifications added."
+                    onChange={(items) => setField("certifications", items)}
+                  />
+                </FieldShell>
+              </div>
+
+              <h3 className="mt-6 text-sm font-semibold text-gray-950 dark:text-gray-50">
+                Academic scores
+              </h3>
+              <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                Optional autofill values. Blank means the extension will ask you instead
+                of guessing.
+              </p>
+              <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {[
+                  ["Undergraduate GPA", "undergraduateGpa"],
+                  ["Graduate GPA", "graduateGpa"],
+                  ["Doctorate GPA", "doctorateGpa"],
+                  ["SAT score", "satScore"],
+                  ["ACT score", "actScore"],
+                  ["GRE score", "greScore"],
+                ].map(([label, key]) => (
+                  <FieldShell key={key} label={label}>
+                    <input
+                      aria-label={label}
+                      inputMode="decimal"
+                      className={cls.input}
+                      value={String(profile[key] ?? "")}
+                      onChange={(event) =>
+                        setField(key as keyof Profile, event.target.value)
+                      }
+                    />
+                  </FieldShell>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          <section className={cls.card}>
+            <h2 className="text-lg font-semibold text-gray-950 dark:text-gray-50">
+              Application question defaults
+            </h2>
+            <p className="mt-1 max-w-2xl text-sm text-gray-600 dark:text-gray-400">
+              Saved answers for recurring application questions. They are autofill-only
+              and never affect job fit scores.
+            </p>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <FieldShell label="How did you hear about this job?">
+                <select
+                  aria-label="How did you hear about this job?"
+                  className={cls.input}
+                  value={profile.heardAboutJob ?? ""}
+                  onChange={(event) =>
+                    setField("heardAboutJob", event.target.value)
+                  }
+                >
+                  <option value="">Select an answer</option>
+                  <option value="Company career site">Company career site</option>
+                  <option value="LinkedIn">LinkedIn</option>
+                  <option value="Employee referral">Employee referral</option>
+                  <option value="University career center">University career center</option>
+                  <option value="Career fair">Career fair</option>
+                  <option value="GitHub">GitHub</option>
+                  <option value="Google">Google</option>
+                  <option value="Recruiter">Recruiter</option>
+                  <option value="Other">Other</option>
+                </select>
+              </FieldShell>
+              <FieldShell
+                label="Active security clearances"
+                hint='Add "None" explicitly when you do not hold a clearance.'
+              >
+                <TagEditor
+                  label="security clearance"
+                  items={profile.securityClearances}
+                  placeholder="None, Secret, Top Secret / SCI"
+                  empty="No clearance answer saved."
+                  onChange={(items) => setField("securityClearances", items)}
                 />
               </FieldShell>
+              <FieldShell label="SpaceX / SpaceXAI employment history">
+                <select
+                  aria-label="SpaceX / SpaceXAI employment history"
+                  className={cls.input}
+                  value={profile.spacexEmploymentHistory ?? ""}
+                  onChange={(event) =>
+                    setField("spacexEmploymentHistory", event.target.value)
+                  }
+                >
+                  <option value="">Select an answer</option>
+                  <option value="Never employed">Never employed</option>
+                  <option value="Previously employed by SpaceX">
+                    Previously employed by SpaceX
+                  </option>
+                  <option value="Previously employed by SpaceXAI">
+                    Previously employed by SpaceXAI
+                  </option>
+                  <option value="Previously employed by both">
+                    Previously employed by both
+                  </option>
+                  <option value="Prefer not to answer">
+                    Prefer not to answer
+                  </option>
+                </select>
+              </FieldShell>
+              <FieldShell label="Can perform essential job functions with or without reasonable accommodations?">
+                <select
+                  aria-label="Can perform essential job functions with or without reasonable accommodations?"
+                  className={cls.input}
+                  value={booleanChoice(profile.canPerformEssentialFunctions)}
+                  onChange={(event) =>
+                    setField(
+                      "canPerformEssentialFunctions",
+                      parseBooleanChoice(event.target.value),
+                    )
+                  }
+                >
+                  <option value="">Select an answer</option>
+                  <option value="yes">Yes</option>
+                  <option value="no">No</option>
+                </select>
+              </FieldShell>
             </div>
+            <p className="mt-4 border-t border-gray-200 pt-3 text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400">
+              Generic fields such as &quot;Please specify&quot; stay flagged unless their
+              surrounding question makes the intended answer clear. The extension does
+              not reuse one answer across unrelated prompts.
+            </p>
           </section>
 
           <section className={cls.card}>
@@ -879,13 +1222,15 @@ export default function ProfilePage() {
             <ul className="mt-3 space-y-2 text-sm text-gray-700 dark:text-gray-300">
               <li>• target roles for title alignment</li>
               <li>• skills for exact posting overlap</li>
-              <li>• summary, qualifications, and resume text for broader context</li>
+              <li>• degree, field of study, graduation date, experience, and certifications</li>
+              <li>• summary and saved resume text for broader context</li>
               <li>• date posted for the freshness boost</li>
               <li>• agent review exports for the strongest deterministic matches</li>
             </ul>
             <p className="mt-3 border-t border-gray-200 pt-3 text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400">
-              It never reads your name, contact details, or demographic / EEO answers — those
-              never influence a fit score.
+              It never reads your name, contact details, academic scores, citizenship,
+              authorization, accommodations, or other application answers. Those never
+              influence a fit score.
             </p>
           </section>
         </aside>

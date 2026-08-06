@@ -12,6 +12,7 @@ import {
 } from "../tiers";
 import { fitAdvice, gapAdvice } from "./advice";
 import { freshnessFit } from "./freshness";
+import { minRequiredYoE } from "../discovery/entryLevel";
 
 export interface ScoreAllJobsOptions {
   onlyUnscored?: boolean;
@@ -53,14 +54,37 @@ function compactText(...parts: Array<string | null | undefined>): string {
     .trim();
 }
 
+export function buildQualificationContext(profile: ProfileData): string {
+  const education = [profile.degree?.trim(), profile.fieldOfStudy?.trim()]
+    .filter(Boolean)
+    .join(" in ");
+  const structured = compactText(
+    profile.school?.trim() ? `School: ${profile.school.trim()}` : null,
+    education ? `Education: ${education}` : null,
+    profile.graduationDate?.trim()
+      ? `Graduation date: ${profile.graduationDate.trim()}`
+      : null,
+    typeof profile.relevantExperienceYears === "number" &&
+      Number.isFinite(profile.relevantExperienceYears) &&
+      profile.relevantExperienceYears >= 0
+      ? `Relevant experience: ${profile.relevantExperienceYears} years`
+      : null,
+    Array.isArray(profile.certifications) && profile.certifications.length
+      ? `Certifications: ${cleanList(profile.certifications).join(", ")}`
+      : null,
+  );
+  return structured || profile.qualifications?.trim() || "";
+}
+
 export function buildResumeContext(profile: ProfileData): ResumeContext {
   const skills = cleanList(profile.skills);
   const titles = cleanList([
     ...(Array.isArray(profile.targetRoles) ? profile.targetRoles : []),
     ...(Array.isArray(profile.titles) ? profile.titles : []),
   ]);
-  const summary = compactText(profile.summary, profile.qualifications);
-  const text = compactText(profile.summary, profile.qualifications, profile.resumeText);
+  const qualifications = buildQualificationContext(profile);
+  const summary = compactText(profile.summary, qualifications);
+  const text = compactText(profile.summary, qualifications, profile.resumeText);
   return { skills, titles, summary, text };
 }
 
@@ -85,11 +109,52 @@ function deterministicSummary(
   return `${fit}: ${reason}.${gap}`.replace(/\.\./g, ".").slice(0, 300);
 }
 
+function experienceFit(
+  requiredYears: number | null,
+  candidateYears: number | null,
+): { delta: number; strength: string | null; gap: string | null } {
+  const years = (value: number) =>
+    `${value} ${value === 1 ? "year" : "years"}`;
+  if (requiredYears == null || requiredYears <= 0) {
+    return { delta: 0, strength: null, gap: null };
+  }
+  if (candidateYears == null) {
+    return {
+      delta: 0,
+      strength: null,
+      gap: `Posting asks for ${requiredYears}+ ${
+        requiredYears === 1 ? "year" : "years"
+      } of experience; add relevant experience to your profile`,
+    };
+  }
+  if (candidateYears >= requiredYears) {
+    return {
+      delta: 4,
+      strength: `Saved experience (${years(candidateYears)}) meets the ${requiredYears}+ year requirement`,
+      gap: null,
+    };
+  }
+  return {
+    delta: -Math.min(
+      12,
+      Math.max(6, Math.ceil((requiredYears - candidateYears) * 6)),
+    ),
+    strength: null,
+    gap: `Saved experience (${years(candidateYears)}) is below the ${requiredYears}+ year requirement`,
+  };
+}
+
 export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<ScoreAllJobsResult> {
   const profile = await getProfile();
   const resume = buildResumeContext(profile);
   const criteria = await getCriteria();
   const salaryTarget = typeof criteria.salaryTarget === "number" ? criteria.salaryTarget : null;
+  const candidateYears =
+    typeof profile.relevantExperienceYears === "number" &&
+    Number.isFinite(profile.relevantExperienceYears) &&
+    profile.relevantExperienceYears >= 0
+      ? profile.relevantExperienceYears
+      : null;
   const take = opts.limit && opts.limit > 0 ? Math.min(Math.floor(opts.limit), 1000) : undefined;
 
   const tierRows = await prisma.companyTier.findMany();
@@ -137,12 +202,21 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
     const locTier = canonicalLoc ? tierByLocation.get(normalizeLocationKey(canonicalLoc)) ?? null : null;
     const salary = salaryFit(job, salaryTarget);
     const freshness = freshnessFit(job, now);
+    const experience = experienceFit(
+      minRequiredYoE(compactText(job.title, job.description)),
+      candidateYears,
+    );
 
     // Unrated companies and locations are neutral, exactly like E.
     const companyMod = tierModifier(tier);
     const locationMod = tierModifier(locTier);
     const adjustedScore = clampScore(
-      result.score + companyMod + locationMod + salary.delta + freshness.delta,
+      result.score +
+        companyMod +
+        locationMod +
+        salary.delta +
+        freshness.delta +
+        experience.delta,
     );
 
     const strengths = result.reasons.filter(
@@ -155,13 +229,8 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
     if (result.missingSignals.length) {
       gaps.push(`Résumé does not show ${result.missingSignals.slice(0, 4).join(", ")}`);
     }
-    if (job.minYoE != null && job.minYoE > 0) {
-      gaps.push(
-        `Posting asks for ${job.minYoE}+ ${
-          job.minYoE === 1 ? "year" : "years"
-        } of experience; verify the requirement`,
-      );
-    }
+    if (experience.strength) strengths.push(experience.strength);
+    if (experience.gap) gaps.push(experience.gap);
 
     if (freshness.reason) {
       if (freshness.delta > 0) {

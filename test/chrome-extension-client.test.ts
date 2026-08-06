@@ -20,12 +20,32 @@ const PROFILE = {
   lastName: " Doe ",
   email: " jane@example.com ",
   phone: " +1 555 0100 ",
+  usCountry: " United States ",
   usLocation: " New York, NY ",
   usWorkAuthorized: true,
   usRequiresSponsorship: false,
+  usCitizenshipStatus: " U.S. citizen ",
+  caCountry: " Canada ",
   caLocation: " Toronto, ON ",
   caWorkAuthorized: false,
   caRequiresSponsorship: true,
+  caCitizenshipStatus: " Permanent resident ",
+  school: " University of Ottawa ",
+  degree: " Bachelor's degree ",
+  fieldOfStudy: " Computer Science ",
+  graduationDate: "2025-05",
+  relevantExperienceYears: 2,
+  certifications: [" AWS Certified Developer ", "CKA"],
+  undergraduateGpa: "3.8",
+  graduateGpa: "",
+  doctorateGpa: "",
+  satScore: "1450",
+  actScore: "33",
+  greScore: "325",
+  heardAboutJob: "LinkedIn",
+  securityClearances: ["None"],
+  spacexEmploymentHistory: "Never employed",
+  canPerformEssentialFunctions: true,
   linkedin: " https://www.linkedin.com/in/jane ",
   github: " https://github.com/jane ",
   website: " https://jane.dev ",
@@ -69,24 +89,51 @@ describe("Chrome extension identity and profile mapping", () => {
   });
 
   it("maps the app profile to the extension schema", () => {
-    expect(buildAutofillProfile(PROFILE)).toEqual({
+    expect(buildAutofillProfile(PROFILE, "US")).toEqual({
       firstName: "Jane",
       preferredName: "JJ",
       lastName: "Doe",
       email: "jane@example.com",
       phone: "+1 555 0100",
+      country: "United States",
       location: "New York, NY",
       linkedinUrl: "https://www.linkedin.com/in/jane",
       githubUrl: "https://github.com/jane",
       portfolioUrl: "https://jane.dev",
+      school: "University of Ottawa",
+      degree: "Bachelor's degree",
+      fieldOfStudy: "Computer Science",
+      graduationDate: "2025-05",
+      relevantExperienceYears: "2",
+      certifications: "AWS Certified Developer, CKA",
+      undergraduateGpa: "3.8",
+      graduateGpa: "",
+      doctorateGpa: "",
+      satScore: "1450",
+      actScore: "33",
+      greScore: "325",
+      heardAboutJob: "LinkedIn",
+      securityClearances: "None",
+      spacexEmploymentHistory: "Never employed",
+      canPerformEssentialFunctions: "yes",
+      citizenshipStatus: "U.S. citizen",
       workAuthorization: "yes",
       requiresSponsorship: "no",
       coverLetter: "Hello hiring team.\n\nThank you.",
     });
     expect(buildAutofillProfile(PROFILE, "CA")).toMatchObject({
+      country: "Canada",
       location: "Toronto, ON",
+      citizenshipStatus: "Permanent resident",
       workAuthorization: "no",
       requiresSponsorship: "yes",
+    });
+    expect(buildAutofillProfile(PROFILE)).toMatchObject({
+      country: "",
+      location: "",
+      citizenshipStatus: "",
+      workAuthorization: "",
+      requiresSponsorship: "",
     });
   });
 
@@ -177,6 +224,7 @@ describe("Chrome extension messaging", () => {
           jobTitle: "Engineer",
           company: "Acme",
           url: "https://example.com/apply",
+          country: "CA",
           tabId: 2,
           status: "active",
           startedAt: "2026-08-04T00:00:00.000Z",
@@ -207,6 +255,7 @@ describe("Chrome extension messaging", () => {
           jobTitle: "Engineer",
           company: "Acme",
           url: "https://example.com/apply",
+          country: "CA",
         },
         PROFILE,
         runtime,
@@ -226,7 +275,7 @@ describe("Chrome extension messaging", () => {
       "JOB_AUTOFILL_GET_PROGRESS",
     ]);
     expect(calls[2]?.message).toMatchObject({
-      profile: buildAutofillProfile(PROFILE),
+      profile: buildAutofillProfile(PROFILE, "CA"),
     });
   });
 

@@ -20,10 +20,79 @@ test.describe("profile page", () => {
     await expect(page.getByText("No PDF saved", { exact: true })).toBeVisible();
     // The judge signals the profile actually feeds.
     await expect(page.getByRole("heading", { name: "Judge signals" })).toBeVisible();
+    await expect(page.getByLabel("Add target role")).toBeVisible();
+    await expect(page.getByLabel("Add skill")).toBeVisible();
+    await expect(page.getByLabel("School")).toBeVisible();
+    await expect(page.getByLabel("Degree")).toBeVisible();
+    await expect(page.getByLabel("Field of study / discipline")).toBeVisible();
+    await expect(page.getByLabel("Relevant experience")).toBeVisible();
+  });
+
+  test("edits target roles as explicit removable values", async ({ page }) => {
+    await page.goto("/profile");
+    const originalRoles = await page.evaluate(async () => {
+      const profile = await fetch("/api/profile").then((response) => response.json());
+      return profile.targetRoles as string[];
+    });
+
+    await page.getByLabel("Add target role").fill("Platform Reliability Engineer");
+    await page.getByLabel("Add target role").press("Enter");
     await expect(
-      page.getByPlaceholder("Software Engineer, Full-stack Developer"),
+      page.getByRole("button", { name: "Remove Platform Reliability Engineer" }),
     ).toBeVisible();
-    await expect(page.getByPlaceholder("TypeScript, React, Python, SQL")).toBeVisible();
+
+    await page.getByRole("button", { name: "Save profile", exact: true }).click();
+    await expect(page.getByText(/Profile saved/)).toBeVisible();
+    await page.reload();
+    await expect(
+      page.getByRole("button", { name: "Remove Platform Reliability Engineer" }),
+    ).toBeVisible();
+
+    await page.evaluate(async (targetRoles) => {
+      await fetch("/api/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetRoles }),
+      });
+    }, originalRoles);
+  });
+
+  test("preserves legacy qualification text when structured fields are saved", async ({
+    page,
+  }) => {
+    await page.goto("/profile");
+    const originalProfile = await page.evaluate(async () =>
+      fetch("/api/profile").then((response) => response.json()),
+    );
+    const legacyText = "Legacy internship and project evidence.";
+
+    try {
+      await page.evaluate(async ({ profile, qualifications }) => {
+        await fetch("/api/profile", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...profile, qualifications, school: "" }),
+        });
+      }, { profile: originalProfile, qualifications: legacyText });
+      await page.reload();
+      await page.getByLabel("School").fill("University of Ottawa");
+      await page.getByRole("button", { name: "Save profile", exact: true }).click();
+      await expect(page.getByText(/Profile saved/)).toBeVisible();
+
+      const saved = await page.evaluate(async () =>
+        fetch("/api/profile").then((response) => response.json()),
+      );
+      expect(saved.qualifications).toBe(legacyText);
+      expect(saved.school).toBe("University of Ottawa");
+    } finally {
+      await page.evaluate(async (profile) => {
+        await fetch("/api/profile", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(profile),
+        });
+      }, originalProfile);
+    }
   });
 
   test("confirms and previews the saved resume PDF", async ({ page }) => {
@@ -69,18 +138,25 @@ test.describe("profile page", () => {
     await expect(page.getByLabel("First name")).toBeVisible();
     await expect(page.getByLabel("Email")).toBeVisible();
     await expect(page.getByLabel("Street address")).toHaveCount(0);
-    await expect(page.getByLabel("US location")).toBeVisible();
-    await expect(page.getByLabel("Canada location")).toBeVisible();
+    const usSection = page.getByRole("region", {
+      name: "Jobs in the United States",
+    });
+    const caSection = page.getByRole("region", { name: "Jobs in Canada" });
+    await expect(usSection.getByLabel("Country")).toHaveValue("United States");
+    await expect(caSection.getByLabel("Country")).toHaveValue("Canada");
+    await expect(page.getByLabel("US city / location")).toBeVisible();
+    await expect(page.getByLabel("Canada city / location")).toBeVisible();
     await expect(
-      page
-        .getByRole("region", { name: "Jobs in the United States" })
-        .getByLabel("Do you have work authorization?"),
+      usSection.getByLabel("Do you have work authorization?"),
     ).toBeVisible();
     await expect(
-      page
-        .getByRole("region", { name: "Jobs in Canada" })
-        .getByLabel("Do you need visa sponsorship?"),
+      caSection.getByLabel("Do you need visa sponsorship?"),
     ).toBeVisible();
+    await expect(usSection.getByLabel("Citizenship status")).toBeVisible();
+    await expect(page.getByLabel("How did you hear about this job?")).toBeVisible();
+    await expect(page.getByLabel("Add security clearance")).toBeVisible();
+    await expect(page.getByLabel("Undergraduate GPA")).toBeVisible();
+    await expect(page.getByLabel("SAT score")).toBeVisible();
     await expect(page.getByLabel("Default cover letter")).toBeVisible();
     await expect(page.getByLabel("Pasted or parsed resume text")).toHaveCount(0);
     await expect(page.getByText(/never influence fit scores/i)).toBeVisible();
@@ -144,7 +220,10 @@ test.describe("profile page", () => {
         profile: {
           firstName: "Jane",
           email: "jane@example.com",
-          requiresSponsorship: "no",
+          country: "",
+          location: "",
+          workAuthorization: "",
+          requiresSponsorship: "",
         },
       },
     });
