@@ -55,7 +55,11 @@ function compactText(...parts: Array<string | null | undefined>): string {
 }
 
 export function buildQualificationContext(profile: ProfileData): string {
-  const education = [profile.degree?.trim(), profile.fieldOfStudy?.trim()]
+  const degree =
+    profile.degree?.trim() === "Other" && profile.degreeOther?.trim()
+      ? profile.degreeOther.trim()
+      : profile.degree?.trim();
+  const education = [degree, profile.fieldOfStudy?.trim()]
     .filter(Boolean)
     .join(" in ");
   const structured = compactText(

@@ -13,8 +13,12 @@ export interface ApplicationFields {
   coverLetter?: string;
   workAuthorized?: boolean;
   requiresSponsorship?: boolean;
+  pronouns?: string;
+  pronounsOther?: string;
   gender?: string;
+  genderOther?: string;
   raceEthnicity?: string;
+  raceEthnicityOther?: string;
   veteranStatus?: string;
   disabilityStatus?: string;
   [key: string]: unknown;
@@ -29,6 +33,10 @@ export interface DraftJob {
 
 function s(v: unknown): string {
   return v == null ? "" : String(v);
+}
+
+function otherDetail(selection: unknown, detail: unknown): string | undefined {
+  return s(selection).trim() === "Other" ? s(detail).trim() || undefined : undefined;
 }
 
 function renderCoverLetter(
@@ -70,8 +78,15 @@ export function buildFields(job: DraftJob, profile: ProfileData): ApplicationFie
       : profile.usRequiresSponsorship ??
         profile.requiresSponsorship ??
         undefined,
+    pronouns: s(profile.pronouns) || undefined,
+    pronounsOther: otherDetail(profile.pronouns, profile.pronounsOther),
     gender: s(profile.gender) || undefined,
+    genderOther: otherDetail(profile.gender, profile.genderOther),
     raceEthnicity: s(profile.raceEthnicity) || undefined,
+    raceEthnicityOther: otherDetail(
+      profile.raceEthnicity,
+      profile.raceEthnicityOther,
+    ),
     veteranStatus: s(profile.veteranStatus) || undefined,
     disabilityStatus: s(profile.disabilityStatus) || undefined,
   };

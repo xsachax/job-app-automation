@@ -4,7 +4,8 @@
     { key: "contact", label: "Contact and location" },
     { key: "links", label: "Professional links" },
     { key: "education", label: "Education and credentials" },
-    { key: "eligibility", label: "Application defaults" }
+    { key: "eligibility", label: "Application defaults" },
+    { key: "demographics", label: "Voluntary self-identification" }
   ];
 
   const fields = [
@@ -325,6 +326,31 @@
       controls: ["text", "select", "combobox"]
     },
     {
+      key: "degreeOther",
+      label: "Other degree",
+      group: "education",
+      input: "text",
+      aliases: [
+        "please specify degree",
+        "please specify your degree",
+        "other degree",
+        "degree other",
+        "self described degree"
+      ],
+      contextAliases: [
+        "degree",
+        "degree type",
+        "degree level",
+        "education level",
+        "academic degree",
+        "highest degree",
+        "what is your highest degree",
+        "please select your degree"
+      ],
+      allowGenericWithContext: true,
+      controls: ["text", "textarea"]
+    },
+    {
       key: "fieldOfStudy",
       label: "Field of study",
       group: "education",
@@ -491,6 +517,27 @@
       controls: ["text", "select", "combobox"]
     },
     {
+      key: "heardAboutJobOther",
+      label: "Other job source",
+      group: "eligibility",
+      input: "text",
+      aliases: [
+        "please specify how you heard about this job",
+        "please specify how you heard about us",
+        "other application source",
+        "other job source",
+        "application source details"
+      ],
+      contextAliases: [
+        "how did you hear about this job",
+        "how did you hear about this opportunity",
+        "how did you hear about us",
+        "application source"
+      ],
+      allowGenericWithContext: true,
+      controls: ["text", "textarea"]
+    },
+    {
       key: "securityClearances",
       label: "Active security clearances",
       group: "eligibility",
@@ -504,20 +551,6 @@
         "clearance status"
       ],
       controls: ["text", "textarea", "select", "combobox"]
-    },
-    {
-      key: "spacexEmploymentHistory",
-      label: "SpaceX employment history",
-      group: "eligibility",
-      input: "select",
-      aliases: [
-        "spacex spacexai employment history",
-        "spacex and spacexai employment history",
-        "spacex employment history",
-        "previous spacex employment",
-        "previously employed by spacex"
-      ],
-      controls: ["choice", "select", "combobox"]
     },
     {
       key: "canPerformEssentialFunctions",
@@ -548,6 +581,27 @@
       exactAliases: ["citizenship status"],
       excludeAliases: ["citizenship required", "citizenship requirement"],
       controls: ["text", "choice", "select", "combobox"]
+    },
+    {
+      key: "citizenshipStatusOther",
+      label: "Other citizenship status",
+      group: "eligibility",
+      input: "text",
+      aliases: [
+        "please specify citizenship status",
+        "other citizenship status",
+        "citizenship status other",
+        "self described citizenship status"
+      ],
+      contextAliases: [
+        "citizenship status",
+        "citizenship",
+        "nationality status",
+        "what is your citizenship status",
+        "please select your citizenship status"
+      ],
+      allowGenericWithContext: true,
+      controls: ["text", "textarea"]
     },
     {
       key: "workAuthorization",
@@ -601,6 +655,147 @@
         { value: "yes", label: "Yes" },
         { value: "no", label: "No" }
       ]
+    },
+    {
+      key: "pronouns",
+      label: "Pronouns",
+      group: "demographics",
+      input: "select",
+      aliases: [
+        "pronouns",
+        "preferred pronouns",
+        "what are your pronouns",
+        "please select your pronouns"
+      ],
+      exactAliases: ["pronouns", "preferred pronouns"],
+      controls: ["text", "choice", "select", "combobox"]
+    },
+    {
+      key: "pronounsOther",
+      label: "Self-described pronouns",
+      group: "demographics",
+      input: "text",
+      aliases: [
+        "please specify your pronouns",
+        "self described pronouns",
+        "other pronouns",
+        "pronouns other"
+      ],
+      contextAliases: [
+        "pronouns",
+        "preferred pronouns",
+        "what are your pronouns",
+        "please select your pronouns"
+      ],
+      allowGenericWithContext: true,
+      controls: ["text", "textarea"]
+    },
+    {
+      key: "gender",
+      label: "Gender",
+      group: "demographics",
+      input: "select",
+      aliases: [
+        "gender",
+        "gender identity",
+        "what is your gender",
+        "how do you describe your gender",
+        "how do you describe your gender identity"
+      ],
+      exactAliases: ["gender", "gender identity"],
+      excludeAliases: ["preferred pronouns", "sexual orientation"],
+      controls: ["text", "choice", "select", "combobox"]
+    },
+    {
+      key: "genderOther",
+      label: "Self-described gender",
+      group: "demographics",
+      input: "text",
+      aliases: [
+        "please self describe your gender",
+        "please specify your gender",
+        "self described gender",
+        "other gender",
+        "gender other"
+      ],
+      contextAliases: [
+        "gender",
+        "gender identity",
+        "what is your gender",
+        "how do you describe your gender",
+        "how do you describe your gender identity"
+      ],
+      allowGenericWithContext: true,
+      controls: ["text", "textarea"]
+    },
+    {
+      key: "raceEthnicity",
+      label: "Race or ethnicity",
+      group: "demographics",
+      input: "select",
+      aliases: [
+        "race ethnicity",
+        "race and ethnicity",
+        "race or ethnicity",
+        "racial ethnic identity",
+        "race",
+        "ethnicity"
+      ],
+      exactAliases: ["race", "ethnicity", "race ethnicity"],
+      controls: ["text", "choice", "select", "combobox"]
+    },
+    {
+      key: "raceEthnicityOther",
+      label: "Self-described race or ethnicity",
+      group: "demographics",
+      input: "text",
+      aliases: [
+        "please specify your race ethnicity",
+        "please specify race or ethnicity",
+        "self described race or ethnicity",
+        "other race ethnicity",
+        "race ethnicity other"
+      ],
+      contextAliases: [
+        "race",
+        "ethnicity",
+        "race ethnicity",
+        "race and ethnicity",
+        "race or ethnicity",
+        "racial ethnic identity"
+      ],
+      allowGenericWithContext: true,
+      controls: ["text", "textarea"]
+    },
+    {
+      key: "disabilityStatus",
+      label: "Disability status",
+      group: "demographics",
+      input: "select",
+      aliases: [
+        "disability status",
+        "voluntary self identification of disability",
+        "do you have a disability",
+        "identify as a person with a disability",
+        "person with a disability"
+      ],
+      exactAliases: ["disability status"],
+      controls: ["choice", "select", "combobox"]
+    },
+    {
+      key: "veteranStatus",
+      label: "Protected veteran status",
+      group: "demographics",
+      input: "select",
+      aliases: [
+        "veteran status",
+        "protected veteran status",
+        "voluntary self identification of veteran status",
+        "protected veteran",
+        "veteran classification"
+      ],
+      exactAliases: ["veteran status", "protected veteran status"],
+      controls: ["choice", "select", "combobox"]
     },
     {
       key: "resumeFile",

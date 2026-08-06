@@ -173,7 +173,7 @@ The Chrome extension is optional and needs no build or Web Store publication. Fo
 | **Companies** | Coverage of every API and browser-scraped source. |
 | **Extension** | Install the optional Chrome extension and see its live connection status. |
 | **Settings** | Edit discovery configuration — countries, max YoE, degree/internship gates, keywords, scraper query terms, per-source enable/disable. |
-| **Profile** | Manage country-specific application details, a saved résumé PDF from GitHub or Google Drive, target roles, skills and qualifications, and your LinkedIn Connections.csv (for warm-intro tagging), then run the fit judge. |
+| **Profile** | Manage country-specific application details, recurring voluntary self-identification answers, a saved résumé PDF from GitHub or Google Drive, target roles, skills and qualifications, and your LinkedIn Connections.csv (for warm-intro tagging), then run the fit judge. |
 | **Workday** | Read-only list of flagged Workday jobs with apply links. |
 
 ---

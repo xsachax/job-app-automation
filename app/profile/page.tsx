@@ -200,11 +200,13 @@ function CountryAutofillSection({
   workAuthorized,
   requiresSponsorship,
   citizenshipStatus,
+  citizenshipStatusOther,
   citizenshipOptions,
   onLocationChange,
   onAuthorizationChange,
   onSponsorshipChange,
   onCitizenshipStatusChange,
+  onCitizenshipStatusOtherChange,
 }: {
   title: string;
   country: string;
@@ -214,11 +216,13 @@ function CountryAutofillSection({
   workAuthorized?: boolean | null;
   requiresSponsorship?: boolean | null;
   citizenshipStatus?: string;
+  citizenshipStatusOther?: string;
   citizenshipOptions?: { value: string; label: string }[];
   onLocationChange: (value: string) => void;
   onAuthorizationChange: (value: boolean | null) => void;
   onSponsorshipChange: (value: boolean | null) => void;
   onCitizenshipStatusChange?: (value: string) => void;
+  onCitizenshipStatusOtherChange?: (value: string) => void;
 }) {
   return (
     <section
@@ -289,6 +293,18 @@ function CountryAutofillSection({
                 </option>
               ))}
             </select>
+          </FieldShell>
+        )}
+        {citizenshipStatus === "Other" && onCitizenshipStatusOtherChange && (
+          <FieldShell label="Please specify citizenship status">
+            <input
+              aria-label="Please specify citizenship status"
+              className={cls.input}
+              value={citizenshipStatusOther ?? ""}
+              onChange={(event) =>
+                onCitizenshipStatusOtherChange(event.target.value)
+              }
+            />
           </FieldShell>
         )}
       </div>
@@ -644,6 +660,7 @@ export default function ProfilePage() {
                 workAuthorized={profile.usWorkAuthorized}
                 requiresSponsorship={profile.usRequiresSponsorship}
                 citizenshipStatus={profile.usCitizenshipStatus}
+                citizenshipStatusOther={profile.usCitizenshipStatusOther}
                 citizenshipOptions={[
                   { value: "U.S. citizen", label: "U.S. citizen" },
                   { value: "U.S. national", label: "U.S. national" },
@@ -662,6 +679,9 @@ export default function ProfilePage() {
                 onCitizenshipStatusChange={(value) =>
                   setField("usCitizenshipStatus", value)
                 }
+                onCitizenshipStatusOtherChange={(value) =>
+                  setField("usCitizenshipStatusOther", value)
+                }
               />
               <CountryAutofillSection
                 title="Jobs in Canada"
@@ -672,6 +692,7 @@ export default function ProfilePage() {
                 workAuthorized={profile.caWorkAuthorized}
                 requiresSponsorship={profile.caRequiresSponsorship}
                 citizenshipStatus={profile.caCitizenshipStatus}
+                citizenshipStatusOther={profile.caCitizenshipStatusOther}
                 citizenshipOptions={[
                   { value: "Canadian citizen", label: "Canadian citizen" },
                   { value: "Permanent resident", label: "Permanent resident" },
@@ -688,6 +709,9 @@ export default function ProfilePage() {
                 }
                 onCitizenshipStatusChange={(value) =>
                   setField("caCitizenshipStatus", value)
+                }
+                onCitizenshipStatusOtherChange={(value) =>
+                  setField("caCitizenshipStatusOther", value)
                 }
               />
             </div>
@@ -906,6 +930,18 @@ export default function ProfilePage() {
                     <option value="Other">Other</option>
                   </select>
                 </FieldShell>
+                {profile.degree === "Other" && (
+                  <FieldShell label="Please specify degree">
+                    <input
+                      aria-label="Please specify degree"
+                      className={cls.input}
+                      value={profile.degreeOther ?? ""}
+                      onChange={(event) =>
+                        setField("degreeOther", event.target.value)
+                      }
+                    />
+                  </FieldShell>
+                )}
                 <FieldShell label="Field of study / discipline">
                   <input
                     aria-label="Field of study / discipline"
@@ -1025,6 +1061,18 @@ export default function ProfilePage() {
                   <option value="Other">Other</option>
                 </select>
               </FieldShell>
+              {profile.heardAboutJob === "Other" && (
+                <FieldShell label="Please specify how you heard about this job">
+                  <input
+                    aria-label="Please specify how you heard about this job"
+                    className={cls.input}
+                    value={profile.heardAboutJobOther ?? ""}
+                    onChange={(event) =>
+                      setField("heardAboutJobOther", event.target.value)
+                    }
+                  />
+                </FieldShell>
+              )}
               <FieldShell
                 label="Active security clearances"
                 hint='Add "None" explicitly when you do not hold a clearance.'
@@ -1036,31 +1084,6 @@ export default function ProfilePage() {
                   empty="No clearance answer saved."
                   onChange={(items) => setField("securityClearances", items)}
                 />
-              </FieldShell>
-              <FieldShell label="SpaceX / SpaceXAI employment history">
-                <select
-                  aria-label="SpaceX / SpaceXAI employment history"
-                  className={cls.input}
-                  value={profile.spacexEmploymentHistory ?? ""}
-                  onChange={(event) =>
-                    setField("spacexEmploymentHistory", event.target.value)
-                  }
-                >
-                  <option value="">Select an answer</option>
-                  <option value="Never employed">Never employed</option>
-                  <option value="Previously employed by SpaceX">
-                    Previously employed by SpaceX
-                  </option>
-                  <option value="Previously employed by SpaceXAI">
-                    Previously employed by SpaceXAI
-                  </option>
-                  <option value="Previously employed by both">
-                    Previously employed by both
-                  </option>
-                  <option value="Prefer not to answer">
-                    Prefer not to answer
-                  </option>
-                </select>
               </FieldShell>
               <FieldShell label="Can perform essential job functions with or without reasonable accommodations?">
                 <select
@@ -1079,6 +1102,168 @@ export default function ProfilePage() {
                   <option value="no">No</option>
                 </select>
               </FieldShell>
+            </div>
+            <div className="mt-6 border-t border-gray-200 pt-5 dark:border-gray-800">
+              <h3 className="text-sm font-semibold text-gray-950 dark:text-gray-50">
+                Voluntary self-identification
+              </h3>
+              <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                Optional answers using wording commonly found on application forms.
+                They are used only for explicit autofill and never by the Judge.
+              </p>
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <FieldShell label="Pronouns">
+                  <select
+                    aria-label="Pronouns"
+                    className={cls.input}
+                    value={profile.pronouns ?? ""}
+                    onChange={(event) =>
+                      setField("pronouns", event.target.value)
+                    }
+                  >
+                    <option value="">Select an answer</option>
+                    <option value="He/him">He/him</option>
+                    <option value="She/her">She/her</option>
+                    <option value="They/them">They/them</option>
+                    <option value="Use my name">Use my name</option>
+                    <option value="Other">Other / self-describe</option>
+                    <option value="Prefer not to answer">
+                      Prefer not to answer
+                    </option>
+                  </select>
+                </FieldShell>
+                {profile.pronouns === "Other" && (
+                  <FieldShell label="Please specify your pronouns">
+                    <input
+                      aria-label="Please specify your pronouns"
+                      className={cls.input}
+                      value={profile.pronounsOther ?? ""}
+                      onChange={(event) =>
+                        setField("pronounsOther", event.target.value)
+                      }
+                    />
+                  </FieldShell>
+                )}
+                <FieldShell label="Gender">
+                  <select
+                    aria-label="Gender"
+                    className={cls.input}
+                    value={profile.gender ?? ""}
+                    onChange={(event) => setField("gender", event.target.value)}
+                  >
+                    <option value="">Select an answer</option>
+                    <option value="Woman">Woman</option>
+                    <option value="Man">Man</option>
+                    <option value="Non-binary">Non-binary</option>
+                    <option value="Other">Other / self-describe</option>
+                    <option value="Prefer not to answer">
+                      Prefer not to answer
+                    </option>
+                  </select>
+                </FieldShell>
+                {profile.gender === "Other" && (
+                  <FieldShell label="Please self-describe your gender">
+                    <input
+                      aria-label="Please self-describe your gender"
+                      className={cls.input}
+                      value={profile.genderOther ?? ""}
+                      onChange={(event) =>
+                        setField("genderOther", event.target.value)
+                      }
+                    />
+                  </FieldShell>
+                )}
+                <FieldShell label="Race / ethnicity">
+                  <select
+                    aria-label="Race / ethnicity"
+                    className={cls.input}
+                    value={profile.raceEthnicity ?? ""}
+                    onChange={(event) =>
+                      setField("raceEthnicity", event.target.value)
+                    }
+                  >
+                    <option value="">Select an answer</option>
+                    <option value="American Indian or Alaska Native">
+                      American Indian or Alaska Native
+                    </option>
+                    <option value="Asian">Asian</option>
+                    <option value="Black or African American">
+                      Black or African American
+                    </option>
+                    <option value="Hispanic or Latino">
+                      Hispanic or Latino
+                    </option>
+                    <option value="Middle Eastern or North African">
+                      Middle Eastern or North African
+                    </option>
+                    <option value="Native Hawaiian or Other Pacific Islander">
+                      Native Hawaiian or Other Pacific Islander
+                    </option>
+                    <option value="White">White</option>
+                    <option value="Two or more races">
+                      Two or more races
+                    </option>
+                    <option value="Other">Other / self-describe</option>
+                    <option value="Prefer not to answer">
+                      Prefer not to answer
+                    </option>
+                  </select>
+                </FieldShell>
+                {profile.raceEthnicity === "Other" && (
+                  <FieldShell label="Please specify your race / ethnicity">
+                    <input
+                      aria-label="Please specify your race / ethnicity"
+                      className={cls.input}
+                      value={profile.raceEthnicityOther ?? ""}
+                      onChange={(event) =>
+                        setField("raceEthnicityOther", event.target.value)
+                      }
+                    />
+                  </FieldShell>
+                )}
+                <FieldShell label="Disability status">
+                  <select
+                    aria-label="Disability status"
+                    className={cls.input}
+                    value={profile.disabilityStatus ?? ""}
+                    onChange={(event) =>
+                      setField("disabilityStatus", event.target.value)
+                    }
+                  >
+                    <option value="">Select an answer</option>
+                    <option value="yes">
+                      Yes, I have a disability or have had one in the past
+                    </option>
+                    <option value="no">
+                      No, I do not have a disability and have not had one in the past
+                    </option>
+                    <option value="Prefer not to answer">
+                      I do not want to answer
+                    </option>
+                  </select>
+                </FieldShell>
+                <FieldShell label="Protected veteran status">
+                  <select
+                    aria-label="Protected veteran status"
+                    className={cls.input}
+                    value={profile.veteranStatus ?? ""}
+                    onChange={(event) =>
+                      setField("veteranStatus", event.target.value)
+                    }
+                  >
+                    <option value="">Select an answer</option>
+                    <option value="Protected veteran">
+                      I identify as one or more classifications of a protected veteran
+                    </option>
+                    <option value="Not a protected veteran">
+                      I am not a protected veteran
+                    </option>
+                    <option value="Prefer not to answer">
+                      I do not wish to answer
+                    </option>
+                  </select>
+                </FieldShell>
+              </div>
             </div>
             <p className="mt-4 border-t border-gray-200 pt-3 text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400">
               Generic fields such as &quot;Please specify&quot; stay flagged unless their

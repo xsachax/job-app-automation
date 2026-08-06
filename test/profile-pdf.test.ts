@@ -93,6 +93,26 @@ describe("resume PDF ingest", () => {
     });
   });
 
+  it("removes the legacy company-specific employment answer", async () => {
+    await prisma.profile.create({
+      data: {
+        id: "me",
+        data: JSON.stringify({
+          firstName: "Jane",
+          spacexEmploymentHistory: "Never employed",
+        }),
+      },
+    });
+
+    const profile = await getProfile();
+    expect(profile.firstName).toBe("Jane");
+    expect(profile).not.toHaveProperty("spacexEmploymentHistory");
+
+    await saveProfile({});
+    const stored = await prisma.profile.findUniqueOrThrow({ where: { id: "me" } });
+    expect(JSON.parse(stored.data)).not.toHaveProperty("spacexEmploymentHistory");
+  });
+
   it("invalidates saved PDF bytes when the resume link changes", async () => {
     mockPdfDownload();
     await refreshProfile(SOURCE);
