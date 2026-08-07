@@ -1,4 +1,5 @@
-import { scoreAllJobs, type ScoreAllJobsResult } from "../judge/judge";
+import type { ScoreAllJobsResult } from "../judge/judge";
+import { runJudgeScoring } from "../judge/run";
 import {
   BROWSER_COMPANIES,
   DISCOVERY_SOURCES,
@@ -204,7 +205,10 @@ async function executeRefresh(started: number): Promise<DiscoveryRefreshResult> 
     currentSource: null,
     message: "Scoring newly discovered jobs…",
   });
-  const judge = await scoreAllJobs({ onlyUnscored: true });
+  const judge = await runJudgeScoring(
+    { onlyUnscored: true },
+    { waitForActive: true },
+  );
   const finished = Date.now();
   const browserCreated = browser.reduce((sum, result) => sum + result.created, 0);
   const browserUpdated = browser.reduce((sum, result) => sum + result.updated, 0);

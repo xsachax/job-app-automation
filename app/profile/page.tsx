@@ -2,6 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { api } from "../components/api";
+import {
+  JudgeProgressBar,
+  useJudgeRun,
+} from "../components/JudgeProgress";
 import { cls, PageHeader } from "../components/ui";
 import {
   isGoogleChromeBrowser,
@@ -23,13 +27,6 @@ interface ResumeAssetStatus {
   size: number;
   source: string;
   updatedAt: string;
-}
-
-interface JudgeResult {
-  scanned: number;
-  scored: number;
-  preservedAgent: number;
-  skipped: number;
 }
 
 interface ConnectionSummary {
@@ -332,6 +329,7 @@ export default function ProfilePage() {
   const [resumeAsset, setResumeAsset] = useState<ResumeAssetStatus | null>(null);
   const [resumeStatusLoaded, setResumeStatusLoaded] = useState(false);
   const [resumePreviewOpen, setResumePreviewOpen] = useState(false);
+  const judgeRun = useJudgeRun();
 
   const [connSummary, setConnSummary] = useState<ConnectionSummary | null>(null);
   const [connText, setConnText] = useState("");
@@ -440,10 +438,7 @@ export default function ProfilePage() {
       const saved = await persistProfile();
       replaceProfile(saved);
       const syncMessage = await syncSavedProfile(saved);
-      const result = await api<JudgeResult>("/api/judge/score", {
-        method: "POST",
-        body: JSON.stringify({}),
-      });
+      const result = await judgeRun.runJudge();
       setMessage(
         `Judge complete: ${result.scored} scored, ${result.preservedAgent} agent scores preserved, ${result.scanned} scanned.${syncMessage}`,
       );
@@ -523,12 +518,19 @@ export default function ProfilePage() {
       >
         <button
           onClick={runJudge}
-          disabled={saving || judging}
+          disabled={saving || judging || judgeRun.running}
           className={`${cls.btnPrimary} dark:bg-indigo-500 dark:text-white dark:hover:bg-indigo-400`}
         >
           {judging ? "Judging…" : "Re-run judge"}
         </button>
       </PageHeader>
+
+      <JudgeProgressBar
+        active={judgeRun.running}
+        progress={judgeRun.progress}
+        error={judgeRun.progressError}
+        className="mb-4 ml-auto max-w-xl"
+      />
 
       {message && (
         <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">

@@ -1,10 +1,27 @@
 import type { NextRequest } from "next/server";
-import { scoreAllJobs } from "@/lib/judge/judge";
-import { json, errorResponse } from "@/lib/http";
+import {
+  getJudgeRunProgress,
+  JudgeRunInProgressError,
+  runJudgeScoring,
+} from "@/lib/judge/run";
+import {
+  json,
+  errorResponse,
+  isSameOriginRequest,
+} from "@/lib/http";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+export function GET() {
+  return json(getJudgeRunProgress());
+}
+
 export async function POST(req: NextRequest) {
+  if (!isSameOriginRequest(req)) {
+    return errorResponse("same-origin request required", 403);
+  }
+
   try {
     let body: Record<string, unknown> = {};
     try {
@@ -12,7 +29,7 @@ export async function POST(req: NextRequest) {
     } catch {
       body = {};
     }
-    const result = await scoreAllJobs({
+    const result = await runJudgeScoring({
       onlyUnscored: body.onlyUnscored === true,
       country: typeof body.country === "string" && body.country.trim() ? body.country.trim() : undefined,
       limit: typeof body.limit === "number" ? body.limit : undefined,
@@ -20,6 +37,6 @@ export async function POST(req: NextRequest) {
     });
     return json(result);
   } catch (e) {
-    return errorResponse(e, 500);
+    return errorResponse(e, e instanceof JudgeRunInProgressError ? 409 : 500);
   }
 }

@@ -1,8 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { api } from "../components/api";
+import {
+  JudgeProgressBar,
+  useJudgeRun,
+} from "../components/JudgeProgress";
 import { cls, PageHeader } from "../components/ui";
 import { FIT_BANDS, JUDGE_AXES } from "@/lib/judge/status";
 
@@ -64,6 +68,9 @@ export default function JudgePage() {
   const [savingSalary, setSavingSalary] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const judgeRun = useJudgeRun();
+  const judgeProgress = judgeRun.progress;
+  const observedRunningJudge = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     const [s, c] = await Promise.all([
@@ -87,15 +94,43 @@ export default function JudgePage() {
     })();
   }, [load]);
 
+  useEffect(() => {
+    const current = judgeProgress;
+    if (current?.running && current.startedAt) {
+      observedRunningJudge.current = current.startedAt;
+      return;
+    }
+    if (
+      current?.phase === "failed" &&
+      current.startedAt === observedRunningJudge.current
+    ) {
+      observedRunningJudge.current = null;
+      return;
+    }
+    if (
+      current?.phase !== "complete" ||
+      !current.startedAt ||
+      current.startedAt !== observedRunningJudge.current
+    ) {
+      return;
+    }
+
+    observedRunningJudge.current = null;
+    (async () => {
+      try {
+        setStatus(await api<JudgeStatus>("/api/judge/status"));
+      } catch (e) {
+        setError((e as Error).message);
+      }
+    })();
+  }, [judgeProgress]);
+
   async function rerun() {
     setRunning(true);
     setError(null);
     setMsg(null);
     try {
-      const result = await api<{ scored: number; scanned: number }>("/api/judge/score", {
-        method: "POST",
-        body: JSON.stringify({}),
-      });
+      const result = await judgeRun.runJudge();
       await load();
       setMsg(`Re-ran across all axes — ${result.scored} scored of ${result.scanned} eligible postings.`);
     } catch (e) {
@@ -140,10 +175,21 @@ export default function JudgePage() {
         title="Judge"
         subtitle="One fit score per posting, blended from your résumé, date posted, company and location tiers, and target pay."
       >
-        <button className={cls.btnGreen} onClick={rerun} disabled={running}>
+        <button
+          className={cls.btnGreen}
+          onClick={rerun}
+          disabled={running || judgeRun.running}
+        >
           {running ? "Re-running…" : "Re-run judge"}
         </button>
       </PageHeader>
+
+      <JudgeProgressBar
+        active={judgeRun.running}
+        progress={judgeProgress}
+        error={judgeRun.progressError}
+        className="mb-4 ml-auto max-w-xl"
+      />
 
       {msg && (
         <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">

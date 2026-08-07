@@ -20,6 +20,16 @@ export interface ScoreAllJobsOptions {
   country?: string;
   limit?: number;
   force?: boolean;
+  onProgress?: (progress: ScoreAllJobsProgress) => void;
+}
+
+export interface ScoreAllJobsProgress {
+  processed: number;
+  total: number;
+  scored: number;
+  preservedAgent: number;
+  skipped: number;
+  currentJob: { id: string; company: string; title: string } | null;
 }
 
 export interface ScoreAllJobsResult {
@@ -188,10 +198,31 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
   let scored = 0;
   let preservedAgent = 0;
   let skipped = 0;
+  let processed = 0;
+
+  const reportProgress = (
+    currentJob: ScoreAllJobsProgress["currentJob"],
+  ) => {
+    opts.onProgress?.({
+      processed,
+      total: jobs.length,
+      scored,
+      preservedAgent,
+      skipped,
+      currentJob,
+    });
+  };
+  reportProgress(null);
 
   for (const job of jobs) {
     if (job.fitProvider === "agent" && !opts.force) {
       preservedAgent++;
+      processed++;
+      reportProgress({
+        id: job.id,
+        company: job.company,
+        title: job.title,
+      });
       continue;
     }
 
@@ -274,6 +305,12 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
       },
     });
     scored++;
+    processed++;
+    reportProgress({
+      id: job.id,
+      company: job.company,
+      title: job.title,
+    });
   }
 
   skipped = jobs.length - scored - preservedAgent;

@@ -7,6 +7,7 @@ type Prisma = typeof import("../lib/db").prisma;
 type SaveProfile = typeof import("../lib/settings").saveProfile;
 type SaveCriteria = typeof import("../lib/settings").saveCriteria;
 type JudgeModule = typeof import("../lib/judge/judge");
+type ScoreAllJobsProgress = import("../lib/judge/judge").ScoreAllJobsProgress;
 type AgentModule = typeof import("../lib/judge/agent");
 type RefreshModule = typeof import("../lib/profile/refresh");
 
@@ -186,10 +187,23 @@ describe("scoreAllJobs", () => {
       isWorkday: true,
     });
 
-    const result = await scoreAllJobs();
+    const progress: ScoreAllJobsProgress[] = [];
+    const result = await scoreAllJobs({
+      onProgress: (current) => progress.push(current),
+    });
     expect(result.scanned).toBe(3);
     expect(result.scored).toBe(2);
     expect(result.preservedAgent).toBe(1);
+    expect(progress.map((current) => current.processed)).toEqual([0, 1, 2, 3]);
+    expect(progress.every((current) => current.total === result.scanned)).toBe(true);
+    expect(progress[0]?.currentJob).toBeNull();
+    expect(progress.slice(1).every((current) => current.currentJob !== null)).toBe(true);
+    expect(progress.at(-1)).toMatchObject({
+      processed: result.scanned,
+      scored: result.scored,
+      preservedAgent: result.preservedAgent,
+      skipped: result.skipped,
+    });
 
     const updated = await prisma.job.findUniqueOrThrow({ where: { id: scoredJob.id } });
     expect(updated.fitProvider).toBe("deterministic");
