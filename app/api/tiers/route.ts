@@ -1,7 +1,12 @@
 import type { NextRequest } from "next/server";
+import { canonicalCompanyName } from "@/lib/company-names";
 import { prisma } from "@/lib/db";
 import { json, errorResponse } from "@/lib/http";
-import { isTier, normalizeCompanyKey } from "@/lib/tiers";
+import {
+  isTier,
+  latestCompanyTiersByKey,
+  normalizeCompanyKey,
+} from "@/lib/tiers";
 import {
   parseTierEditVersion,
   saveCompanyTier,
@@ -28,23 +33,38 @@ export async function GET() {
     prisma.companyTier.findMany(),
   ]);
 
-  const tierByKey = new Map<
-    string,
-    { tier: string | null; editVersion: number }
-  >();
-  for (const row of tierRows) {
-    tierByKey.set(normalizeCompanyKey(row.company), {
+  const tierByKey = new Map<string, { tier: string | null; editVersion: number }>();
+  for (const [key, row] of latestCompanyTiersByKey(tierRows)) {
+    tierByKey.set(key, {
       tier: isTier(row.tier) ? row.tier : null,
       editVersion: Number(row.editVersion),
     });
   }
 
-  const companies: TierCompany[] = grouped
-    .map((g) => {
-      const saved = tierByKey.get(normalizeCompanyKey(g.company));
+  const countsByCompany = new Map<
+    string,
+    { company: string; count: number; displayCount: number }
+  >();
+  for (const group of grouped) {
+    const company = canonicalCompanyName(group.company);
+    const key = normalizeCompanyKey(company);
+    const current = countsByCompany.get(key);
+    countsByCompany.set(key, {
+      company:
+        !current || group._count._all > current.displayCount
+          ? company
+          : current.company,
+      count: (current?.count ?? 0) + group._count._all,
+      displayCount: Math.max(current?.displayCount ?? 0, group._count._all),
+    });
+  }
+
+  const companies: TierCompany[] = [...countsByCompany]
+    .map(([key, { company, count }]) => {
+      const saved = tierByKey.get(key);
       return {
-        company: g.company,
-        count: g._count._all,
+        company,
+        count,
         tier: saved?.tier ?? null,
         editVersion: saved?.editVersion ?? 0,
       };
@@ -68,7 +88,10 @@ export async function PUT(req: NextRequest) {
     return errorResponse("invalid JSON body", 400);
   }
 
-  const company = typeof body.company === "string" ? body.company.trim() : "";
+  const company =
+    typeof body.company === "string"
+      ? canonicalCompanyName(body.company)
+      : "";
   if (!company) return errorResponse("company is required", 400);
 
   const rawTier = body.tier;

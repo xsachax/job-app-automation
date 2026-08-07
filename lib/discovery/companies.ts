@@ -167,7 +167,7 @@ export const API_COMPANIES: ApiCompany[] = [
   { name: "Intuit", method: "api", system: "talentbrew", countryFilter: "post", queryTerms: SWE, talentbrew: { host: "jobs.intuit.com" } },
 
   // ---- Workday CXS: POST https://<host>/wday/cxs/<tenant>/<site>/jobs
-  { name: "Nvidia", method: "api", system: "workday", countryFilter: "post", queryTerms: SWE, workday: { host: "nvidia.wd5.myworkdayjobs.com", tenant: "nvidia", site: "NVIDIAExternalCareerSite" } },
+  { name: "NVIDIA", method: "api", system: "workday", countryFilter: "post", queryTerms: SWE, workday: { host: "nvidia.wd5.myworkdayjobs.com", tenant: "nvidia", site: "NVIDIAExternalCareerSite" } },
   { name: "Adobe", method: "api", system: "workday", countryFilter: "post", queryTerms: SWE, workday: { host: "adobe.wd5.myworkdayjobs.com", tenant: "adobe", site: "external_experienced" } },
   { name: "Salesforce", method: "api", system: "workday", countryFilter: "post", queryTerms: SWE, workday: { host: "salesforce.wd12.myworkdayjobs.com", tenant: "salesforce", site: "External_Career_Site" } },
   { name: "Zoom", method: "api", system: "workday", countryFilter: "post", queryTerms: SWE, workday: { host: "zoom.wd5.myworkdayjobs.com", tenant: "zoom", site: "Zoom" } },

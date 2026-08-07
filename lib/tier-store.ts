@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { canonicalCompanyName } from "./company-names";
 import { prisma } from "./db";
 import { isTier, type Tier } from "./tiers";
 
@@ -28,6 +29,7 @@ export async function saveCompanyTier(
   tier: Tier | null,
   editVersion: number,
 ): Promise<VersionedTierResult> {
+  company = canonicalCompanyName(company);
   const version = BigInt(editVersion);
   const storedTier = tier ?? "";
   const update = {

@@ -1,5 +1,6 @@
 import { prisma } from "../db";
 import { createHash } from "node:crypto";
+import { canonicalCompanyName } from "../company-names";
 import { fetchCompanyPostings, type DiscoveryPosting, type FetchContext } from "./adapters";
 import { classifyEntryLevel, type EntryLevelOptions } from "./entryLevel";
 import { enrich, type Enrichment } from "./enrich";
@@ -36,7 +37,11 @@ export interface DiscoveryRunResult {
 function dedupeKeyFor(p: DiscoveryPosting): string {
   if (p.externalId) return `${p.system}:${p.externalId}`;
   const h = createHash("sha1")
-    .update([p.company, p.title, p.location].join("|").toLowerCase())
+    .update(
+      [canonicalCompanyName(p.company), p.title, p.location]
+        .join("|")
+        .toLowerCase(),
+    )
     .digest("hex");
   return `fp:${h}`;
 }
@@ -49,7 +54,13 @@ function dedupeKeyFor(p: DiscoveryPosting): string {
 // dedupe on it ACROSS different discovery systems.
 function fingerprintFor(p: DiscoveryPosting): string {
   return createHash("sha1")
-    .update([p.company, p.title, p.country].join("|").toLowerCase().replace(/\s+/g, " ").trim())
+    .update(
+      [canonicalCompanyName(p.company), p.title, p.country]
+        .join("|")
+        .toLowerCase()
+        .replace(/\s+/g, " ")
+        .trim(),
+    )
     .digest("hex");
 }
 
@@ -62,6 +73,7 @@ async function persist(
   const fingerprint = fingerprintFor(p);
   const applyUrl = normalizeUrl(p.applyUrl);
   const atsType = detectAts(applyUrl);
+  const company = canonicalCompanyName(p.company);
   // Workday postings are flagged into their own list and never auto-applied.
   // The apply destination is the reliable signal (a myworkdayjobs.com URL), with
   // the discovery system as a fallback for native Workday scrapes.
@@ -71,7 +83,7 @@ async function persist(
     atsType,
     externalId: p.externalId || null,
     title: p.title,
-    company: p.company,
+    company,
     location: p.location || null,
     remote: /remote/i.test(p.location),
     applyUrl,

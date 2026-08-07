@@ -29,6 +29,12 @@ describe("companyMatchKey", () => {
     expect(companyMatchKey("Alphabet")).toBe(companyMatchKey("Google"));
     expect(companyMatchKey("HRT")).toBe(companyMatchKey("Hudson River"));
     expect(companyMatchKey("Anysphere")).toBe(companyMatchKey("Cursor"));
+    expect(companyMatchKey("Uber Technologies, Inc.")).toBe(
+      companyMatchKey("Uber"),
+    );
+    expect(companyMatchKey("General Dynamics Mission Systems")).toBe(
+      companyMatchKey("General Dynamics"),
+    );
   });
 
   it("returns empty for blank input", () => {

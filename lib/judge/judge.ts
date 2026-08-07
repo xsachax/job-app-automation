@@ -6,6 +6,7 @@ import { normalizeLocation, normalizeLocationKey } from "../locations";
 import {
   clampScore,
   isTier,
+  latestCompanyTiersByKey,
   normalizeCompanyKey,
   tierModifier,
   type Tier,
@@ -163,8 +164,8 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
 
   const tierRows = await prisma.companyTier.findMany();
   const tierByCompany = new Map<string, Tier>();
-  for (const row of tierRows) {
-    if (isTier(row.tier)) tierByCompany.set(normalizeCompanyKey(row.company), row.tier);
+  for (const [key, row] of latestCompanyTiersByKey(tierRows)) {
+    if (isTier(row.tier)) tierByCompany.set(key, row.tier);
   }
 
   const locationTierRows = await prisma.locationTier.findMany();

@@ -13,6 +13,8 @@
 // A small ALIASES map resolves the handful of cases suffix stripping can't
 // (parent/brand vs. legal entity, acronyms) to the catalog's canonical key.
 
+import { canonicalCompanyName } from "../company-names";
+
 // Generic tokens dropped from a company name before comparison. Corporate
 // suffixes plus a few finance/industry words that differ between a firm's
 // colloquial and legal names (so "Jane Street" == "Jane Street Capital"). All
@@ -58,7 +60,7 @@ const ALIASES: Record<string, string> = {
 export function companyMatchKey(raw: string | null | undefined): string {
   if (!raw) return "";
   // Drop parentheticals like "(AWS)" and collapse punctuation to spaces.
-  const base = stripAccents(String(raw))
+  const base = stripAccents(canonicalCompanyName(String(raw)))
     .toLowerCase()
     .replace(/\([^)]*\)/g, " ")
     .replace(/[^a-z0-9]+/g, " ")
