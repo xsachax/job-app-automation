@@ -156,7 +156,7 @@ const JOBS: Fixture[] = [
   {
     key: "workday",
     title: "E2E Workday Engineer",
-    company: "AcmeE2E",
+    company: "WorkdayOnlyE2E",
     description: "Enterprise role behind Workday.",
     country: "US",
     minYoE: null,
@@ -164,6 +164,7 @@ const JOBS: Fixture[] = [
     isWorkday: true,
     entryLevel: true,
     skills: ["Java", "Spring"],
+    location: "Denver, CO",
   },
 ];
 

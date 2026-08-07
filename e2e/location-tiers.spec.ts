@@ -42,6 +42,15 @@ test.describe("location tiers", () => {
     await expect(pool.locator(`[data-key="New York, NY"]`)).toHaveCount(0);
   });
 
+  test("search includes locations used only by Workday roles", async ({ page }) => {
+    await page.goto("/location-tiers");
+    await page.getByTestId("tier-search").fill("denver");
+
+    await expect(
+      page.getByTestId("tier-pool").locator(`[data-key="Denver, CO"]`),
+    ).toBeVisible();
+  });
+
   test("assigning a tier via the select persists across reload", async ({ page }) => {
     await page.goto("/location-tiers");
 
