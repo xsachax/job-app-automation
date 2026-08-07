@@ -1,22 +1,20 @@
 "use client";
 
 import {
-  useCallback,
-  useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
 import { api } from "./api";
 import { cls, PageHeader } from "./ui";
 import { TIERS, type Tier } from "@/lib/tiers";
+import {
+  useTierPersistence,
+  type TierItem,
+  type TierSaveStatus,
+} from "./useTierPersistence";
 
-export interface TierItem {
-  key: string;
-  count: number;
-  tier: string | null;
-}
+export type { TierItem } from "./useTierPersistence";
 
 // Classic tier-list row colours (warm S → cool F), dark ink on each so the
 // single-letter label clears 4.5:1 everywhere.
@@ -42,6 +40,28 @@ const TIER_HINT: Record<Tier, string> = {
 
 const POOL_LIMIT = 120;
 
+const SAVE_STATUS_LABEL: Record<TierSaveStatus, string> = {
+  idle: "Loading saved tiers…",
+  pending: "Changes queued",
+  saving: "Saving tiers…",
+  saved: "All tiers saved",
+  error: "Unsaved tier changes",
+};
+
+function saveStatusLabel(status: TierSaveStatus): string {
+  return SAVE_STATUS_LABEL[status];
+}
+
+function saveStatusClass(status: TierSaveStatus): string {
+  const color =
+    status === "error"
+      ? "text-red-600 dark:text-red-400"
+      : status === "saved"
+        ? "text-green-600 dark:text-green-400"
+        : "text-gray-500 dark:text-gray-400";
+  return `text-xs font-medium ${color}`;
+}
+
 interface TierBoardProps {
   title: string;
   subtitle: string;
@@ -63,8 +83,6 @@ interface TierBoardProps {
   poolNote?: ReactNode;
 }
 
-type RawItem = { count: number; tier: string | null } & Record<string, unknown>;
-
 export function TierBoard({
   title,
   subtitle,
@@ -79,58 +97,22 @@ export function TierBoard({
   countLabel,
   poolNote,
 }: TierBoardProps) {
-  const [items, setItems] = useState<TierItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    items,
+    loading,
+    saveStatus,
+    persistenceError,
+    assignTier,
+    retrySaves,
+    saveNow,
+  } = useTierPersistence({ endpoint, itemsKey, field });
+  const [actionError, setActionError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [dragKey, setDragKey] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [judging, setJudging] = useState(false);
-  const pendingRef = useRef(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const data = await api<Record<string, RawItem[]>>(endpoint);
-        const rows = (data[itemsKey] ?? []).map((r) => ({
-          key: String(r[field] ?? ""),
-          count: r.count,
-          tier: r.tier,
-        }));
-        if (!cancelled) setItems(rows);
-      } catch (e) {
-        if (!cancelled) setError((e as Error).message);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [endpoint, itemsKey, field]);
-
-  const assignTier = useCallback(
-    async (key: string, tier: Tier | null) => {
-      const prev = items;
-      setItems((cs) => cs.map((c) => (c.key === key ? { ...c, tier } : c)));
-      setError(null);
-      pendingRef.current += 1;
-      try {
-        await api(endpoint, {
-          method: "PUT",
-          body: JSON.stringify({ [field]: key, tier }),
-        });
-      } catch (e) {
-        setItems(prev);
-        setError(`Could not update ${key}: ${(e as Error).message}`);
-      } finally {
-        pendingRef.current -= 1;
-      }
-    },
-    [items, endpoint, field],
-  );
+  const error = persistenceError ?? actionError;
 
   const byTier = useMemo(() => {
     const map = Object.fromEntries(TIERS.map((t) => [t, [] as TierItem[]])) as Record<
@@ -159,9 +141,10 @@ export function TierBoard({
 
   async function runJudge() {
     setJudging(true);
-    setError(null);
+    setActionError(null);
     setMessage(null);
     try {
+      await saveNow();
       const result = await api<{ scored: number; scanned: number }>("/api/judge/score", {
         method: "POST",
         body: JSON.stringify({}),
@@ -170,7 +153,7 @@ export function TierBoard({
         `Judge re-ran with your tiers: ${result.scored} scored of ${result.scanned} scanned.`,
       );
     } catch (e) {
-      setError((e as Error).message);
+      setActionError((e as Error).message);
     } finally {
       setJudging(false);
     }
@@ -196,9 +179,25 @@ export function TierBoard({
   return (
     <div className="space-y-6">
       <PageHeader title={title} subtitle={subtitle}>
-        <button className={cls.btn} onClick={runJudge} disabled={judging}>
-          {judging ? "Re-running…" : "Re-run judge"}
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <span
+            data-testid="tier-save-status"
+            className={saveStatusClass(saveStatus)}
+          >
+            {saveStatusLabel(saveStatus)}
+          </span>
+          {saveStatus === "error" && (
+            <button
+              className={cls.btn}
+              onClick={() => void retrySaves()}
+            >
+              Retry saves
+            </button>
+          )}
+          <button className={cls.btn} onClick={runJudge} disabled={judging}>
+            {judging ? "Re-running…" : "Re-run judge"}
+          </button>
+        </div>
       </PageHeader>
 
       {error && (

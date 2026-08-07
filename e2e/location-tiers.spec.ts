@@ -7,6 +7,10 @@ function chip(page: Page, key: string) {
   return page.locator(`[data-testid="tier-chip"][data-key="${key}"]`);
 }
 
+function saveStatus(page: Page) {
+  return page.getByTestId("tier-save-status");
+}
+
 // Tests share one seeded DB (serial, no reseed between tests), so any mutation
 // restores the location to unranked before the next test runs.
 test.describe("location tiers", () => {
@@ -50,10 +54,12 @@ test.describe("location tiers", () => {
     await page.reload();
     await expect(page.getByTestId("tier-row-A").locator(`[data-key="New York, NY"]`)).toBeVisible();
     await expect(chip(page, "New York, NY").getByTestId("tier-select")).toHaveValue("A");
+    await expect(saveStatus(page)).toHaveText("All tiers saved");
 
     // Restore to unranked so later tests start clean.
     await chip(page, "New York, NY").getByTestId("tier-select").selectOption("");
     await expect(page.getByTestId("tier-pool").locator(`[data-key="New York, NY"]`)).toBeVisible();
+    await expect(saveStatus(page)).toHaveText("All tiers saved");
   });
 
   test("clearing a tier returns the location to the pool", async ({ page }) => {
@@ -66,6 +72,7 @@ test.describe("location tiers", () => {
 
     await chip(page, "Austin, TX").getByTestId("tier-select").selectOption("");
     await expect(page.getByTestId("tier-pool").locator(`[data-key="Austin, TX"]`)).toBeVisible();
+    await expect(saveStatus(page)).toHaveText("All tiers saved");
 
     await page.reload();
     await expect(page.getByTestId("tier-pool").locator(`[data-key="Austin, TX"]`)).toBeVisible();
