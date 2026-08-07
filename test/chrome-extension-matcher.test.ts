@@ -41,6 +41,11 @@ interface Matcher {
     signals: { text: string; weight: number; source?: string }[],
     profile: Record<string, string>,
   ): string;
+  resolvePreviousEmployerAnswer(
+    signals: { text: string; weight: number; source?: string }[],
+    savedEmployers: string,
+    currentCompany?: string,
+  ): string;
 }
 
 interface ProfileSchema {
@@ -84,6 +89,16 @@ describe("Chrome extension profile storage", () => {
       raceEthnicity: "Middle Eastern or North African",
       disabilityStatus: "no",
       veteranStatus: "Not a protected veteran",
+      softwareIndustryExperienceYears: "2.5",
+      previousEmployers: `Cisco\n${"x".repeat(5_100)}`,
+      compensationExpectation: "$150,000 USD",
+      preferredOfficeLocations: "New York, NY\nToronto, ON",
+      hispanicLatino: "no",
+      transgenderStatus: "Prefer not to answer",
+      usLocation: "New York, NY",
+      usWorkAuthorization: "yes",
+      caLocation: "Toronto, ON",
+      caWorkAuthorization: "no",
       spacexEmploymentHistory: "Never employed",
       coverLetter: ` ${"x".repeat(20_100)} `,
       unexpectedSecret: "drop me",
@@ -106,6 +121,16 @@ describe("Chrome extension profile storage", () => {
     expect(profile.raceEthnicity).toBe("Middle Eastern or North African");
     expect(profile.disabilityStatus).toBe("no");
     expect(profile.veteranStatus).toBe("Not a protected veteran");
+    expect(profile.softwareIndustryExperienceYears).toBe("2.5");
+    expect(profile.previousEmployers).toHaveLength(5_000);
+    expect(profile.compensationExpectation).toBe("$150,000 USD");
+    expect(profile.preferredOfficeLocations).toBe("New York, NY\nToronto, ON");
+    expect(profile.hispanicLatino).toBe("no");
+    expect(profile.transgenderStatus).toBe("Prefer not to answer");
+    expect(profile.usLocation).toBe("New York, NY");
+    expect(profile.usWorkAuthorization).toBe("yes");
+    expect(profile.caLocation).toBe("Toronto, ON");
+    expect(profile.caWorkAuthorization).toBe("no");
     expect(profile.coverLetter).toHaveLength(20_000);
     expect(profile).not.toHaveProperty("unexpectedSecret");
     expect(profile).not.toHaveProperty("spacexEmploymentHistory");
@@ -170,6 +195,7 @@ describe("Chrome extension profile storage", () => {
       phoneCountryCode: "+1",
       phoneNational: "(416) 555-0199",
     });
+
     expect(
       profileSchema.buildEffectiveProfile({
         phone: "+14165550199",
@@ -194,6 +220,54 @@ describe("Chrome extension profile storage", () => {
       graduationDateInput: "2025-05",
       graduationMonth: "May",
       graduationYear: "2025",
+    });
+  });
+
+  it("selects the active country's stored autofill answers", () => {
+    const stored = {
+      usLocation: "New York, NY",
+      usWorkAuthorization: "yes",
+      usRequiresSponsorship: "no",
+      usCitizenshipStatus: "U.S. citizen",
+      caLocation: "Toronto, ON",
+      caWorkAuthorization: "no",
+      caRequiresSponsorship: "yes",
+      caCitizenshipStatus: "Permanent resident",
+    };
+
+    expect(
+      profileSchema.buildEffectiveProfile(stored, { country: "US" }),
+    ).toMatchObject({
+      location: "New York, NY",
+      city: "New York",
+      workAuthorization: "yes",
+      requiresSponsorship: "no",
+      citizenshipStatus: "U.S. citizen",
+    });
+    expect(
+      profileSchema.buildEffectiveProfile(stored, { country: "CA" }),
+    ).toMatchObject({
+      location: "Toronto, ON",
+      city: "Toronto",
+      workAuthorization: "no",
+      requiresSponsorship: "yes",
+      citizenshipStatus: "Permanent resident",
+    });
+    expect(
+      profileSchema.buildEffectiveProfile(
+        {
+          usCitizenshipStatus: "U.S. citizen",
+          usCitizenshipStatusOther: "Stale detail",
+          citizenshipStatusOther: "Stale fallback",
+          caCitizenshipStatus: "Permanent resident",
+          caCitizenshipStatusOther: "Stale Canada detail",
+        },
+        { country: "US" },
+      ),
+    ).toMatchObject({
+      citizenshipStatusOther: "",
+      usCitizenshipStatusOther: "",
+      caCitizenshipStatusOther: "",
     });
   });
 });
@@ -260,6 +334,24 @@ describe("Chrome extension field matching", () => {
       ["Race / Ethnicity (Optional)", "select", "raceEthnicity"],
       ["Disability status Required", "choice", "disabilityStatus"],
       ["Protected veteran status Optional", "select", "veteranStatus"],
+      [
+        "How many years of software engineering industry experience do you have (excluding internships)?",
+        "text",
+        "softwareIndustryExperienceYears",
+      ],
+      [
+        "What are your target total annual compensation expectations?",
+        "text",
+        "compensationExpectation",
+      ],
+      ["Have you previously worked for Cisco?", "select", "previousEmployers"],
+      [
+        "This role is open to candidates who can work from the following office locations.",
+        "check-many",
+        "preferredOfficeLocations",
+      ],
+      ["Are you Hispanic or Latino?", "choice", "hispanicLatino"],
+      ["Do you identify as transgender?", "select", "transgenderStatus"],
     ];
 
     for (const [label, controlKind, key] of reportedFields) {
@@ -300,6 +392,22 @@ describe("Chrome extension field matching", () => {
         "Bachelor of Science",
         "Bachelor of Science",
         "degree",
+      ),
+    ).toBe(100);
+    expect(
+      matcher.scoreChoice(
+        "New York, NY",
+        "opaque-location",
+        "New York, New York, United States",
+        "preferredOfficeLocations",
+      ),
+    ).toBe(100);
+    expect(
+      matcher.scoreChoice(
+        "Toronto, ON",
+        "opaque-location",
+        "Toronto, Ontario, Canada",
+        "preferredOfficeLocations",
       ),
     ).toBe(100);
     expect(
@@ -650,6 +758,21 @@ describe("Chrome extension field matching", () => {
     };
     const transformedQuestions = [
       {
+        prompt: "Are you legally authorized to work in the US?",
+        key: "workAuthorization",
+        answer: "yes",
+      },
+      {
+        prompt: "Will you now require immigration sponsorship?",
+        key: "requiresSponsorship",
+        answer: "no",
+      },
+      {
+        prompt: "Will you in the future require immigration sponsorship?",
+        key: "requiresSponsorship",
+        answer: "no",
+      },
+      {
         prompt:
           "Are you legally authorized to work in the United States without sponsorship?",
         key: "workAuthorization",
@@ -689,6 +812,117 @@ describe("Chrome extension field matching", () => {
         prompt,
       ).toBe(answer);
     }
+  });
+
+  it("answers employer-history questions from the complete saved company list", () => {
+    const employers = "Cisco\nRivian";
+    const signals = (text: string) => [
+      { text, weight: 1, source: "prompt" },
+    ];
+
+    expect(
+      matcher.resolvePreviousEmployerAnswer(
+        signals("Have you previously worked for Cisco?"),
+        employers,
+        "Cisco",
+      ),
+    ).toBe("yes");
+    expect(
+      matcher.resolvePreviousEmployerAnswer(
+        signals("Are you a former employee of Cisco?"),
+        employers,
+        "Cisco",
+      ),
+    ).toBe("yes");
+    expect(
+      matcher.resolvePreviousEmployerAnswer(
+        signals("Have you ever worked at Datadog?"),
+        employers,
+        "Datadog",
+      ),
+    ).toBe("no");
+    expect(
+      matcher.resolvePreviousEmployerAnswer(
+        signals("Have you worked for us before?"),
+        employers,
+        "Rivian",
+      ),
+    ).toBe("yes");
+    expect(
+      matcher.resolvePreviousEmployerAnswer(
+        signals("Have you worked for us before?"),
+        employers,
+        "Acme",
+      ),
+    ).toBe("no");
+    expect(
+      matcher.resolvePreviousEmployerAnswer(
+        signals("Have you previously worked for Cisco?"),
+        "",
+      ),
+    ).toBe("");
+    expect(
+      matcher.resolvePreviousEmployerAnswer(
+        signals("Have you worked for more than two years as a software engineer?"),
+        employers,
+      ),
+    ).toBe("");
+    expect(
+      matcher.resolvePreviousEmployerAnswer(
+        [
+          ...signals("Have you ever worked at Datadog?"),
+          { text: "Cisco careers", weight: 0.55, source: "section" },
+        ],
+        employers,
+        "Datadog",
+      ),
+    ).toBe("no");
+    expect(
+      matcher.resolvePreviousEmployerAnswer(
+        signals("Have you worked on projects for Cisco?"),
+        employers,
+      ),
+    ).toBe("");
+    const unsafeQuestions = [
+      ["Have you worked at scale?", "Acme"],
+      ["Have you never worked for Cisco?", "Cisco"],
+      ["Are you related to a former employee?", "Cisco"],
+      ["Have you been referred by someone who worked at Cisco?", "Cisco"],
+      ["Have you worked for Cisco in the last 12 months?", "Cisco"],
+      ["Are you a former employee or is your parent a current employee?", "Cisco"],
+      ["Are you a former employee eligible for rehire?", "Cisco"],
+    ] as const;
+    for (const [question, currentCompany] of unsafeQuestions) {
+      expect(
+        matcher.resolvePreviousEmployerAnswer(
+          signals(question),
+          employers,
+          currentCompany,
+        ),
+        question,
+      ).toBe("");
+    }
+    expect(
+      matcher.resolvePreviousEmployerAnswer(
+        signals("Have you ever worked at Ford?"),
+        "Ford Foundation",
+        "Ford",
+      ),
+    ).toBe("no");
+    expect(
+      matcher.resolvePreviousEmployerAnswer(
+        signals("Are you a former employee of Ford Foundation?"),
+        "Ford",
+        "Ford",
+      ),
+    ).toBe("");
+    expect(
+      matcher.resolvePreviousEmployerAnswer(
+        signals("Have you ever worked at Artera?"),
+        "Artera Technologies",
+        "Artera",
+      ),
+    ).toBe("no");
   });
 
   it("leaves unmodeled or unsafe eligibility questions for manual review", () => {

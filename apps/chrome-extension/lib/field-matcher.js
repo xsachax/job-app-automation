@@ -635,6 +635,176 @@
     return authorization === "yes" && sponsorship === "no" ? "yes" : "no";
   }
 
+  function profileList(value) {
+    const seen = new Set();
+    return String(value || "")
+      .split(/[\n;]/)
+      .map((item) => item.trim())
+      .filter((item) => {
+        const key = normalizeText(item);
+        if (!key || seen.has(key)) {
+          return false;
+        }
+        seen.add(key);
+        return true;
+      });
+  }
+
+  function canonicalCompany(value) {
+    const suffixes = new Set([
+      "co",
+      "company",
+      "corp",
+      "corporation",
+      "inc",
+      "incorporated",
+      "llc",
+      "limited",
+      "ltd",
+      "plc"
+    ]);
+    const companyTokens = tokens(value);
+    while (
+      companyTokens.length > 1 &&
+      suffixes.has(companyTokens[companyTokens.length - 1])
+    ) {
+      companyTokens.pop();
+    }
+    if (companyTokens[0] === "the") {
+      companyTokens.shift();
+    }
+    return companyTokens.join(" ");
+  }
+
+  function sameCompany(left, right) {
+    const normalizedLeft = canonicalCompany(left);
+    const normalizedRight = canonicalCompany(right);
+    if (!normalizedLeft || !normalizedRight) {
+      return false;
+    }
+    return normalizedLeft === normalizedRight;
+  }
+
+  function resolvePreviousEmployerAnswer(
+    signals,
+    savedEmployers,
+    currentCompany
+  ) {
+    const employers = profileList(savedEmployers);
+    if (!employers.length) {
+      return "";
+    }
+    const question = (signals || [])
+      .filter((signal) => !machineSignalSources.has(signal.source))
+      .map((signal) => ({
+        text: normalizeText(signal.text),
+        weight: Number(signal.weight || 0),
+        source: signal.source
+      }))
+      .filter((signal) =>
+        /\b(?:work|worked|employed|employment|employee)\b/.test(signal.text)
+      )
+      .sort(
+        (left, right) =>
+          Number(left.source === "section") -
+            Number(right.source === "section") ||
+          right.weight - left.weight
+      )
+      .map((signal) => signal.text)
+      .filter(Boolean)
+      .at(0);
+    if (!question) {
+      return "";
+    }
+    const asksApplicantEmployment =
+      /\b(?:have|had)\s+you\s+(?:(?:ever|previously|formerly)\s+)?(?:worked|been employed)\b/.test(
+        question
+      ) ||
+      /\bdid\s+you\s+(?:(?:ever|previously|formerly)\s+)?work\b/.test(
+        question
+      ) ||
+      /\bwere\s+you\s+(?:(?:ever|previously|formerly)\s+)?employed\b/.test(
+        question
+      ) ||
+      /\b(?:are|were)\s+you\s+(?:(?:a|an)\s+)?(?:former|previous|prior)\s+employee\b/.test(
+        question
+      );
+    if (
+      !asksApplicantEmployment ||
+      /\b(?:not|never|haven t|hadn t|didn t|don t|weren t|wasn t)\b/.test(
+        question
+      ) ||
+      /\b(?:related|relative|family|parent|sibling|child|guardian|spouse|partner|household|refer(?:red|ral)|reference)\b/.test(
+        question
+      )
+    ) {
+      return "";
+    }
+    const cleanTarget = (value) =>
+      String(value || "")
+        .replace(/\s+(?:before|previously|formerly|in the past)$/, "")
+        .trim();
+    const relationshipTarget = cleanTarget(
+      question.match(
+        /\b(?:work|worked|employed)\s+(?:(?:previously|formerly)\s+)?(?:at|for|by|with)\s+(.{1,80})/
+      )?.[1]
+    );
+    const formerEmployeeQuestion =
+      /\b(?:former|previous|prior)\b.{0,20}\b(?:employee|employment)\b/.test(
+        question
+      );
+    const pureImplicitFormerEmployeeQuestion =
+      /^(?:are|were) you (?:(?:a|an) )?(?:former|previous|prior) employee$/.test(
+        question
+      );
+    const formerEmployerTarget = cleanTarget(
+      question.match(
+        /\b(?:former|previous|prior)\b.{0,20}\bemployee\b\s+(?:of|at|for|with)\s+(.{1,80})/
+      )?.[1] ||
+        question.match(
+          /\b(?:previous|prior)\s+employment\s+(?:with|at|for)\s+(.{1,80})/
+        )?.[1]
+    );
+    const employerTarget = relationshipTarget || formerEmployerTarget;
+    if (
+      (!employerTarget && !formerEmployeeQuestion) ||
+      (employerTarget &&
+        /^(?:more|less|over|under|at least|a minimum|a maximum|\d|how (?:many|long))\b/.test(
+          employerTarget
+        ))
+    ) {
+      return "";
+    }
+
+    const asksAboutCurrentCompany =
+      employerTarget &&
+      /^(?:us|our company|this company|this organization)$/.test(employerTarget);
+    if (asksAboutCurrentCompany && currentCompany) {
+      return employers.some((employer) => sameCompany(employer, currentCompany))
+        ? "yes"
+        : "no";
+    }
+    if (
+      employerTarget &&
+      currentCompany &&
+      sameCompany(employerTarget, currentCompany)
+    ) {
+      return employers.some((employer) => sameCompany(employer, currentCompany))
+        ? "yes"
+        : "no";
+    }
+    if (
+      !employerTarget &&
+      pureImplicitFormerEmployeeQuestion &&
+      currentCompany
+    ) {
+      return employers.some((employer) => sameCompany(employer, currentCompany))
+        ? "yes"
+        : "no";
+    }
+    return "";
+  }
+
   function scoreDefinition(definition, context) {
     if (!isCompatible(definition, context.controlKind)) {
       return 0;
@@ -774,7 +944,55 @@
     return normalized;
   }
 
+  function locationIdentity(value) {
+    const parts = String(value || "")
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (!parts.length) {
+      return { city: "", region: "" };
+    }
+    const city = normalizeText(parts[0])
+      .replace(/\b(?:office|metro area)\b/g, "")
+      .replace(/\bcity$/g, "")
+      .trim();
+    const region =
+      parts.length > 1 ? canonicalChoice(parts[1], "region") : "";
+    return { city, region };
+  }
+
+  function scoreLocationChoice(savedValue, optionValue, optionLabel) {
+    const saved = locationIdentity(savedValue);
+    if (!saved.city) {
+      return 0;
+    }
+    return Math.max(
+      ...[optionValue, optionLabel].map((candidate) => {
+        const option = locationIdentity(candidate);
+        if (!option.city || option.city !== saved.city) {
+          return 0;
+        }
+        if (option.region && saved.region) {
+          return option.region === saved.region ? 100 : 0;
+        }
+        return 92;
+      })
+    );
+  }
+
   function scoreChoice(savedValue, optionValue, optionLabel, fieldKey) {
+    if (fieldKey === "preferredOfficeLocations") {
+      return Math.max(
+        scoreLocationChoice(savedValue, optionValue, optionLabel),
+        Math.min(
+          92,
+          Math.max(
+            scoreText(optionValue, savedValue),
+            scoreText(optionLabel, savedValue)
+          )
+        )
+      );
+    }
     const saved = canonicalChoice(savedValue, fieldKey);
     const value = canonicalChoice(optionValue, fieldKey);
     const label = canonicalChoice(optionLabel, fieldKey);
@@ -816,6 +1034,7 @@
     findBestDefinition,
     eligibilityIntent,
     resolveEligibilityAnswer,
+    resolvePreviousEmployerAnswer,
     canonicalChoice,
     scoreChoice
   });

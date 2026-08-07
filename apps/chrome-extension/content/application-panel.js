@@ -177,7 +177,10 @@
     if (isTextarea(element) || isSelect(element) || isContentEditable(element)) {
       return true;
     }
-    return ["combobox", "radio", "checkbox"].includes(elementRole(element));
+    return (
+      ["combobox", "radio", "checkbox"].includes(elementRole(element)) ||
+      element.getAttribute?.("aria-haspopup") === "listbox"
+    );
   }
 
   function getTextByIds(value, ownerDocument = document) {
@@ -357,6 +360,13 @@
       return "combobox";
     }
     if (
+      (inputType(first) === "checkbox" ||
+        elementRole(first) === "checkbox") &&
+      elements.length > 1
+    ) {
+      return "check-many";
+    }
+    if (
       ["radio", "checkbox"].includes(inputType(first)) ||
       ["radio", "checkbox"].includes(elementRole(first))
     ) {
@@ -524,11 +534,33 @@
   }
 
   function groupIdentity(control) {
+    const roleGroup = control.closest?.(
+      '[role="radiogroup"], [role="group"], fieldset'
+    );
+    const checkbox =
+      inputType(control) === "checkbox" || elementRole(control) === "checkbox";
+    const checkManyPrompt = checkbox
+      ? explicitGroupPrompt([control])
+      : "";
+    const recognizedCheckManyGroup =
+      checkManyPrompt &&
+      Boolean(
+        matcher.findBestDefinition(
+          {
+            signals: [
+              { text: checkManyPrompt, weight: 1, source: "prompt" }
+            ],
+            controlKind: "check-many"
+          },
+          profileSchema.fields
+        )
+      );
     if (
-      (inputType(control) === "checkbox" || elementRole(control) === "checkbox") &&
-      !control.name
+      checkbox &&
+      roleGroup &&
+      (!control.name || recognizedCheckManyGroup)
     ) {
-      return `element:${elementIdentity(control)}`;
+      return `role:${elementIdentity(roleGroup)}`;
     }
     if (isInput(control) && control.name) {
       const formKey = control.form ? elementIdentity(control.form) : "page";
@@ -536,9 +568,13 @@
         control
       )}:${formKey}:${control.name}`;
     }
-    const roleGroup = control.closest?.(
-      '[role="radiogroup"], [role="group"], fieldset'
-    );
+    if (
+      checkbox &&
+      !control.name &&
+      !roleGroup
+    ) {
+      return `element:${elementIdentity(control)}`;
+    }
     return roleGroup
       ? `role:${elementIdentity(roleGroup)}`
       : `element:${elementIdentity(control)}`;
@@ -591,6 +627,26 @@
         reason: intent
           ? ""
           : "The eligibility wording needs manual review."
+      };
+    }
+    if (match.definition.key === "previousEmployers") {
+      const available = state.profileAvailability.has("previousEmployers");
+      const resolution = matcher.resolvePreviousEmployerAnswer(
+        signals,
+        effectiveProfile.previousEmployers,
+        state.context.company
+      );
+      return {
+        value: resolution
+          ? profileSchema.formatControlValue(resolution, kind)
+          : "",
+        safe: Boolean(resolution),
+        available,
+        reason: resolution
+          ? ""
+          : available
+            ? "The employer-history wording needs manual review."
+            : "Add a complete previous-employer list before answering this question."
       };
     }
     if (
@@ -696,7 +752,14 @@
         inputType(elements[0])
       );
       const matchedValue = resolved.value;
-      const answered = isAnswered(elements);
+      const answered =
+        kind === "check-many"
+          ? isCheckManyAnswered(
+              elements,
+              matchedValue,
+              match?.definition?.key
+            )
+          : isAnswered(elements);
       const required = elements.some(
         (element) =>
           element.required || element.getAttribute("aria-required") === "true"
@@ -710,8 +773,9 @@
         status = "answered";
         reason = "";
       } else if (
-        inputType(elements[0]) === "checkbox" ||
-        elementRole(elements[0]) === "checkbox"
+        (inputType(elements[0]) === "checkbox" ||
+          elementRole(elements[0]) === "checkbox") &&
+        (kind !== "check-many" || !match)
       ) {
         status = "manual";
         reason = "Review this checkbox manually.";
@@ -733,6 +797,8 @@
         reason =
           kind === "file"
             ? "Save a resume PDF in your profile."
+            : match.definition.key === "preferredOfficeLocations"
+              ? "Rank acceptable locations S–C on the location tier board."
             : `Add ${match.definition.label.toLowerCase()} to your profile.`;
       } else if (kind === "file") {
         status = "manual";
@@ -1148,6 +1214,21 @@
       .sort((left, right) => right.score - left.score);
   }
 
+  function listValues(value) {
+    const seen = new Set();
+    return String(value || "")
+      .split(/[\n;]/)
+      .map((item) => item.trim())
+      .filter((item) => {
+        const key = matcher.normalizeText(item);
+        if (!key || seen.has(key)) {
+          return false;
+        }
+        seen.add(key);
+        return true;
+      });
+  }
+
   function hasUniqueChoice(ranked) {
     const best = ranked[0];
     const next = ranked[1];
@@ -1157,6 +1238,29 @@
         (!next ||
           (best.score !== next.score &&
             (best.score === 100 || best.score - next.score >= 7)))
+    );
+  }
+
+  function matchingChoiceElements(elements, value, fieldKey) {
+    const matches = new Set();
+    for (const desiredValue of listValues(value)) {
+      const ranked = rankOptions(elements, desiredValue, fieldKey);
+      if (hasUniqueChoice(ranked)) {
+        matches.add(ranked[0].option);
+      }
+    }
+    return [...matches];
+  }
+
+  function isCheckManyAnswered(elements, value, fieldKey) {
+    const matches = matchingChoiceElements(elements, value, fieldKey);
+    return (
+      matches.length > 0 &&
+      matches.every(
+        (element) =>
+          Boolean(element.checked) ||
+          element.getAttribute("aria-checked") === "true"
+      )
     );
   }
 
@@ -1206,56 +1310,149 @@
     return new Promise((resolve) => setTimeout(resolve, milliseconds));
   }
 
-  async function fillCombobox(question, value) {
+  async function waitForComboboxOptions(
+    element,
+    value,
+    fieldKey,
+    assertActive
+  ) {
+    const deadline = Date.now() + 1_500;
+    let ranked = [];
+    do {
+      assertActive();
+      ranked = rankOptions(visibleComboOptions(element), value, fieldKey);
+      if (hasUniqueChoice(ranked)) {
+        return ranked;
+      }
+      await wait(75);
+      assertActive();
+    } while (Date.now() < deadline);
+    return ranked;
+  }
+
+  async function fillCombobox(question, value, assertActive) {
     const element = question.elements[0];
     const originalValue = isInput(element) ? element.value : "";
-    element.focus?.();
-    element.click?.();
-    await wait(60);
+    let ownedValue = null;
+    try {
+      assertActive();
+      element.focus?.();
+      element.click?.();
+      await wait(60);
+      assertActive();
 
-    const fieldKey = question.match?.definition.key;
-    let ranked = rankOptions(visibleComboOptions(element), value, fieldKey);
-    if (!hasUniqueChoice(ranked) && isInput(element) && !element.readOnly) {
-      setNativeProperty(element, "value", value);
-      const EventConstructor =
-        element.ownerDocument?.defaultView?.Event || Event;
-      element.dispatchEvent(new EventConstructor("input", { bubbles: true }));
-      await wait(100);
-      ranked = rankOptions(visibleComboOptions(element), value, fieldKey);
-    }
+      const fieldKey = question.match?.definition.key;
+      let ranked = rankOptions(visibleComboOptions(element), value, fieldKey);
+      if (!hasUniqueChoice(ranked) && isInput(element) && !element.readOnly) {
+        assertActive();
+        setNativeProperty(element, "value", value);
+        const EventConstructor =
+          element.ownerDocument?.defaultView?.Event || Event;
+        element.dispatchEvent(new EventConstructor("input", { bubbles: true }));
+        ownedValue = String(element.value);
+        ranked = await waitForComboboxOptions(
+          element,
+          value,
+          fieldKey,
+          assertActive
+        );
+      } else if (!hasUniqueChoice(ranked)) {
+        ranked = await waitForComboboxOptions(
+          element,
+          value,
+          fieldKey,
+          assertActive
+        );
+      }
 
-    if (!hasUniqueChoice(ranked)) {
-      if (isInput(element) && element.value !== originalValue) {
+      if (!hasUniqueChoice(ranked)) {
+        if (
+          isInput(element) &&
+          ownedValue !== null &&
+          element.value === ownedValue &&
+          element.value !== originalValue
+        ) {
+          assertActive();
+          setNativeProperty(element, "value", originalValue);
+          dispatchValueEvents(element);
+        }
+        return false;
+      }
+
+      assertActive();
+      ranked[0].option.click();
+      if (isInput(element)) {
+        ownedValue = String(element.value);
+      }
+      await wait(60);
+      assertActive();
+      const selected =
+        ranked[0].option.getAttribute("aria-selected") === "true" ||
+        matcher.scoreChoice(
+          value,
+          element.value || element.getAttribute("data-value"),
+          element.getAttribute("aria-valuetext") || optionText(element),
+          fieldKey
+        ) >= matcher.MINIMUM_SCORE;
+      if (selected) {
+        state.extensionValues.set(
+          element,
+          String(element.value || element.getAttribute("data-value") || value)
+        );
+      }
+      return selected;
+    } catch (error) {
+      if (
+        isInput(element) &&
+        ownedValue !== null &&
+        element.value === ownedValue &&
+        element.value !== originalValue
+      ) {
         setNativeProperty(element, "value", originalValue);
         dispatchValueEvents(element);
       }
+      throw error;
+    }
+  }
+
+  function fillCheckMany(question, value) {
+    const matches = matchingChoiceElements(
+      question.elements,
+      value,
+      question.match?.definition.key
+    );
+    if (!matches.length) {
       return false;
     }
 
-    ranked[0].option.click();
-    await wait(60);
-    const selected =
-      ranked[0].option.getAttribute("aria-selected") === "true" ||
-      matcher.scoreChoice(
-        value,
-        element.value || element.getAttribute("data-value"),
-        element.getAttribute("aria-valuetext") || optionText(element),
-        fieldKey
-      ) >= matcher.MINIMUM_SCORE;
-    if (selected) {
+    for (const element of matches) {
+      const selected =
+        Boolean(element.checked) ||
+        element.getAttribute("aria-checked") === "true";
+      if (!selected) {
+        element.click();
+      }
+      if (isInput(element) && !element.checked) {
+        setNativeProperty(element, "checked", true);
+        dispatchValueEvents(element);
+      }
       state.extensionValues.set(
         element,
-        String(element.value || element.getAttribute("data-value") || value)
+        String(element.value || optionText(element))
       );
     }
-    return selected;
+    return matches.every(
+      (element) =>
+        Boolean(element.checked) ||
+        element.getAttribute("aria-checked") === "true"
+    );
   }
 
-  async function fillChoice(question, value) {
+  async function fillChoice(question, value, assertActive) {
     const first = question.elements[0];
 
     if (question.kind === "combobox") {
-      return fillCombobox(question, value);
+      return fillCombobox(question, value, assertActive);
     }
 
     if (isSelect(first)) {
@@ -1267,6 +1464,7 @@
       if (!hasUniqueChoice(ranked)) {
         return false;
       }
+      assertActive();
       setNativeProperty(first, "value", ranked[0].option.value);
       dispatchValueEvents(first);
       const selected = String(first.value) === String(ranked[0].option.value);
@@ -1286,6 +1484,7 @@
         return false;
       }
       const selectedElement = ranked[0].option;
+      assertActive();
       selectedElement.click();
       if (
         isInput(selectedElement) &&
@@ -1376,6 +1575,16 @@
     }
   }
 
+  function assertAutofillSession(sessionId, sessionGeneration) {
+    if (
+      state.sessionGeneration !== sessionGeneration ||
+      state.session?.id !== sessionId ||
+      !sessionScope.isAllowedUrl(state.session, location.href)
+    ) {
+      throw new Error("Autofill was cancelled because the session changed.");
+    }
+  }
+
   async function fillKnownFields() {
     if (
       !state.session ||
@@ -1386,17 +1595,13 @@
 
     const sessionId = state.session.id;
     const sessionGeneration = state.sessionGeneration;
+    const assertActive = () =>
+      assertAutofillSession(sessionId, sessionGeneration);
     const response = await sendMessage({
       type: "JOB_AUTOFILL_GET_PROFILE",
       sessionId
     });
-    if (
-      state.sessionGeneration !== sessionGeneration ||
-      state.session?.id !== sessionId ||
-      !sessionScope.isAllowedUrl(state.session, location.href)
-    ) {
-      throw new Error("Autofill was cancelled because the session changed.");
-    }
+    assertActive();
     if (!response?.ok) {
       throw new Error(response?.error || "The extension profile is unavailable.");
     }
@@ -1411,6 +1616,7 @@
     let filled = 0;
 
     for (const question of questions) {
+      assertActive();
       if (question.status !== "ready") {
         continue;
       }
@@ -1418,9 +1624,12 @@
       const succeeded =
         question.kind === "file"
           ? fillFile(question, question.matchedValue)
+          : question.kind === "check-many"
+            ? fillCheckMany(question, question.matchedValue)
           : ["choice", "select", "combobox"].includes(question.kind)
-          ? await fillChoice(question, question.matchedValue)
+          ? await fillChoice(question, question.matchedValue, assertActive)
           : fillText(question, question.matchedValue);
+      assertActive();
 
       if (succeeded) {
         filled += 1;

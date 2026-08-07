@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Job Application Autofill",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsvnD8CjkFZSE9qK09mgGwEr0JPk3jILv5yIf8qPTzLAQwr6zzTfsWpNvROGstwljwCQSGMfetwSlCrWSQUWHqgw0PQrwYOh7XU6j4SGMjz/ybVJ9nQGwTOuaQl/6CwJ7fmMEj8lthu3HlaCyvMEGtgENMAKz9E2q2rvmeOFcYxOGhYTatq72ppPd+MNvSElUglYzviaAV0ebmH76D9jB4rwpWF1n1J34qbZkbyBC1PGttkXSz/SBCRTbz/1gDJ9W6109d2cED3vwXC8rTdf45EKLnqVtlAry7W31w1AtJKu7ZwWoC5tf0rPnODmkO77NcsU53/fO8mrNYTHu1dF4BQIDAQAB",
   "description": "Open job applications from a dashboard, fill known fields, and track unanswered questions.",
   "minimum_chrome_version": "102",

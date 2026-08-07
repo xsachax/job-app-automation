@@ -19,6 +19,8 @@ export interface ApplicationFields {
   genderOther?: string;
   raceEthnicity?: string;
   raceEthnicityOther?: string;
+  hispanicLatino?: string;
+  transgenderStatus?: string;
   veteranStatus?: string;
   disabilityStatus?: string;
   [key: string]: unknown;
@@ -87,6 +89,8 @@ export function buildFields(job: DraftJob, profile: ProfileData): ApplicationFie
       profile.raceEthnicity,
       profile.raceEthnicityOther,
     ),
+    hispanicLatino: s(profile.hispanicLatino) || undefined,
+    transgenderStatus: s(profile.transgenderStatus) || undefined,
     veteranStatus: s(profile.veteranStatus) || undefined,
     disabilityStatus: s(profile.disabilityStatus) || undefined,
   };

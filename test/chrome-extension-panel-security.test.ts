@@ -29,7 +29,11 @@ describe("Chrome extension panel security", () => {
 
   it("revalidates the same live session after loading the profile", () => {
     expect(panelSource).toMatch(
-      /const sessionGeneration = state\.sessionGeneration;[\s\S]*await sendMessage[\s\S]*state\.sessionGeneration !== sessionGeneration/,
+      /function assertAutofillSession[\s\S]*state\.sessionGeneration !== sessionGeneration/,
+    );
+    expect(panelSource).toMatch(/await sendMessage[\s\S]*assertActive\(\)/);
+    expect(panelSource).toMatch(
+      /waitForComboboxOptions[\s\S]*await wait\(75\);\s*assertActive\(\)/,
     );
     expect(panelSource).toContain("state.sessionGeneration += 1;");
   });
