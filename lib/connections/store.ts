@@ -2,11 +2,6 @@ import { prisma } from "../db";
 import { companyMatchKey } from "./normalize";
 import type { ParsedConnection } from "./parse";
 
-// Max contacts retained per company. The badge only needs a count and a short
-// tooltip, so we cap the stored list to keep the blob small even for members
-// with thousands of connections at one large employer.
-const MAX_CONTACTS_PER_COMPANY = 25;
-
 export interface StoredContact {
   name: string;
   position: string;
@@ -15,8 +10,8 @@ export interface StoredContact {
 
 export interface CompanyConnections {
   company: string; // display spelling (most common raw form)
-  count: number; // total connections at this company (may exceed contacts.length)
-  contacts: StoredContact[]; // capped sample for the tooltip
+  count: number;
+  contacts: StoredContact[];
 }
 
 export interface ConnectionSetData {
@@ -52,9 +47,7 @@ export function buildConnectionSet(parsed: ParsedConnection[]): ConnectionSetDat
     }
     entry.count++;
     entry.spellings.set(c.company, (entry.spellings.get(c.company) ?? 0) + 1);
-    if (entry.contacts.length < MAX_CONTACTS_PER_COMPANY) {
-      entry.contacts.push({ name: c.name, position: c.position, url: c.url });
-    }
+    entry.contacts.push({ name: c.name, position: c.position, url: c.url });
   }
 
   const byCompany: Record<string, CompanyConnections> = {};

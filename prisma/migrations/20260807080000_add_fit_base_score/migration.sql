@@ -1,0 +1,1 @@
+ALTER TABLE "Job" ADD COLUMN "fitBaseScore" INTEGER;

@@ -1,10 +1,10 @@
+import type { Job, Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { getCriteria, getProfile, type ProfileData } from "../settings";
 import { scoreResumeFit, type ResumeContext } from "../matching/resume";
 import { salaryFit } from "../matching/salary";
 import { normalizeLocation, normalizeLocationKey } from "../locations";
 import {
-  clampScore,
   isTier,
   latestCompanyTiersByKey,
   normalizeCompanyKey,
@@ -13,6 +13,10 @@ import {
 } from "../tiers";
 import { fitAdvice, gapAdvice } from "./advice";
 import { freshnessFit } from "./freshness";
+import {
+  companyTierScoreBand,
+  tierFirstJudgeScore,
+} from "./scoring";
 import { minRequiredBachelorYoE } from "../discovery/entryLevel";
 
 export interface ScoreAllJobsOptions {
@@ -20,6 +24,7 @@ export interface ScoreAllJobsOptions {
   country?: string;
   limit?: number;
   force?: boolean;
+  jobIds?: string[];
   onProgress?: (progress: ScoreAllJobsProgress) => void;
 }
 
@@ -38,6 +43,44 @@ export interface ScoreAllJobsResult {
   preservedAgent: number;
   skipped: number;
   provider: "deterministic";
+}
+
+type JobScoreSnapshot = Pick<
+  Job,
+  | "id"
+  | "fitBaseScore"
+  | "fitBaseReasons"
+  | "fitBaseSummary"
+  | "fitScore"
+  | "fitReasons"
+  | "fitSummary"
+  | "fitProvider"
+  | "fitScoredAt"
+>;
+
+function scoreSnapshotWhere(job: JobScoreSnapshot): Prisma.JobWhereInput {
+  return {
+    id: job.id,
+    fitBaseScore: job.fitBaseScore,
+    fitBaseReasons: job.fitBaseReasons,
+    fitBaseSummary: job.fitBaseSummary,
+    fitScore: job.fitScore,
+    fitReasons: job.fitReasons,
+    fitSummary: job.fitSummary,
+    fitProvider: job.fitProvider,
+    fitScoredAt: job.fitScoredAt,
+  };
+}
+
+export async function updateJobScoreFromSnapshot(
+  job: JobScoreSnapshot,
+  data: Prisma.JobUpdateManyMutationInput,
+): Promise<boolean> {
+  const update = await prisma.job.updateMany({
+    where: scoreSnapshotWhere(job),
+    data,
+  });
+  return update.count === 1;
 }
 
 function cleanList(values: unknown): string[] {
@@ -113,15 +156,117 @@ function parseJobSkills(raw: string | null): string[] {
   }
 }
 
+function parseJobReasons(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    return cleanList(JSON.parse(raw) as unknown);
+  } catch {
+    return [];
+  }
+}
+
+function companyBandSignal(
+  company: string,
+  tier: Tier | null,
+): { reason: string; positive: boolean } {
+  const band = companyTierScoreBand(tier);
+  const assignment = isTier(tier)
+    ? `${company} is company tier ${tier}`
+    : `${company} is unrated and uses company tier E`;
+  return {
+    reason: `${assignment}, setting the ${band.min}–${band.max} score band`,
+    positive: band.min >= 42,
+  };
+}
+
+function isContextAdvice(reason: string): boolean {
+  return (
+    /\b(?:company tier [A-FS]|unrated and uses company tier E)\b.*\bscore band\b/i.test(
+      reason,
+    ) ||
+    /\b(?:posted|first seen) (?:within|more than)\b/i.test(reason) ||
+    /\bis location tier\b.*\bcompany band\b/i.test(reason) ||
+    /\bpay ~\$/i.test(reason) ||
+    /\bsalary (?:is )?not listed\b/i.test(reason) ||
+    /\bsaved experience\b.*\b(?:meets|below)\b/i.test(reason) ||
+    /\bposting asks for\b.*\badd relevant experience\b/i.test(reason)
+  );
+}
+
+function fitLabel(score: number): "Strong fit" | "Possible fit" | "Weak fit" {
+  return score >= 70
+    ? "Strong fit"
+    : score >= 40
+      ? "Possible fit"
+      : "Weak fit";
+}
+
+function baseAgentSummary(summary: string | null): string {
+  return (summary ?? "")
+    .replace(
+      /^(?:strong|possible|weak) fit: .*?score band\.\s*(?:Agent résumé assessment:\s*)?/i,
+      "",
+    )
+    .trim();
+}
+
+function agentTierSummary(
+  score: number,
+  summary: string | null,
+  companyReason: string,
+): string {
+  const agentSummary = baseAgentSummary(summary);
+  return `${fitLabel(score)}: ${companyReason}.${
+    agentSummary ? ` Agent résumé assessment: ${agentSummary}` : ""
+  }`.slice(0, 300);
+}
+
+function appendContextSignals(
+  strengths: string[],
+  gaps: string[],
+  context: {
+    canonicalLoc: string | null;
+    locTier: Tier | null;
+    locationMod: number;
+    experience: ReturnType<typeof experienceFit>;
+    freshness: ReturnType<typeof freshnessFit>;
+    salary: ReturnType<typeof salaryFit>;
+  },
+) {
+  const {
+    canonicalLoc,
+    locTier,
+    locationMod,
+    experience,
+    freshness,
+    salary,
+  } = context;
+  if (experience.strength) strengths.push(experience.strength);
+  if (experience.gap) gaps.push(experience.gap);
+  if (freshness.reason) {
+    (freshness.delta > 0 ? strengths : gaps).push(freshness.reason);
+  }
+  if (salary.reason && salary.delta !== 0) {
+    (salary.delta > 0 ? strengths : gaps).push(salary.reason);
+  } else if (salary.reason && !salary.known) {
+    gaps.push("Salary is not listed");
+  }
+  if (isTier(locTier) && canonicalLoc && locationMod !== 0) {
+    const reason = `${canonicalLoc} is location tier ${locTier}, moving the score within its company band`;
+    (locationMod > 0 ? strengths : gaps).push(reason);
+  }
+}
+
 function deterministicSummary(
   score: number,
   strengths: string[],
   gaps: string[],
 ): string {
-  const fit = score >= 70 ? "Strong fit" : score >= 40 ? "Possible fit" : "Weak fit";
   const reason = strengths[0] ?? "The résumé has limited direct overlap";
   const gap = gaps[0] ? ` Watch-out: ${gaps[0]}.` : "";
-  return `${fit}: ${reason}.${gap}`.replace(/\.\./g, ".").slice(0, 300);
+  return `${fitLabel(score)}: ${reason}.${gap}`
+    .replace(/\.\./g, ".")
+    .slice(0, 300);
 }
 
 function experienceFit(
@@ -189,6 +334,7 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
       isEntryLevel: true,
       ...(opts.country ? { country: opts.country } : {}),
       ...(opts.onlyUnscored ? { fitScore: null } : {}),
+      ...(opts.jobIds?.length ? { id: { in: opts.jobIds } } : {}),
     },
     orderBy: [{ fitScore: "desc" }, { firstSeenAt: "desc" }],
     take,
@@ -215,8 +361,72 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
   reportProgress(null);
 
   for (const job of jobs) {
+    const tier = tierByCompany.get(normalizeCompanyKey(job.company)) ?? null;
+    const canonicalLoc = normalizeLocation(job.location);
+    const locTier = canonicalLoc
+      ? tierByLocation.get(normalizeLocationKey(canonicalLoc)) ?? null
+      : null;
+    const salary = salaryFit(job, salaryTarget);
+    const freshness = freshnessFit(job, now);
+    const experience = experienceFit(
+      minRequiredBachelorYoE(compactText(job.title, job.description)),
+      candidateYears,
+    );
+    const locationMod = tierModifier(locTier);
+    const contextDelta =
+      locationMod + salary.delta + freshness.delta + experience.delta;
+    const companySignal = companyBandSignal(job.company, tier);
+
     if (job.fitProvider === "agent" && !opts.force) {
-      preservedAgent++;
+      const baseScore = job.fitBaseScore ?? job.fitScore ?? 0;
+      const adjustedScore = tierFirstJudgeScore(
+        baseScore,
+        tier,
+        contextDelta,
+      );
+      const baseAdvice = parseJobReasons(
+        job.fitBaseReasons ?? job.fitReasons,
+      ).filter((reason) => !isContextAdvice(reason));
+      const baseSummary = baseAgentSummary(
+        job.fitBaseSummary ?? job.fitSummary,
+      );
+      const companyAdvice = companySignal.positive
+        ? fitAdvice(companySignal.reason)
+        : gapAdvice(companySignal.reason);
+      const contextStrengths: string[] = [];
+      const contextGaps: string[] = [];
+      appendContextSignals(contextStrengths, contextGaps, {
+        canonicalLoc,
+        locTier,
+        locationMod,
+        experience,
+        freshness,
+        salary,
+      });
+      const contextAdvice = [
+        ...contextStrengths.map(fitAdvice),
+        ...contextGaps.map(gapAdvice),
+      ];
+      const updated = await updateJobScoreFromSnapshot(job, {
+        fitBaseScore: baseScore,
+        fitBaseReasons: JSON.stringify(baseAdvice),
+        fitBaseSummary: baseSummary || null,
+        fitScore: adjustedScore,
+        fitReasons: JSON.stringify(
+          [companyAdvice, ...baseAdvice, ...contextAdvice].slice(0, 8),
+        ),
+        fitSummary: agentTierSummary(
+          adjustedScore,
+          baseSummary,
+          companySignal.reason,
+        ),
+        fitScoredAt: now,
+      });
+      if (updated) {
+        preservedAgent++;
+      } else {
+        skipped++;
+      }
       processed++;
       reportProgress({
         id: job.id,
@@ -232,27 +442,10 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
       { title: job.title, company: job.company, description, skills },
       resume,
     );
-
-    const tier = tierByCompany.get(normalizeCompanyKey(job.company)) ?? null;
-    const canonicalLoc = normalizeLocation(job.location);
-    const locTier = canonicalLoc ? tierByLocation.get(normalizeLocationKey(canonicalLoc)) ?? null : null;
-    const salary = salaryFit(job, salaryTarget);
-    const freshness = freshnessFit(job, now);
-    const experience = experienceFit(
-      minRequiredBachelorYoE(compactText(job.title, job.description)),
-      candidateYears,
-    );
-
-    // Unrated companies and locations are neutral, exactly like E.
-    const companyMod = tierModifier(tier);
-    const locationMod = tierModifier(locTier);
-    const adjustedScore = clampScore(
-      result.score +
-        companyMod +
-        locationMod +
-        salary.delta +
-        freshness.delta +
-        experience.delta,
+    const adjustedScore = tierFirstJudgeScore(
+      result.score,
+      tier,
+      contextDelta,
     );
 
     const strengths = result.reasons.filter(
@@ -265,46 +458,38 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
     if (result.missingSignals.length) {
       gaps.push(`Résumé does not show ${result.missingSignals.slice(0, 4).join(", ")}`);
     }
-    if (experience.strength) strengths.push(experience.strength);
-    if (experience.gap) gaps.push(experience.gap);
-
-    if (freshness.reason) {
-      if (freshness.delta > 0) {
-        strengths.splice(Math.min(1, strengths.length), 0, freshness.reason);
-      } else {
-        gaps.push(freshness.reason);
-      }
-    }
-    if (salary.reason && salary.delta !== 0) {
-      (salary.delta > 0 ? strengths : gaps).push(salary.reason);
-    } else if (salary.reason && !salary.known) {
-      gaps.push("Salary is not listed");
-    }
-    if (isTier(tier) && companyMod !== 0) {
-      const reason = `${job.company} is company tier ${tier} (${companyMod > 0 ? "+" : ""}${companyMod})`;
-      (companyMod > 0 ? strengths : gaps).push(reason);
-    }
-    if (isTier(locTier) && canonicalLoc && locationMod !== 0) {
-      const reason = `${canonicalLoc} is location tier ${locTier} (${locationMod > 0 ? "+" : ""}${locationMod})`;
-      (locationMod > 0 ? strengths : gaps).push(reason);
-    }
+    appendContextSignals(strengths, gaps, {
+      canonicalLoc,
+      locTier,
+      locationMod,
+      experience,
+      freshness,
+      salary,
+    });
+    (companySignal.positive ? strengths : gaps).unshift(
+      companySignal.reason,
+    );
 
     const advice = [
       ...strengths.slice(0, 6).map(fitAdvice),
       ...gaps.slice(0, 6).map(gapAdvice),
     ];
 
-    await prisma.job.update({
-      where: { id: job.id },
-      data: {
-        fitScore: adjustedScore,
-        fitReasons: JSON.stringify(advice),
-        fitSummary: deterministicSummary(adjustedScore, strengths, gaps),
-        fitProvider: "deterministic",
-        fitScoredAt: now,
-      },
+    const updated = await updateJobScoreFromSnapshot(job, {
+      fitBaseScore: result.score,
+      fitBaseReasons: null,
+      fitBaseSummary: null,
+      fitScore: adjustedScore,
+      fitReasons: JSON.stringify(advice),
+      fitSummary: deterministicSummary(adjustedScore, strengths, gaps),
+      fitProvider: "deterministic",
+      fitScoredAt: now,
     });
-    scored++;
+    if (updated) {
+      scored++;
+    } else {
+      skipped++;
+    }
     processed++;
     reportProgress({
       id: job.id,
@@ -313,6 +498,5 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
     });
   }
 
-  skipped = jobs.length - scored - preservedAgent;
   return { scanned: jobs.length, scored, preservedAgent, skipped, provider: "deterministic" };
 }

@@ -129,32 +129,6 @@ export function CategoryBadge({ category }: { category: JobCategory | null | und
   );
 }
 
-// "Warm intro" badge — the user has 1+ LinkedIn connections at this company
-// (imported from their Connections.csv). The tooltip lists who, so they know who
-// to ask for a referral. Teal is reserved for this signal so it stands out.
-export function ConnectionsBadge({
-  count,
-  contacts,
-}: {
-  count: number;
-  contacts: { name: string; position: string; url?: string }[];
-}) {
-  if (!count) return null;
-  const tooltip = contacts
-    .map((c) => (c.position ? `${c.name} — ${c.position}` : c.name))
-    .join("\n");
-  const more = count - contacts.length;
-  return (
-    <span
-      className="inline-flex items-center gap-1 rounded-full bg-teal-100 px-2 py-0.5 text-[11px] font-semibold text-teal-800 dark:bg-teal-950 dark:text-teal-200"
-      title={more > 0 ? `${tooltip}\n+${more} more` : tooltip}
-    >
-      <span aria-hidden>🤝</span>
-      {count} {count === 1 ? "connection" : "connections"}
-    </span>
-  );
-}
-
 // Visa-sponsorship badge derived from enrichment. Always renders so every card
 // states a sponsorship status; anything we couldn't determine (or a legacy row
 // with no value) falls back to a muted "unknown" tag rather than showing nothing.

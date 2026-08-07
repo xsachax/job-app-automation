@@ -1,7 +1,7 @@
 # Job Application Pipeline
 
 A local-first pipeline that **discovers currently-open entry-level software roles**
-(SWE, DevOps, ML, and related) at ~40 big-tech / well-known / VC-backed companies and
+(SWE, DevOps, ML, and related) at 70+ big-tech / well-known / VC-backed companies and
 surfaces them in a dashboard as two separate queues — **United States** and **Canada** —
 sorted newest-first with date filters. Each card links straight to the real posting; you
 apply yourself, or optionally launch a local Chrome extension that fills known fields and
@@ -14,8 +14,9 @@ The queue targets roles that are **entry-level or ask for ≤ 2 years of experie
 > with form filling only after you open a posting; it never submits. On top of discovery the
 > project adds a **configurable pipeline**
 > (Settings), **enriched, filterable job cards**, **applied-status tracking**, **dark mode**,
-> **personal-info import**, and a **post-scrape fit judge** that ranks discovered roles
-> against your résumé. Legacy auto-apply fillers are retained but unused (see
+> a durable **application profile**, **company/location tier boards**, and a **tier-first
+> fit judge** that ranks discovered roles against your preferences and résumé. Legacy
+> auto-apply fillers are retained but unused (see
 > [Paused features](#paused-features)). Workday postings are flagged in a separate list.
 
 ---
@@ -95,14 +96,21 @@ npm run discover -- "Y Combinator"
   fields from a profile stored in Chrome, track progress in both the posting and dashboard,
   and list every unknown or manual field. It has a global off switch and never submits.
 - **Warm-intro tagging** — import your LinkedIn **Connections.csv** on the Profile page and
-  every card at a company where you already know someone gets a 🤝 badge (with names/roles in
-  the tooltip). A **Warm intro** filter narrows the queue to just those. Matching is local and
+  every card at a company where you already know someone gets a 🤝 badge. Hover or focus the
+  badge to see every matching connection's name and role. A **Warm intro** filter narrows the
+  queue to just those. Matching is local and
   normalized (`lib/connections/*`), so "Amazon Web Services (AWS)" matches the catalog's
   "Amazon" and "Jane Street Capital" matches "Jane Street". See [below](#warm-intros-linkedin-connections).
-- **Post-scrape fit judge** — rank every discovered role against your résumé/skills with a
-  deterministic baseline, optionally upgraded by the Copilot agent. See below.
-- **Import your info** — the **Profile** page imports contact details, a résumé PDF URL (or
-  pasted text), target roles, skills and qualifications the judge scores against.
+- **Tier-first fit judge** — company tier selects a strict score band; résumé fit, location,
+  freshness, experience, and pay only rank jobs within that band. A lower-tier company can
+  never outrank a higher-tier company, and the maximum score is 97. See below.
+- **Comprehensive application profile** — the **Profile** page stores country-specific
+  location/work authorization, education, GPAs and test scores, citizenship, clearances,
+  common application defaults, voluntary demographics, a saved résumé PDF, target roles,
+  skills, and qualifications.
+- **Durable editing** — profile changes auto-save with per-field conflict protection and a
+  session draft; company and location tier edits use an ordered retryable save queue, so
+  switching pages does not discard work.
 - **Dark mode + dense layout** — full light/dark theming with a no-FOUC init.
 - **Dedup so nothing is listed twice** — including cross-source (a role found on both a
   company site and an aggregator board collapses into one card). See [below](#dedup--never-apply-twice).
@@ -112,7 +120,8 @@ npm run discover -- "Y Combinator"
   extension it is a normal link; with the extension connected, the assistant opens beside the
   form and waits for you to start autofill from its protected panel.
 - **Workday flagging** — surfaced in a separate list.
-- **Clean dashboard** — Overview, Jobs (US/CA), Companies, Settings, Profile, Workday.
+- **Clean dashboard** — Overview, Jobs (US/CA), Companies, Judge, company/location tiers,
+  Profile, Settings, Extension, and Workday.
 
 ### Paused features
 
@@ -171,9 +180,12 @@ The Chrome extension is optional and needs no build or Web Store publication. Fo
 | **Overview** | Discovery stats, US/CA entry-level counts, companies covered, by-category and by-company breakdowns. |
 | **Jobs** | Time-sorted US / CA queues of discovered postings. Filter by category, date, skills, sponsorship, employment type, source, min salary, min fit, remote, warm intro and applied status; sort by newest / company / best fit / salary. Each card links out or launches the optional autofill assistant, tracks its progress, and lets you mark status. |
 | **Companies** | Coverage of every API and browser-scraped source. |
+| **Judge** | Review scoring coverage and signal definitions, set a salary target, monitor exact processed/total progress, and re-score all eligible jobs. |
+| **Company tiers** | Drag employers from S through F. The tier is authoritative: it selects the job's final score band. Unrated companies use E. |
+| **Location tiers** | Rank places from S through F. Location preference adjusts placement only within the company band; unrated locations are neutral. |
 | **Extension** | Install the optional Chrome extension and see its live connection status. |
 | **Settings** | Edit discovery configuration — countries, max YoE, degree/internship gates, keywords, scraper query terms, per-source enable/disable. |
-| **Profile** | Manage automatically saved country-specific application details, recurring voluntary self-identification answers, a saved résumé PDF from GitHub or Google Drive, target roles, skills and qualifications, and your LinkedIn Connections.csv (for warm-intro tagging), then run the fit judge. |
+| **Profile** | Manage automatically saved country-specific application details, education and qualifications, recurring application defaults, voluntary self-identification answers, a saved résumé PDF from GitHub or Google Drive, Judge signals, and your LinkedIn Connections.csv, then run the Judge. |
 | **Workday** | Read-only list of flagged Workday jobs with apply links. |
 
 ---
@@ -272,8 +284,9 @@ The importer (`lib/connections/parse.ts`) handles LinkedIn's `Notes:` preamble a
 fields; `lib/connections/normalize.ts` reduces both a connection's free-text employer and a
 job's catalog company to a shared key (dropping corporate/industry suffixes and resolving a
 few aliases), so matches survive spelling differences. The set is stored as a single
-`ConnectionSet` row and surfaced via `GET/POST/DELETE /api/connections`. Re-import monthly to
-stay current.
+`ConnectionSet` row and surfaced via `GET/POST/DELETE /api/connections`. Job-list responses
+embed a small preview; opening a connection badge lazily fetches the complete local list for
+that company. Re-import monthly to stay current.
 
 ## Dedup — never apply twice
 
@@ -288,6 +301,10 @@ Three independent guards:
 3. **Repost / fuzzy guard** — a `company|normalized-title|location` fingerprint (with
    seniority markers stripped) blocks applying to a re-posted job that already has an
    in-flight or submitted application under a different id.
+
+Company names are canonicalized before ingest and tier/connection matching, so variants such
+as casing changes or legal suffixes share one employer. To repair historical rows after adding
+an alias, run `npm run companies:dedupe`.
 
 ## Configuration & the fit judge
 
@@ -315,35 +332,57 @@ string), a **visa-sponsorship** signal (`offers` / `none` / `citizenship`), and
 
 ### Fit judge (post-scrape, powered by Copilot — no API key)
 
-The judge ranks **already-discovered** jobs against your imported résumé/skills and writes
-`fitScore` / `fitReasons` / `fitSummary` / `fitProvider` straight onto each `Job`.
+The Judge ranks **already-discovered** jobs. Company tier is authoritative and chooses a
+strict, non-overlapping final score band:
+
+| Company tier | Final score band |
+| --- | ---: |
+| S | 84–97 |
+| A | 70–83 |
+| B | 56–69 |
+| C | 42–55 |
+| D | 28–41 |
+| E or unrated | 14–27 |
+| F | 0–13 |
+
+The deterministic or Copilot-reviewed résumé assessment is retained separately as a raw
+0–100 base score. Résumé overlap plus location tier, freshness, required experience, and pay
+then position the job **inside** its company band; they cannot promote or demote it across a
+tier boundary. Final evidence is rebuilt on each run so changing tiers or context cannot
+leave stale explanations behind.
 
 ```bash
 npm run judge                     # deterministic pass over every eligible job
                                   #   flags: -- --country US --limit N --only-unscored --force
 npm run judge:export              # writes .match/judge-review.json: top jobs + your résumé
                                   #   flags: -- --country US --topN 25 --out <file>
-# → the Copilot agent scores each item and writes {"scores":[{id,score,summary,reasons}]}
+# → the Copilot agent writes {"scores":[{id,score,summary,fits:[],gaps:[]}]}
 npm run judge:apply -- <scores.json>   # persists agent scores (fitProvider = "agent")
 ```
 
-Deterministic scores show an **`auto`** fit badge; agent scores show **`agent`** and win
-over the baseline. `POST /api/judge/score` and `GET /api/judge/review` back the Profile
-page's **Re-run judge** button. Sort/filter the queue by **Best fit** / **min fit** to
-surface the strongest matches first.
+Deterministic scores show an **`auto`** fit badge; Copilot-reviewed résumé evidence shows
+**`agent`**. Applying agent evidence immediately re-bands the final score using the current
+company and contextual signals. `POST /api/judge/score`, `GET /api/judge/score`, and
+`GET /api/judge/status` back the shared progress display on Judge, Profile, and both tier
+boards. Sort/filter the queue by **Best fit** / **min fit** to surface the strongest matches.
 
 > **Scrape everything, then judge** — jobs are always stored and deduped first, so
 > retuning Settings or importing a new résumé re-scores instantly with no re-scraping.
 
 ## Import your info (Profile)
 
-The **Profile** page ("Import your info") stores the signals the judge reads: contact
-details, a **résumé PDF URL** (fetched + parsed server-side, with a graceful fallback to
-**pasted résumé text** when parsing isn't available), plus **target roles**, **skills**,
-a **summary** and **qualifications**. **Fetch text** pulls a résumé URL into a
-`ResumeVersion` and non-destructively fills blank fields; **Save and re-run judge**
-persists your profile and re-scores the queue in one click. PDF parsing uses the optional
-`pdf-parse` package when installed, otherwise paste text directly.
+The **Profile** page is the local source of truth for both the Judge and extension. It covers
+contact information; separate US/Canada country, city, work-authorization, sponsorship, and
+citizenship answers; school, degree, discipline, graduation date, experience, certifications,
+GPAs, SAT/ACT/GRE scores, security clearances, accommodations, "how did you hear about us,"
+voluntary demographics, and résumé/cover-letter data. Contact and demographic answers are
+autofill-only and never influence Judge scores.
+
+A **résumé PDF URL** is fetched and parsed server-side, with **pasted résumé text** as a
+fallback. **Fetch text** writes a `ResumeVersion` and non-destructively fills blank Judge
+signals; **Save and re-run judge** flushes pending profile changes before scoring. Normal
+field edits auto-save after a short delay, persist a session draft until acknowledged by the
+server, and flush when the page is hidden or closed.
 
 The same page hosts **LinkedIn connections** import (upload/paste `Connections.csv`) for
 warm-intro tagging — see [Warm intros](#warm-intros-linkedin-connections).
@@ -359,9 +398,10 @@ npm run cron     # runs on SCAN_CRON (default: every 30 min), scans immediately 
 The cron process only **discovers and scores** jobs — it never submits. Submission
 always stays behind the dashboard's human gate.
 
-## Going live (optional, advanced)
+## Legacy live-submission scaffolding (paused)
 
-Live submission is intentionally hard to trigger by accident:
+This is not part of the current discovery/autofill workflow. The retained scaffolding is
+intentionally hard to trigger by accident:
 
 1. `npm install playwright && npx playwright install chromium`
 2. Set `APPLY_MODE=live` in `.env`.
@@ -384,8 +424,9 @@ npm run e2e       # Playwright: dashboard flows against an isolated seeded DB
 ```
 
 Unit tests run against an isolated `prisma/test.db` (migrated fresh each run) and mock all
-network calls, so the suite is offline and deterministic (353 tests, incl. the fit judge,
-enrichment, and configurable-classifier coverage).
+network calls, so the suite is offline and deterministic. Coverage includes migrations,
+deduplication, source adapters, enrichment, profile persistence, tier-first scoring, agent
+evidence, connections, and the configurable classifier.
 
 ### End-to-end (Playwright)
 
@@ -393,8 +434,9 @@ enrichment, and configurable-classifier coverage).
 seeded by `scripts/e2e-seed.ts` (US + CA entry-level discovery fixtures — enriched with
 skills/salary/sponsorship/fit — plus one Workday flag). It exercises the US/CA queue tabs,
 newest-first ordering, the date-posted and **min-fit** filters, the queue count, enriched
-card display, the **applied-status** flow, the Companies page, and the Workday flag-only
-list — with no live network calls. First run needs the browser:
+card display, the **applied-status** flow, connection hover details, durable profile/tier
+editing, Judge progress, the Companies page, and the Workday flag-only list — with no live
+network calls. First run needs the browser:
 `npx playwright install chromium`. Open the last HTML report with `npm run e2e:report`.
 
 The discovery **runtime** browser scraper (`npm run discover:browser`) is separate and
@@ -417,17 +459,23 @@ app/                 Next.js dashboard (pages) + API routes under app/api
   page.tsx           Overview (discovery stats)
   jobs/              US/CA discovery queue (link-out cards) + components/jobs/*
   companies/         coverage table (API + browser sources)
+  judge/             score status, axes, salary target and exact run progress
+  tiers/             company S–F board (authoritative score bands)
+  location-tiers/    location S–F board (within-band preference)
   settings/          configurable discovery pipeline editor
-  profile/           "Import your info" — résumé + judge signals
+  profile/           persistent application profile, résumé, judge signals, connections
+  extension/         Chrome extension install and connection status
   workday/           Workday flag-only list
-  api/               jobs (+ facets, [id]), config, judge (score/review), profile, …
+  api/               jobs, config, judge, profile, tiers, connections, extension, …
 apps/
   chrome-extension/  unpacked Manifest V3 extension (popup, form panel, icons)
 lib/
   chromeExtension.ts typed dashboard ↔ Chrome extension messaging client
+  company-names.ts   shared employer aliases/canonicalization
+  connections/       LinkedIn CSV parsing, normalization and local storage
   discovery/         catalog, adapters.ts (API fetchers), browser.ts (Playwright),
                      entryLevel.ts (config-driven classifiers), enrich.ts, config.ts, run.ts
-  judge/             judge.ts (deterministic Job fit), agent.ts (export/apply)
+  judge/             tier-first scoring, progress coordination, agent export/apply
   profile/           resume.ts, pdf.ts (résumé fetch/parse), refresh.ts
   jobs/              shape.ts (API row shaping)
   sources/           legacy pluggable-source engine (dedup/normalize reused by discovery)

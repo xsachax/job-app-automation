@@ -5,16 +5,26 @@ import {
   buildConnectionSet,
   clearConnectionSet,
   getConnectionSet,
+  lookupConnections,
   saveConnectionSet,
   summarizeConnectionSet,
 } from "@/lib/connections/store";
 
 export const dynamic = "force-dynamic";
 
-// GET /api/connections — compact summary of the imported LinkedIn connections
-// (no full contact lists; those only ride along on matched job cards).
-export async function GET() {
+// GET /api/connections — compact import summary, or every stored contact for one
+// company when `?company=` is supplied by a warm-intro tooltip.
+export async function GET(request: NextRequest) {
   const data = await getConnectionSet();
+  const company = request.nextUrl.searchParams.get("company")?.trim();
+  if (company) {
+    const match = lookupConnections(data, company);
+    return json(
+      match
+        ? { count: match.count, contacts: match.contacts }
+        : { count: 0, contacts: [] },
+    );
+  }
   return json(summarizeConnectionSet(data));
 }
 

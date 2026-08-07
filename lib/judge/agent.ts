@@ -2,9 +2,8 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { prisma } from "../db";
 import { getProfile } from "../settings";
-import { buildResumeContext } from "./judge";
+import { buildResumeContext, scoreAllJobs } from "./judge";
 import { fitAdvice, gapAdvice } from "./advice";
-import { freshnessFit } from "./freshness";
 
 export interface BuildJudgeBatchOptions {
   topN?: number;
@@ -60,7 +59,7 @@ const JUDGE_INSTRUCTIONS =
   "Return JSON as {\"scores\":[{\"id\":\"job_id\",\"score\":0-100,\"summary\":\"actionable one-line advice\",\"fits\":[\"specific evidence\"],\"gaps\":[\"specific gap\"]}]}. " +
   "Judge concrete skill and domain overlap, qualifications, seniority, transferable experience, and hard requirements. " +
   "Name evidence from the résumé and posting; never use vague phrases like \"good fit\" or invent experience. " +
-  "Score candidate fit only. The app applies the date-posted freshness modifier separately. " +
+  "Score candidate résumé and qualification fit only. The app stores that as the base score, selects the final band from company tier, and applies freshness, location, experience, and pay context within that band. " +
   "Then run: npm run judge:apply -- <scores.json>.";
 
 function parseStringArray(raw: string | null): string[] {
@@ -145,8 +144,7 @@ export async function buildJudgeBatch(opts: BuildJudgeBatchOptions = {}): Promis
 
 export async function applyJudgeScores(scores: JudgeScoreInput[]): Promise<ApplyJudgeScoresResult> {
   const result: ApplyJudgeScoresResult = { updated: 0, skipped: [] };
-  const now = new Date();
-
+  const updatedIds: string[] = [];
   for (const item of scores) {
     const id = typeof item?.id === "string" ? item.id : typeof item?.jobId === "string" ? item.jobId : "";
     if (!id) {
@@ -170,28 +168,30 @@ export async function applyJudgeScores(scores: JudgeScoreInput[]): Promise<Apply
     const fits = cleanReasons(item.fits);
     const gaps = cleanReasons(item.gaps);
     const legacyReasons = cleanReasons(item.reasons);
-    const freshness = freshnessFit(job, now);
-    const score = clampScore(baseScore + freshness.delta) ?? baseScore;
     const reasons = [
       ...fits.map(fitAdvice),
       ...gaps.map(gapAdvice),
       ...(fits.length || gaps.length ? [] : legacyReasons),
-      ...(freshness.reason
-        ? [freshness.delta > 0 ? fitAdvice(freshness.reason) : gapAdvice(freshness.reason)]
-        : []),
     ].slice(0, 8);
     await prisma.job.update({
       where: { id },
       data: {
-        fitScore: score,
+        fitBaseScore: baseScore,
+        fitBaseReasons: JSON.stringify(reasons),
+        fitBaseSummary: summary || null,
+        fitScore: null,
         fitReasons: JSON.stringify(reasons),
         fitSummary: summary || null,
         fitProvider: "agent",
-        fitScoredAt: now,
+        fitScoredAt: null,
       },
     });
     result.updated++;
+    updatedIds.push(id);
   }
 
+  if (updatedIds.length) {
+    await scoreAllJobs({ jobIds: updatedIds });
+  }
   return result;
 }

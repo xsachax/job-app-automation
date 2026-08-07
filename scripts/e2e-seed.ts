@@ -215,12 +215,18 @@ async function main() {
   const us = await prisma.job.count({ where: { country: "US", isEntryLevel: true } });
   const ca = await prisma.job.count({ where: { country: "CA", isEntryLevel: true } });
 
-  // Two connections at OpenAI (the "frontend" fixture company) so the warm-intro
-  // badge and filter have something to match. AcmeE2E/MapleE2E stay unmatched.
+  // Eight connections at OpenAI exercise both the initial badge sample and the
+  // lazy full-contact tooltip. AcmeE2E/MapleE2E stay unmatched.
   const connCsv = [
     "First Name,Last Name,URL,Email Address,Company,Position,Connected On",
     "Ada,Lovelace,https://linkedin.com/in/ada-e2e,,OpenAI,Research Engineer,01 Jan 2024",
     "Alan,Turing,https://linkedin.com/in/alan-e2e,,OpenAI Inc.,Member of Technical Staff,02 Feb 2024",
+    "Grace,Hopper,https://linkedin.com/in/grace-e2e,,OpenAI,Principal Engineer,03 Mar 2024",
+    "Katherine,Johnson,https://linkedin.com/in/katherine-e2e,,OpenAI,Research Scientist,04 Apr 2024",
+    "Margaret,Hamilton,https://linkedin.com/in/margaret-e2e,,OpenAI,Engineering Manager,05 May 2024",
+    "Barbara,Liskov,https://linkedin.com/in/barbara-e2e,,OpenAI,Distinguished Engineer,06 Jun 2024",
+    "Donald,Knuth,https://linkedin.com/in/donald-e2e,,OpenAI,Researcher,07 Jul 2024",
+    "Edsger,Dijkstra,https://linkedin.com/in/edsger-e2e,,OpenAI,Computer Scientist,08 Aug 2024",
   ].join("\n");
   await saveConnectionSet(buildConnectionSet(parseConnectionsCsv(connCsv).connections));
 
@@ -232,7 +238,7 @@ async function main() {
   // the location tier list renders an assigned row on load.
   await prisma.locationTier.create({ data: { location: "San Francisco, CA", tier: "S" } });
 
-  console.log(`e2e seed: ${jobs} jobs (${us} US entry, ${ca} CA entry, 1 workday flag), 2 connections.`);
+  console.log(`e2e seed: ${jobs} jobs (${us} US entry, ${ca} CA entry, 1 workday flag), 8 connections.`);
 }
 
 main()

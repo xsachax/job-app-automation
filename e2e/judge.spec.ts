@@ -29,6 +29,9 @@ test.describe("judge hub", () => {
 
     // Every scoring axis is documented in the "how it's built" table.
     await expect(page.getByRole("cell", { name: "Résumé fit" })).toBeVisible();
+    await expect(
+      page.getByRole("cell", { name: "Experience", exact: true }),
+    ).toBeVisible();
     await expect(page.getByRole("cell", { name: "Date posted" })).toBeVisible();
     await expect(page.getByRole("cell", { name: "Company tier" })).toBeVisible();
     await expect(page.getByRole("cell", { name: "Location tier" })).toBeVisible();

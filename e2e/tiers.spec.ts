@@ -14,7 +14,7 @@ function saveStatus(page: Page) {
 // Tests share one seeded DB (serial, no reseed between tests), so any mutation
 // restores the company to unranked before the next test runs.
 test.describe("company tiers", () => {
-  test("renders S through F and the neutral unrated pool", async ({ page }) => {
+  test("renders S through F with company score bands", async ({ page }) => {
     await page.goto("/tiers");
     await expect(page.getByRole("heading", { name: "Company tiers" })).toBeVisible();
     for (const t of ["S", "A", "B", "C", "D", "E", "F"]) {
@@ -23,7 +23,11 @@ test.describe("company tiers", () => {
     await expect(page.getByTestId("tier-row-S++")).toHaveCount(0);
     await expect(page.getByTestId("tier-row-S+")).toHaveCount(0);
     await expect(page.getByTestId("tier-pool")).toBeVisible();
-    await expect(page.getByTestId("tier-pool-note")).toContainText("same score as E tier");
+    await expect(page.getByText("84–97 fit", { exact: true })).toBeVisible();
+    await expect(page.getByText("14–27 fit", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("tier-pool-note")).toContainText(
+      "E-tier score band",
+    );
   });
 
   test("a pre-seeded ranking lands in the correct tier row", async ({ page }) => {

@@ -58,7 +58,10 @@ model Job {
   applicationStatus String @default("none") // none | saved | applied | interviewing | offer | rejected | dismissed
   appliedAt         DateTime?
   // --- Post-scrape resume judge (see lib/judge) ---
-  fitScore    Int? // 0..100 fit against the user's resume/qualifications
+  fitScore    Int? // 0..97 tier-first judge score
+  fitBaseScore Int? // raw 0..100 resume fit before company-tier banding
+  fitBaseReasons String? // JSON array of agent-provided resume evidence
+  fitBaseSummary String? // agent-provided resume assessment before tier banding
   fitReasons  String? // JSON array of short fit reasons
   fitSummary  String? // one-line fit/gap summary (mainly from the agent tier)
   fitProvider String? // deterministic | agent

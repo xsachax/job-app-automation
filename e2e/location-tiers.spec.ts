@@ -21,7 +21,9 @@ test.describe("location tiers", () => {
       await expect(page.getByTestId(`tier-row-${t}`)).toBeVisible();
     }
     await expect(page.getByTestId("tier-pool")).toBeVisible();
-    await expect(page.getByTestId("tier-pool-note")).toContainText("same score as E tier");
+    await expect(page.getByTestId("tier-pool-note")).toContainText(
+      "do not move a job",
+    );
   });
 
   test("a pre-seeded ranking lands in the correct tier row", async ({ page }) => {
