@@ -28,14 +28,14 @@ const TIER_ROW: Record<Tier, string> = {
   F: "bg-[#7fbfff]",
 };
 
-const TIER_HINT: Record<Tier, string> = {
-  S: "+25 fit",
-  A: "+20 fit",
-  B: "+15 fit",
-  C: "+10 fit",
-  D: "+5 fit",
-  E: "no change",
-  F: "−25 fit",
+const LOCATION_TIER_HINT: Record<Tier, string> = {
+  S: "top of band",
+  A: "strong boost",
+  B: "medium boost",
+  C: "small boost",
+  D: "slight boost",
+  E: "neutral",
+  F: "bottom of band",
 };
 
 const POOL_LIMIT = 120;
@@ -79,6 +79,8 @@ interface TierBoardProps {
   searchPlaceholder: string;
   searchAriaLabel: string;
   countLabel: (count: number) => string;
+  /** Per-tier score copy. Company tiers provide bands; locations use boosts. */
+  tierHints?: Record<Tier, string>;
   /** Optional note shown beside the Unranked heading (e.g. an unranked penalty). */
   poolNote?: ReactNode;
 }
@@ -95,6 +97,7 @@ export function TierBoard({
   searchPlaceholder,
   searchAriaLabel,
   countLabel,
+  tierHints = LOCATION_TIER_HINT,
   poolNote,
 }: TierBoardProps) {
   const {
@@ -237,7 +240,9 @@ export function TierBoard({
                     className={`flex w-20 shrink-0 flex-col items-center justify-center gap-0.5 ${TIER_ROW[tier]} px-2 py-3 text-gray-900`}
                   >
                     <span className="text-2xl font-black leading-none">{tier}</span>
-                    <span className="text-[10px] font-medium opacity-80">{TIER_HINT[tier]}</span>
+                    <span className="text-[10px] font-medium opacity-80">
+                      {tierHints[tier]}
+                    </span>
                   </div>
                   <div
                     data-testid={`tier-row-${tier}`}

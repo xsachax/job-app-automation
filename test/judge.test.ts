@@ -17,6 +17,7 @@ let saveCriteria: SaveCriteria;
 let buildQualificationContext: JudgeModule["buildQualificationContext"];
 let buildResumeContext: JudgeModule["buildResumeContext"];
 let scoreAllJobs: JudgeModule["scoreAllJobs"];
+let updateJobScoreFromSnapshot: JudgeModule["updateJobScoreFromSnapshot"];
 let buildJudgeBatch: AgentModule["buildJudgeBatch"];
 let applyJudgeScores: AgentModule["applyJudgeScores"];
 let refreshProfile: RefreshModule["refreshProfile"];
@@ -82,7 +83,8 @@ async function makeJob(opts: {
 beforeAll(async () => {
   ({ prisma } = await import("../lib/db"));
   ({ saveProfile, saveCriteria } = await import("../lib/settings"));
-  ({ buildQualificationContext, buildResumeContext, scoreAllJobs } = await import("../lib/judge/judge"));
+  ({ buildQualificationContext, buildResumeContext, scoreAllJobs, updateJobScoreFromSnapshot } =
+    await import("../lib/judge/judge"));
   ({ buildJudgeBatch, applyJudgeScores } = await import("../lib/judge/agent"));
   ({ refreshProfile } = await import("../lib/profile/refresh"));
 });
@@ -159,7 +161,7 @@ describe("refreshProfile", () => {
 });
 
 describe("scoreAllJobs", () => {
-  it("scores entry-level discovery jobs and preserves agent scores", async () => {
+  it("scores entry-level jobs and preserves the agent résumé score", async () => {
     await saveProfile({
       skills: ["TypeScript", "React", "Node.js"],
       targetRoles: ["Software Engineer"],
@@ -214,11 +216,61 @@ describe("scoreAllJobs", () => {
 
     const preserved = await prisma.job.findUniqueOrThrow({ where: { id: agentJob.id } });
     expect(preserved.fitProvider).toBe("agent");
-    expect(preserved.fitScore).toBe(91);
+    expect(preserved.fitBaseScore).toBe(91);
+    expect(preserved.fitScore).toBeLessThanOrEqual(27);
 
     const scoredWorkday = await prisma.job.findUniqueOrThrow({ where: { id: workdayJob.id } });
     expect(scoredWorkday.fitProvider).toBe("deterministic");
     expect(scoredWorkday.fitScore ?? 0).toBeGreaterThan(0);
+  });
+
+  it("does not overwrite agent evidence applied after the scoring snapshot", async () => {
+    await saveProfile({
+      skills: ["TypeScript"],
+      targetRoles: ["Software Engineer"],
+    });
+    const job = await makeJob({
+      key: "concurrent-agent",
+      title: "Software Engineer I",
+      description: "Build TypeScript services.",
+      skills: ["TypeScript"],
+    });
+    const snapshot = await prisma.job.findUniqueOrThrow({ where: { id: job.id } });
+    await prisma.job.update({
+      where: { id: job.id },
+      data: {
+        fitBaseScore: 92,
+        fitBaseReasons: JSON.stringify(["FIT: Strong TypeScript evidence"]),
+        fitBaseSummary: "Fresh agent assessment",
+        fitScore: null,
+        fitReasons: JSON.stringify(["FIT: Strong TypeScript evidence"]),
+        fitSummary: "Fresh agent assessment",
+        fitProvider: "agent",
+        fitScoredAt: null,
+      },
+    });
+
+    const updated = await updateJobScoreFromSnapshot(snapshot, {
+      fitBaseScore: 65,
+      fitBaseReasons: null,
+      fitBaseSummary: null,
+      fitScore: 20,
+      fitReasons: JSON.stringify(["stale deterministic evidence"]),
+      fitSummary: "Stale deterministic assessment",
+      fitProvider: "deterministic",
+      fitScoredAt: new Date(),
+    });
+
+    expect(updated).toBe(false);
+    const after = await prisma.job.findUniqueOrThrow({ where: { id: job.id } });
+    expect(after).toMatchObject({
+      fitBaseScore: 92,
+      fitBaseSummary: "Fresh agent assessment",
+      fitScore: null,
+      fitSummary: "Fresh agent assessment",
+      fitProvider: "agent",
+      fitScoredAt: null,
+    });
   });
 });
 
@@ -472,8 +524,11 @@ describe("scoreAllJobs company axis", () => {
 
     expect(neutralJob.fitScore).toBe(unrankedJob.fitScore);
     const unrankedReasons = JSON.parse(unrankedJob.fitReasons ?? "[]") as string[];
-    expect(unrankedReasons.some((r) => r.includes("unranked"))).toBe(false);
-    expect(unrankedReasons.some((r) => r.includes("is tier"))).toBe(false);
+    expect(unrankedReasons).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/unrated and uses company tier E/i),
+      ]),
+    );
   });
 });
 
@@ -524,10 +579,15 @@ describe("agent judge batch", () => {
 
     const updated = await prisma.job.findUniqueOrThrow({ where: { id: job.id } });
     expect(updated.fitProvider).toBe("agent");
-    expect(updated.fitScore).toBe(100);
-    expect(updated.fitSummary).toBe("Strong backend fit");
+    expect(updated.fitBaseScore).toBe(88);
+    expect(updated.fitScore).toBeLessThanOrEqual(27);
+    expect(updated.fitScore).toBeLessThan(100);
+    expect(updated.fitSummary).toMatch(
+      /^Weak fit: .*company tier E.*Agent résumé assessment: Strong backend fit/i,
+    );
     expect(JSON.parse(updated.fitReasons ?? "[]")).toEqual(
       expect.arrayContaining([
+        expect.stringMatching(/company tier E.*score band/i),
         "Fit: Python and SQL overlap",
         "Gap: Production scale is not shown",
         expect.stringMatching(/^Fit: First seen within 24 hours/),

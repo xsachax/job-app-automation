@@ -124,4 +124,18 @@ describe("buildConnectionSet + lookupConnections", () => {
     expect(summary.distinctCompanies).toBe(2);
     expect(summary.topCompanies[0].count).toBe(2); // Jane Street leads
   });
+
+  it("retains every identity for connection detail tooltips", () => {
+    const rows = [
+      "First Name,Last Name,URL,Email Address,Company,Position,Connected On",
+      ...Array.from(
+        { length: 30 },
+        (_, index) =>
+          `Person${index},Example,https://linkedin.com/in/person-${index},,OpenAI,Engineer,01 Jan 2024`,
+      ),
+    ].join("\n");
+    const set = buildConnectionSet(parseConnectionsCsv(rows).connections);
+
+    expect(lookupConnections(set, "OpenAI")?.contacts).toHaveLength(30);
+  });
 });

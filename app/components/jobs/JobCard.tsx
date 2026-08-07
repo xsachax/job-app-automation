@@ -5,11 +5,11 @@ import { CompanyLogo } from "../CompanyLogo";
 import {
   AppliedBadge,
   CategoryBadge,
-  ConnectionsBadge,
   CountryFlag,
   SalaryText,
   SponsorshipBadge,
 } from "../ui";
+import { ConnectionsBadge } from "../ConnectionsBadge";
 import type { ApplicationStatus, Job } from "./types";
 import { splitJudgeAdvice } from "@/lib/judge/advice";
 import { bucketScore, type FitBand } from "@/lib/judge/status";
@@ -364,7 +364,11 @@ export function JobCard({
                   </span>
                 )}
                 {job.connections && job.connections.count > 0 && (
-                  <ConnectionsBadge count={job.connections.count} contacts={job.connections.contacts} />
+                  <ConnectionsBadge
+                    company={job.company}
+                    count={job.connections.count}
+                    contacts={job.connections.contacts}
+                  />
                 )}
                 {isNew && (
                   <span className="rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-950 dark:text-indigo-200">

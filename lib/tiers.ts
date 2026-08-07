@@ -1,7 +1,6 @@
-// Shared S…F ranking for companies and locations. The tier
-// nudges a job's deterministic fit score so preferred companies and locations
-// float to the top of the queue and avoided ones sink. Shared by both tier-board
-// UIs, their API routes, and the judge so labels and score math never drift.
+// Shared S…F ranking for companies and locations. Company tiers select the
+// judge's primary score band (lib/judge/scoring.ts); location tiers use the
+// modifiers below to position a job within that company band.
 
 import { canonicalCompanyKey } from "./company-names";
 
@@ -9,8 +8,8 @@ export const TIERS = ["S", "A", "B", "C", "D", "E", "F"] as const;
 export type Tier = (typeof TIERS)[number];
 export const NEUTRAL_TIER: Tier = "E";
 
-// Points added to (or subtracted from) a job's deterministic fit score. The
-// judge clamps the adjusted score back into 0-100.
+// Location-tier points included among the contextual signals that position a
+// job within its company-tier score band.
 export const TIER_MODIFIER: Record<Tier, number> = {
   S: 25,
   A: 20,

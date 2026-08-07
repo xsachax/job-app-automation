@@ -1,7 +1,7 @@
 // Shared vocabulary for the Judge hub (/judge) and its status API.
 //
-// The judge blends five axes into one 0..100 fit score per posting:
-//   résumé fit (base) + freshness ± company tier ± location tier ± salary-vs-target.
+// Company tier selects the primary score band; the remaining axes position a
+// posting within that band.
 // These bands/labels are the single source of truth so the page, the badges,
 // and the status counts can never drift apart.
 
@@ -42,36 +42,42 @@ export interface JudgeAxis {
   effect: string;
 }
 
-// The five scoring axes, in the order they apply. Mirrors scoreAllJobs().
+// Scoring axes in the order they apply. Mirrors scoreAllJobs().
 export const JUDGE_AXES: JudgeAxis[] = [
+  {
+    key: "company",
+    name: "Company tier",
+    reads: "Your S–F ranking for the hiring company. Unrated companies use the E band.",
+    effect: "Primary band: S 84–97 … F 0–13",
+  },
   {
     key: "resume",
     name: "Résumé fit",
     reads: "Skills, prior titles, and summary from your résumé matched against the posting",
-    effect: "Base 0–100",
+    effect: "Position within company band",
+  },
+  {
+    key: "experience",
+    name: "Experience",
+    reads: "Saved relevant experience compared with the posting's minimum requirement",
+    effect: "Moves within company band",
   },
   {
     key: "freshness",
     name: "Date posted",
     reads: "The posting date, falling back to when the job was first discovered",
-    effect: "+12 new … −4 stale",
-  },
-  {
-    key: "company",
-    name: "Company tier",
-    reads: "Your S–F ranking for the hiring company. Unrated companies stay neutral, the same as E.",
-    effect: "+25 … −25 (E/unrated 0)",
+    effect: "Moves within company band",
   },
   {
     key: "location",
     name: "Location tier",
     reads: "Your S–F ranking for the role's city or region. Unrated locations stay neutral, the same as E.",
-    effect: "+25 … −25 (E/unrated 0)",
+    effect: "Moves within company band",
   },
   {
     key: "salary",
     name: "Pay vs. target",
     reads: "Listed compensation against your target salary (missing pay stays neutral)",
-    effect: "+12 … −15",
+    effect: "Moves within company band",
   },
 ];

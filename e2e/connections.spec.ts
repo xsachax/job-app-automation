@@ -6,8 +6,24 @@ test.describe("LinkedIn warm-intro tagging", () => {
     await page.goto("/jobs");
     const card = jobCard(page, "E2E Frontend Engineer");
     await expect(card).toBeVisible();
-    // Two seeded connections at OpenAI.
-    await expect(card.getByText(/2 connections/)).toBeVisible();
+    await expect(card.getByText(/8 connections/)).toBeVisible();
+  });
+
+  test("hovering the badge shows connection names and roles", async ({
+    page,
+  }) => {
+    await page.goto("/jobs");
+    const card = jobCard(page, "E2E Frontend Engineer");
+    await card.getByTestId("connections-badge").hover();
+
+    const tooltip = card.getByRole("tooltip");
+    await expect(tooltip).toBeVisible();
+    await expect(tooltip).toContainText("Ada Lovelace");
+    await expect(tooltip).toContainText("Research Engineer");
+    await expect(tooltip).toContainText("Alan Turing");
+    await expect(tooltip).toContainText("Member of Technical Staff");
+    await expect(tooltip).toContainText("Edsger Dijkstra");
+    await expect(tooltip).toContainText("Computer Scientist");
   });
 
   test("an unmatched company has no connections badge", async ({ page }) => {
