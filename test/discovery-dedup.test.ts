@@ -62,4 +62,31 @@ describe("cross-source dedup (discovery persist)", () => {
     );
     expect(await prisma.job.count()).toBe(1);
   });
+
+  it("dedupes cross-source company aliases under the canonical brand", async () => {
+    await ingestPostings(
+      [
+        posting({
+          company: "Uber",
+          externalId: "uber-native",
+          applyUrl: "https://jobs.uber.com/1",
+        }),
+      ],
+      true,
+    );
+    await ingestPostings(
+      [
+        posting({
+          company: "Uber Technologies, Inc.",
+          system: "githubboard",
+          externalId: "uber-board",
+          applyUrl: "https://simplify.jobs/uber/1",
+        }),
+      ],
+      true,
+    );
+
+    expect(await prisma.job.count()).toBe(1);
+    expect((await prisma.job.findFirstOrThrow()).company).toBe("Uber");
+  });
 });

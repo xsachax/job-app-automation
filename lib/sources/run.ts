@@ -1,4 +1,5 @@
 import { prisma } from "../db";
+import { canonicalCompanyName } from "../company-names";
 import { getAdapter } from "./registry";
 import { canonicalize } from "./normalize";
 import { scoreJob, type Criteria } from "../matching/score";
@@ -69,20 +70,24 @@ export async function runSource(sourceId: string, criteria?: Criteria): Promise<
 
     for (const n of jobs) {
       if (!n.applyUrl || !n.title) continue;
-      const c = canonicalize(n);
+      const normalized = {
+        ...n,
+        company: canonicalCompanyName(n.company),
+      };
+      const c = canonicalize(normalized);
       const isWorkday = c.atsType === "workday";
 
       const existing = await prisma.job.findUnique({ where: { dedupeKey: c.dedupeKey } });
       const base = {
         atsType: c.atsType,
         externalId: c.externalId,
-        title: n.title,
-        company: n.company,
-        location: n.location ?? null,
-        remote: Boolean(n.remote),
+        title: normalized.title,
+        company: normalized.company,
+        location: normalized.location ?? null,
+        remote: Boolean(normalized.remote),
         applyUrl: c.applyUrl,
-        description: n.description ?? null,
-        postedAt: n.postedAt ?? null,
+        description: normalized.description ?? null,
+        postedAt: normalized.postedAt ?? null,
         isWorkday,
         fingerprint: c.fingerprint,
         lastSeenAt: new Date(),

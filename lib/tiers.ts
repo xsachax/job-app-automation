@@ -3,6 +3,8 @@
 // float to the top of the queue and avoided ones sink. Shared by both tier-board
 // UIs, their API routes, and the judge so labels and score math never drift.
 
+import { canonicalCompanyKey } from "./company-names";
+
 export const TIERS = ["S", "A", "B", "C", "D", "E", "F"] as const;
 export type Tier = (typeof TIERS)[number];
 export const NEUTRAL_TIER: Tier = "E";
@@ -23,9 +25,35 @@ export function isTier(value: unknown): value is Tier {
   return typeof value === "string" && (TIERS as readonly string[]).includes(value);
 }
 
-// Companies are matched case-insensitively on their trimmed display name.
+// Aliases and legal-entity variants share one tier.
 export function normalizeCompanyKey(company: string): string {
-  return company.trim().toLowerCase();
+  return canonicalCompanyKey(company);
+}
+
+export interface StoredCompanyTier {
+  company: string;
+  tier: string;
+  editVersion: bigint;
+  updatedAt: Date;
+}
+
+export function latestCompanyTiersByKey<T extends StoredCompanyTier>(
+  rows: readonly T[],
+): Map<string, T> {
+  const latest = new Map<string, T>();
+  for (const row of rows) {
+    const key = normalizeCompanyKey(row.company);
+    const current = latest.get(key);
+    if (
+      !current ||
+      row.editVersion > current.editVersion ||
+      (row.editVersion === current.editVersion &&
+        row.updatedAt.getTime() > current.updatedAt.getTime())
+    ) {
+      latest.set(key, row);
+    }
+  }
+  return latest;
 }
 
 export function clampScore(score: number): number {

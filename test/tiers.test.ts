@@ -6,6 +6,7 @@ import {
   clampScore,
   isTier,
   NEUTRAL_TIER,
+  latestCompanyTiersByKey,
   normalizeCompanyKey,
   tierModifier,
 } from "../lib/tiers";
@@ -32,6 +33,31 @@ describe("tiers", () => {
   it("normalizes company keys case-insensitively and trims", () => {
     expect(normalizeCompanyKey("  OpenAI ")).toBe("openai");
     expect(normalizeCompanyKey("Acme")).toBe(normalizeCompanyKey("acme"));
+    expect(normalizeCompanyKey("Uber Technologies, Inc.")).toBe(
+      normalizeCompanyKey("Uber"),
+    );
+    expect(normalizeCompanyKey("Citadel Securities")).toBe(
+      normalizeCompanyKey("Citadel"),
+    );
+  });
+
+  it("uses the newest tier when aliases have conflicting saved rows", () => {
+    const latest = latestCompanyTiersByKey([
+      {
+        company: "Citadel",
+        tier: "E",
+        editVersion: BigInt(10),
+        updatedAt: new Date("2026-01-02T00:00:00Z"),
+      },
+      {
+        company: "Citadel Securities",
+        tier: "C",
+        editVersion: BigInt(20),
+        updatedAt: new Date("2026-01-01T00:00:00Z"),
+      },
+    ]);
+
+    expect(latest.get("citadel")?.tier).toBe("C");
   });
 
   it("clamps scores into 0-100 and rounds", () => {

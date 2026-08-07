@@ -26,7 +26,7 @@ describe("Workday flagging (discovery persist)", () => {
     await ingestPostings(
       [
         posting({
-          company: "Nvidia",
+          company: "NVIDIA",
           system: "workday",
           externalId: "wd-1",
           applyUrl: "https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite/job/123",

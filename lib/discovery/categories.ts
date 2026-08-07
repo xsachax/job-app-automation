@@ -40,7 +40,7 @@ function norm(name: string): string {
 const BIGTECH = new Set(
   [
     "Amazon", "Microsoft", "Uber", "Netflix", "Snap", "GitHub", "Spotify",
-    "Intuit", "Nvidia", "Adobe", "Salesforce", "Zoom", "Coinbase", "DoorDash",
+    "Intuit", "NVIDIA", "Adobe", "Salesforce", "Zoom", "Coinbase", "DoorDash",
     "Robinhood", "Dropbox", "Pinterest", "Cloudflare", "Lyft", "Airbnb",
     "Roblox", "HubSpot", "Datadog", "Waymo", "Apple", "Tesla", "Google",
     "Shopify", "Meta", "LinkedIn", "Rivian", "Cisco",

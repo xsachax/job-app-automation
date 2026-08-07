@@ -28,7 +28,8 @@
     "sources:probe": "tsx scripts/probe-sources.ts",
     "discovery:verify": "tsx scripts/verify-queries.ts",
     "discover": "tsx scripts/discover.ts",
-    "discover:browser": "tsx scripts/discover.ts --browser"
+    "discover:browser": "tsx scripts/discover.ts --browser",
+    "companies:dedupe": "tsx scripts/dedupe-companies.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
