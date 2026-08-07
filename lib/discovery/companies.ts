@@ -67,7 +67,15 @@ export interface ApiCompany {
   // Identifier the system needs: ATS board token, Workday tenant, etc.
   token?: string;
   // Workday-specific host + site path.
-  workday?: { host: string; tenant: string; site: string };
+  workday?: {
+    host: string;
+    tenant: string;
+    site: string;
+    /** Optional targeted searches used instead of queryTerms[0]. */
+    searchTerms?: string[];
+    /** Fetch each relevant job detail so experience requirements are available. */
+    fetchDescriptions?: boolean;
+  };
   // TalentBrew (Radancy) host, e.g. "jobs.intuit.com".
   talentbrew?: { host: string };
   // GitHub-hosted aggregator board: a raw listings.json in a repo. The fetcher
@@ -101,7 +109,7 @@ const SWE = ["software engineer", "software developer"];
 const SWE_BROAD = ["software engineer", "software developer", "machine learning", "devops"];
 
 // ---------------------------------------------------------------------------
-// API companies (76) — direct public JSON endpoints, verified live. Includes a
+// API companies (78) — direct public JSON endpoints, verified live. Includes a
 // block of quant / trading firms at the end.
 // ---------------------------------------------------------------------------
 
@@ -154,6 +162,7 @@ export const API_COMPANIES: ApiCompany[] = [
   { name: "Netflix", method: "api", system: "netflix", countryFilter: "native", queryTerms: SWE },
   { name: "Snap", method: "api", system: "snap", countryFilter: "post", queryTerms: SWE },
   { name: "GitHub", method: "api", system: "phenom", token: "github.careers", countryFilter: "post", queryTerms: SWE },
+  { name: "Rivian", method: "api", system: "phenom", token: "careers.rivian.com", countryFilter: "post", queryTerms: SWE },
   { name: "Spotify", method: "api", system: "spotify", countryFilter: "post", queryTerms: SWE },
   { name: "Intuit", method: "api", system: "talentbrew", countryFilter: "post", queryTerms: SWE, talentbrew: { host: "jobs.intuit.com" } },
 
@@ -162,6 +171,20 @@ export const API_COMPANIES: ApiCompany[] = [
   { name: "Adobe", method: "api", system: "workday", countryFilter: "post", queryTerms: SWE, workday: { host: "adobe.wd5.myworkdayjobs.com", tenant: "adobe", site: "external_experienced" } },
   { name: "Salesforce", method: "api", system: "workday", countryFilter: "post", queryTerms: SWE, workday: { host: "salesforce.wd12.myworkdayjobs.com", tenant: "salesforce", site: "External_Career_Site" } },
   { name: "Zoom", method: "api", system: "workday", countryFilter: "post", queryTerms: SWE, workday: { host: "zoom.wd5.myworkdayjobs.com", tenant: "zoom", site: "Zoom" } },
+  {
+    name: "Cisco",
+    method: "api",
+    system: "workday",
+    countryFilter: "post",
+    queryTerms: SWE,
+    workday: {
+      host: "cisco.wd5.myworkdayjobs.com",
+      tenant: "cisco",
+      site: "Cisco_Careers",
+      searchTerms: ["new grad"],
+      fetchDescriptions: true,
+    },
+  },
 
   // ---- Quant / high-frequency trading firms — verified live (Greenhouse /
   // Lever / Ashby). Only software roles (SWE / ML / infra / devops) survive the

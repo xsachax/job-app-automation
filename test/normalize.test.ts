@@ -13,6 +13,7 @@ describe("detectAts", () => {
     expect(detectAts("https://jobs.lever.co/palantir/abc")).toBe("lever");
     expect(detectAts("https://jobs.ashbyhq.com/ramp/xyz")).toBe("ashby");
     expect(detectAts("https://acme.wd1.myworkdayjobs.com/careers/job/1")).toBe("workday");
+    expect(detectAts("https://careers-acme.icims.com/jobs/1")).toBe("icims");
     expect(detectAts("https://example.com/careers/1")).toBe("unknown");
     expect(detectAts("not a url")).toBe("unknown");
   });
@@ -42,6 +43,15 @@ describe("extractExternalId", () => {
   it("prefers a provided id", () => {
     expect(extractExternalId("greenhouse", "https://x/jobs/1", "explicit")).toBe("explicit");
   });
+  it("uses the canonical URL job id for iCIMS instead of an aggregator id", () => {
+    expect(
+      extractExternalId(
+        "icims",
+        "https://careers-rivian.icims.com/jobs/32343/software-engineer/job",
+        "feed-row-uuid",
+      ),
+    ).toBe("32343");
+  });
 });
 
 function job(over: Partial<NormalizedJob> = {}): NormalizedJob {
@@ -69,6 +79,25 @@ describe("canonicalize (dedup identity)", () => {
       job({ applyUrl: "https://job-boards.greenhouse.io/acme/jobs/1001", externalId: null }),
     );
     expect(a.dedupeKey).toBe(b.dedupeKey); // cross-source dedup
+  });
+
+  it("collapses iCIMS listings that use different source-local ids", () => {
+    const first = canonicalize(
+      job({
+        applyUrl: "https://careers-rivian.icims.com/jobs/32343/software-engineer/job",
+        atsType: "icims",
+        externalId: "aggregator-a",
+      }),
+    );
+    const second = canonicalize(
+      job({
+        applyUrl: "https://careers-rivian.icims.com/jobs/32343/software-engineer/job?mobile=false",
+        atsType: "icims",
+        externalId: "aggregator-b",
+      }),
+    );
+    expect(first.dedupeKey).toBe("icims:32343");
+    expect(second.dedupeKey).toBe(first.dedupeKey);
   });
 
   it("falls back to a fingerprint key for unknown ATS", () => {

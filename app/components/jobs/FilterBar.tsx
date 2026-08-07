@@ -37,6 +37,7 @@ const PLATFORM_LABELS: Record<string, string> = {
   greenhouse: "Greenhouse",
   lever: "Lever",
   ashby: "Ashby",
+  icims: "iCIMS",
   workable: "Workable",
   workday: "Workday",
   unknown: "Company site",

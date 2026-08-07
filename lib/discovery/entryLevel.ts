@@ -170,12 +170,19 @@ function kwRegex(words: string[]): RegExp | null {
 // Seniority / experience / degree filters
 // ---------------------------------------------------------------------------
 
-const SENIOR_TITLE = new RegExp(
+const EXPLICIT_SENIOR_TITLE = new RegExp(
   [
     "senior", "\\bsr\\.?\\b", "staff", "principal", "\\blead\\b", "manager",
     "director", "head of", "architect", "distinguished", "fellow", "vp\\b",
-    "vice president", "\\bii\\b", "\\biii\\b", "\\biv\\b", "\\bl[4-9]\\b",
-    "\\bl1[0-9]\\b", "level [3-9]", "\\be[5-9]\\b", "\\s[2-9]\\b",
+    "vice president",
+  ].join("|"),
+  "i",
+);
+
+const NUMERIC_LEVEL_TITLE = new RegExp(
+  [
+    "\\bii\\b", "\\biii\\b", "\\biv\\b", "\\bl[4-9]\\b", "\\bl1[0-9]\\b",
+    "level [3-9]", "\\be[5-9]\\b", "\\s[2-9]\\b",
   ].join("|"),
   "i",
 );
@@ -298,6 +305,26 @@ export function minRequiredYoE(text: string): number | null {
   return min;
 }
 
+// When a posting offers different experience paths by degree, use the
+// bachelor's/undergraduate path. A lower Master's/PhD alternative must not make
+// a role appear eligible for a bachelor's-level candidate.
+function minBachelorPathYoE(text: string): number | null {
+  const re =
+    /(?:\bbachelor(?:'?s)?(?:\s+degree)?|\bundergraduate degree|\bb\.?\s*[sa]\.?(?:\s+degree)?(?=\s|[.,;:+/()\-]|$)|\bbsc(?:\s+degree)?(?=\s|[.,;:+/()\-]|$))[^.;\n]{0,160}?(\d{1,2})\s*\+?\s*(?:-|to|–)?\s*(?:\d{1,2}\+?)?\s*(?:years?|yrs?)\b/gi;
+  let min: number | null = null;
+  for (const match of text.matchAll(re)) {
+    const value = Number.parseInt(match[1], 10);
+    if (Number.isFinite(value) && value >= 0 && value <= 40) {
+      min = min === null ? value : Math.min(min, value);
+    }
+  }
+  return min;
+}
+
+export function minRequiredBachelorYoE(text: string): number | null {
+  return minBachelorPathYoE(text) ?? minRequiredYoE(text);
+}
+
 export interface EntryLevelInput {
   title: string;
   description?: string | null;
@@ -351,17 +378,25 @@ export function classifyEntryLevel(
 
   const isSoftware = isSoftwareRole(title, o);
   const isInternship = INTERN_TITLE.test(title);
-  const hasSeniorTitle = SENIOR_TITLE.test(title);
+  const hasExplicitSeniorTitle = EXPLICIT_SENIOR_TITLE.test(title);
+  const hasNumericLevelTitle = NUMERIC_LEVEL_TITLE.test(title);
+  const hasSeniorTitle = hasExplicitSeniorTitle || hasNumericLevelTitle;
   const hasEntrySignal = ENTRY_TITLE.test(title);
   const rawAdvanced = ADVANCED_DEGREE_REQUIRED.test(desc) && !BACHELOR_OK.test(desc);
   const blockAdvanced = o.excludeAdvancedDegree && rawAdvanced;
-  const minYearsExperience = minRequiredYoE(blob);
+  const minYearsExperience = minRequiredBachelorYoE(blob);
   const hasHighYoE = minYearsExperience !== null && minYearsExperience > o.maxYoE;
+  const numericLevelWithinCap =
+    hasNumericLevelTitle &&
+    !hasExplicitSeniorTitle &&
+    minYearsExperience !== null &&
+    !hasHighYoE;
+  const blockedBySeniority = hasSeniorTitle && !hasEntrySignal && !numericLevelWithinCap;
 
   const reasons: string[] = [];
   if (!isSoftware) reasons.push("not a software role");
   if (isInternship && !o.includeInternships) reasons.push("internship / co-op");
-  if (hasSeniorTitle && !hasEntrySignal) reasons.push("senior/mid title");
+  if (blockedBySeniority) reasons.push("senior/mid title");
   if (blockAdvanced) reasons.push("advanced degree required");
   if (hasHighYoE && !hasEntrySignal) reasons.push(`requires ${minYearsExperience}+ years`);
 
@@ -369,7 +404,7 @@ export function classifyEntryLevel(
     isSoftware &&
     !blockAdvanced &&
     (o.includeInternships || !isInternship) &&
-    (hasEntrySignal || (!hasSeniorTitle && !hasHighYoE));
+    (hasEntrySignal || (!blockedBySeniority && !hasHighYoE));
 
   return {
     isSoftware,

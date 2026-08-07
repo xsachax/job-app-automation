@@ -5,6 +5,7 @@ export type AtsType =
   | "lever"
   | "ashby"
   | "workday"
+  | "icims"
   | "workable"
   | "unknown";
 

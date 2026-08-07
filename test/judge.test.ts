@@ -364,6 +364,29 @@ describe("scoreAllJobs experience axis", () => {
       expect.arrayContaining([expect.stringMatching(/saved experience|year requirement/i)]),
     );
   });
+
+  it("scores the bachelor's experience path instead of a graduate alternative", async () => {
+    await saveProfile({
+      skills: ["TypeScript"],
+      targetRoles: ["Software Engineer"],
+      relevantExperienceYears: 2,
+    });
+    const job = await makeJob({
+      key: "bachelor-experience-path",
+      title: "Software Engineer II",
+      description:
+        "Build TypeScript services. BS plus 3 years of experience, or MS plus 1 year of experience.",
+      skills: ["TypeScript"],
+    });
+
+    await scoreAllJobs();
+    const scored = await prisma.job.findUniqueOrThrow({ where: { id: job.id } });
+    const reasons = JSON.parse(scored.fitReasons ?? "[]") as string[];
+
+    expect(reasons).toEqual(
+      expect.arrayContaining([expect.stringMatching(/below the 3\+ year requirement/)]),
+    );
+  });
 });
 
 describe("scoreAllJobs location axis", () => {

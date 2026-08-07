@@ -70,6 +70,54 @@ describe("classifyEntryLevel", () => {
     expect(classifyEntryLevel({ title: "Engineering Manager" }).isEntryLevel).toBe(false);
   });
 
+  it("allows numeric levels only when requirements explicitly stay within the experience cap", () => {
+    const eligible = classifyEntryLevel({
+      title: "Embedded Software Engineer II",
+      description: "Bachelor's degree and 2+ years of software engineering experience.",
+    });
+    expect(eligible.hasSeniorTitle).toBe(true);
+    expect(eligible.minYearsExperience).toBe(2);
+    expect(eligible.isEntryLevel).toBe(true);
+
+    expect(
+      classifyEntryLevel({
+        title: "Software Engineer II",
+        description: "Bachelor's degree and 3+ years of software engineering experience.",
+      }).isEntryLevel,
+    ).toBe(false);
+    expect(
+      classifyEntryLevel({
+        title: "Senior Software Engineer II",
+        description: "Bachelor's degree and 2 years of software engineering experience.",
+      }).isEntryLevel,
+    ).toBe(false);
+  });
+
+  it("uses the bachelor's experience path instead of a lower graduate-degree alternative", () => {
+    const eligible = classifyEntryLevel({
+      title: "Software Engineer II",
+      description:
+        "Undergraduate degree + 2 years of relevant experience or graduate degree + 0 years.",
+    });
+    expect(eligible.minYearsExperience).toBe(2);
+    expect(eligible.isEntryLevel).toBe(true);
+
+    const tooExperienced = classifyEntryLevel({
+      title: "AI Software Engineer II",
+      description:
+        "Bachelor's with 3+ years of professional experience, or Master's degree with 1-2 years.",
+    });
+    expect(tooExperienced.minYearsExperience).toBe(3);
+    expect(tooExperienced.isEntryLevel).toBe(false);
+
+    const abbreviated = classifyEntryLevel({
+      title: "Software Engineer II",
+      description: "BS plus 3 years of experience, or MS plus 1 year of experience.",
+    });
+    expect(abbreviated.minYearsExperience).toBe(3);
+    expect(abbreviated.isEntryLevel).toBe(false);
+  });
+
   it("rejects roles requiring high years of experience", () => {
     const v = classifyEntryLevel({
       title: "Software Engineer",

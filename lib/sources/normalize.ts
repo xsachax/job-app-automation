@@ -13,6 +13,7 @@ export function detectAts(url: string): AtsType {
   if (host.includes("lever.co")) return "lever";
   if (host.includes("ashbyhq.com")) return "ashby";
   if (host.includes("myworkdayjobs.com") || host.includes("workday")) return "workday";
+  if (host.includes("icims.com")) return "icims";
   if (host.includes("workable.com")) return "workable";
   return "unknown";
 }
@@ -58,6 +59,14 @@ export function extractExternalId(
   applyUrl: string,
   provided?: string | null,
 ): string | null {
+  if (atsType === "icims") {
+    try {
+      const match = new URL(applyUrl).pathname.match(/\/jobs\/(\d+)\b/i);
+      if (match) return match[1];
+    } catch {
+      // Fall through to a source-provided ID when the URL is malformed.
+    }
+  }
   if (provided != null && String(provided).length > 0) return String(provided);
   let path = "";
   try {
@@ -71,6 +80,10 @@ export function extractExternalId(
   }
   if (atsType === "lever" || atsType === "ashby") {
     const m = path.match(UUID_RE);
+    if (m) return m[1];
+  }
+  if (atsType === "icims") {
+    const m = path.match(/\/jobs\/(\d+)\b/i);
     if (m) return m[1];
   }
   return null;
