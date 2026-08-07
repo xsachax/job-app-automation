@@ -30,7 +30,7 @@ model Source {
 model Job {
   id          String        @id @default(cuid())
   dedupeKey   String        @unique // atsType:externalId, or fp:<hash>
-  atsType     String        @default("unknown") // greenhouse | lever | ashby | workday | workable | unknown
+  atsType     String        @default("unknown") // greenhouse | lever | ashby | workday | icims | workable | unknown
   externalId  String?
   title       String
   company     String
@@ -202,16 +202,18 @@ model ConnectionSet {
 // User-defined company tier ranking (S/A/B/C/D/E/F). Keyed by the company display
 // name; the assigned tier nudges that company's fit score in the judge.
 model CompanyTier {
-  company   String   @id
-  tier      String // S | A | B | C | D | E | F
-  updatedAt DateTime @updatedAt
+  company     String   @id
+  tier        String // S | A | B | C | D | E | F; empty string is a clear tombstone
+  editVersion BigInt   @default(0)
+  updatedAt   DateTime @updatedAt
 }
 
 // User-defined location tier ranking (S/A/B/C/D/E/F). Keyed by the canonical
 // "City, ST" | "Remote" string from lib/locations.normalizeLocation; the assigned
 // tier nudges the fit score of every job in that location.
 model LocationTier {
-  location  String   @id
-  tier      String // S | A | B | C | D | E | F
-  updatedAt DateTime @updatedAt
+  location    String   @id
+  tier        String // S | A | B | C | D | E | F; empty string is a clear tombstone
+  editVersion BigInt   @default(0)
+  updatedAt   DateTime @updatedAt
 }

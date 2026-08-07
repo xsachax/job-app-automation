@@ -7,6 +7,10 @@ function chip(page: Page, company: string) {
   return page.locator(`[data-testid="tier-chip"][data-key="${company}"]`);
 }
 
+function saveStatus(page: Page) {
+  return page.getByTestId("tier-save-status");
+}
+
 // Tests share one seeded DB (serial, no reseed between tests), so any mutation
 // restores the company to unranked before the next test runs.
 test.describe("company tiers", () => {
@@ -53,10 +57,12 @@ test.describe("company tiers", () => {
     await page.reload();
     await expect(page.getByTestId("tier-row-A").locator(`[data-key="AcmeE2E"]`)).toBeVisible();
     await expect(chip(page, "AcmeE2E").getByTestId("tier-select")).toHaveValue("A");
+    await expect(saveStatus(page)).toHaveText("All tiers saved");
 
     // Restore to unranked so later tests start clean.
     await chip(page, "AcmeE2E").getByTestId("tier-select").selectOption("");
     await expect(page.getByTestId("tier-pool").locator(`[data-key="AcmeE2E"]`)).toBeVisible();
+    await expect(saveStatus(page)).toHaveText("All tiers saved");
   });
 
   test("clearing a tier returns the company to the pool", async ({ page }) => {
@@ -69,8 +75,108 @@ test.describe("company tiers", () => {
 
     await chip(page, "MapleE2E").getByTestId("tier-select").selectOption("");
     await expect(page.getByTestId("tier-pool").locator(`[data-key="MapleE2E"]`)).toBeVisible();
+    await expect(saveStatus(page)).toHaveText("All tiers saved");
 
     await page.reload();
     await expect(page.getByTestId("tier-pool").locator(`[data-key="MapleE2E"]`)).toBeVisible();
+  });
+
+  test("recovers a failed save from the local draft after reload", async ({ page }) => {
+    let failNextPut = true;
+    await page.route("**/api/tiers", async (route) => {
+      if (route.request().method() === "PUT" && failNextPut) {
+        failNextPut = false;
+        await route.abort("failed");
+        return;
+      }
+      await route.continue();
+    });
+
+    await page.goto("/tiers");
+    await chip(page, "AcmeE2E").getByTestId("tier-select").selectOption("B");
+    await expect(saveStatus(page)).toHaveText("Unsaved tier changes");
+
+    await page.reload();
+    await expect(page.getByTestId("tier-row-B").locator(`[data-key="AcmeE2E"]`)).toBeVisible();
+    await expect(saveStatus(page)).toHaveText("All tiers saved");
+
+    await chip(page, "AcmeE2E").getByTestId("tier-select").selectOption("");
+    await expect(saveStatus(page)).toHaveText("All tiers saved");
+  });
+
+  test("keeps a pending edit across immediate navigation", async ({ page }) => {
+    let delayNextPut = true;
+    await page.route("**/api/tiers", async (route) => {
+      if (route.request().method() === "PUT" && delayNextPut) {
+        delayNextPut = false;
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+      await route.continue();
+    });
+
+    await page.goto("/tiers");
+    await chip(page, "AcmeE2E").getByTestId("tier-select").selectOption("C");
+    await page.goto("/jobs");
+    await page.goto("/tiers");
+
+    await expect(page.getByTestId("tier-row-C").locator(`[data-key="AcmeE2E"]`)).toBeVisible();
+    await expect(saveStatus(page)).toHaveText("All tiers saved");
+
+    await chip(page, "AcmeE2E").getByTestId("tier-select").selectOption("");
+    await expect(saveStatus(page)).toHaveText("All tiers saved");
+  });
+
+  test("a newer tab edit wins over an older delayed request", async ({ page, context }) => {
+    let releaseRequest = () => {};
+    let markStarted = () => {};
+    const held = new Promise<void>((resolve) => {
+      releaseRequest = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    let heldOnce = false;
+
+    await page.route("**/api/tiers", async (route) => {
+      if (route.request().method() !== "PUT" || heldOnce) {
+        await route.continue();
+        return;
+      }
+      const body = route.request().postDataJSON() as { company?: string };
+      if (body.company !== "MapleE2E") {
+        await route.continue();
+        return;
+      }
+      heldOnce = true;
+      markStarted();
+      await held;
+      await route.continue();
+    });
+
+    const newerTab = await context.newPage();
+    try {
+      await page.goto("/tiers");
+      await newerTab.goto("/tiers");
+
+      await chip(page, "MapleE2E").getByTestId("tier-select").selectOption("A");
+      await started;
+
+      await newerTab.waitForTimeout(5);
+      await chip(newerTab, "MapleE2E").getByTestId("tier-select").selectOption("F");
+      await expect(saveStatus(newerTab)).toHaveText("All tiers saved");
+
+      releaseRequest();
+      await expect(saveStatus(page)).toHaveText("All tiers saved");
+      await page.reload();
+      await newerTab.reload();
+      await expect(chip(page, "MapleE2E").getByTestId("tier-select")).toHaveValue("F");
+      await expect(chip(newerTab, "MapleE2E").getByTestId("tier-select")).toHaveValue("F");
+
+      await chip(newerTab, "MapleE2E").getByTestId("tier-select").selectOption("");
+      await expect(saveStatus(newerTab)).toHaveText("All tiers saved");
+    } finally {
+      releaseRequest();
+      await newerTab.close();
+    }
   });
 });

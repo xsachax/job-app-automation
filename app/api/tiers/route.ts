@@ -2,6 +2,10 @@ import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { json, errorResponse } from "@/lib/http";
 import { isTier, normalizeCompanyKey } from "@/lib/tiers";
+import {
+  parseTierEditVersion,
+  saveCompanyTier,
+} from "@/lib/tier-store";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +13,7 @@ export interface TierCompany {
   company: string;
   count: number;
   tier: string | null;
+  editVersion: number;
 }
 
 // GET /api/tiers — every distinct discovered company (US/CA entry-level) with its
@@ -24,28 +29,42 @@ export async function GET() {
     prisma.companyTier.findMany(),
   ]);
 
-  const tierByKey = new Map<string, string>();
+  const tierByKey = new Map<
+    string,
+    { tier: string | null; editVersion: number }
+  >();
   for (const row of tierRows) {
-    if (isTier(row.tier)) tierByKey.set(normalizeCompanyKey(row.company), row.tier);
+    tierByKey.set(normalizeCompanyKey(row.company), {
+      tier: isTier(row.tier) ? row.tier : null,
+      editVersion: Number(row.editVersion),
+    });
   }
 
   const companies: TierCompany[] = grouped
-    .map((g) => ({
-      company: g.company,
-      count: g._count._all,
-      tier: tierByKey.get(normalizeCompanyKey(g.company)) ?? null,
-    }))
+    .map((g) => {
+      const saved = tierByKey.get(normalizeCompanyKey(g.company));
+      return {
+        company: g.company,
+        count: g._count._all,
+        tier: saved?.tier ?? null,
+        editVersion: saved?.editVersion ?? 0,
+      };
+    })
     .sort((a, b) => b.count - a.count || a.company.localeCompare(b.company));
 
   return json({ companies });
 }
 
-// PUT /api/tiers — assign (or clear) one company's tier. A null/empty tier
-// removes the ranking so the company returns to the neutral unrated pool.
+// PUT /api/tiers — assign (or clear) one company's tier. Versioned tombstones
+// keep delayed requests from resurrecting an older assignment after a clear.
 export async function PUT(req: NextRequest) {
-  let body: { company?: unknown; tier?: unknown };
+  let body: { company?: unknown; tier?: unknown; editVersion?: unknown };
   try {
-    body = (await req.json()) as { company?: unknown; tier?: unknown };
+    body = (await req.json()) as {
+      company?: unknown;
+      tier?: unknown;
+      editVersion?: unknown;
+    };
   } catch {
     return errorResponse("invalid JSON body", 400);
   }
@@ -58,17 +77,15 @@ export async function PUT(req: NextRequest) {
   if (!clearing && !isTier(rawTier)) {
     return errorResponse(`invalid tier: ${String(rawTier)}`, 400);
   }
-
-  if (clearing) {
-    await prisma.companyTier.deleteMany({ where: { company } });
-    return json({ company, tier: null });
+  const editVersion = parseTierEditVersion(body.editVersion);
+  if (editVersion == null) {
+    return errorResponse("valid editVersion is required", 400);
   }
 
-  const tier = rawTier as string;
-  await prisma.companyTier.upsert({
-    where: { company },
-    create: { company, tier },
-    update: { tier },
-  });
-  return json({ company, tier });
+  const saved = await saveCompanyTier(
+    company,
+    clearing ? null : rawTier,
+    editVersion,
+  );
+  return json({ company, ...saved });
 }

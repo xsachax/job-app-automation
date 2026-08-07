@@ -4,6 +4,10 @@ import { json, errorResponse } from "@/lib/http";
 import { isTier } from "@/lib/tiers";
 import { limitToPopular, MAX_LOCATION_OPTIONS } from "@/lib/tier-options";
 import { normalizeLocation, normalizeLocationKey } from "@/lib/locations";
+import {
+  parseTierEditVersion,
+  saveLocationTier,
+} from "@/lib/tier-store";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +15,7 @@ export interface TierLocation {
   location: string;
   count: number;
   tier: string | null;
+  editVersion: number;
 }
 
 // GET /api/location-tiers — the most popular canonical locations across the
@@ -28,9 +33,15 @@ export async function GET() {
     prisma.locationTier.findMany(),
   ]);
 
-  const tierByKey = new Map<string, string>();
+  const tierByKey = new Map<
+    string,
+    { tier: string | null; editVersion: number }
+  >();
   for (const row of tierRows) {
-    if (isTier(row.tier)) tierByKey.set(normalizeLocationKey(row.location), row.tier);
+    tierByKey.set(normalizeLocationKey(row.location), {
+      tier: isTier(row.tier) ? row.tier : null,
+      editVersion: Number(row.editVersion),
+    });
   }
 
   const counts = new Map<string, number>();
@@ -40,11 +51,15 @@ export async function GET() {
     counts.set(canonical, (counts.get(canonical) ?? 0) + 1);
   }
 
-  const all: TierLocation[] = [...counts.entries()].map(([location, count]) => ({
-    location,
-    count,
-    tier: tierByKey.get(normalizeLocationKey(location)) ?? null,
-  }));
+  const all: TierLocation[] = [...counts.entries()].map(([location, count]) => {
+    const saved = tierByKey.get(normalizeLocationKey(location));
+    return {
+      location,
+      count,
+      tier: saved?.tier ?? null,
+      editVersion: saved?.editVersion ?? 0,
+    };
+  });
 
   const locations = limitToPopular(all, MAX_LOCATION_OPTIONS, (l) => l.location).sort(
     (a, b) => b.count - a.count || a.location.localeCompare(b.location),
@@ -53,12 +68,16 @@ export async function GET() {
   return json({ locations });
 }
 
-// PUT /api/location-tiers — assign (or clear) one location's tier. A null/empty
-// tier removes the ranking so the location returns to the neutral unrated pool.
+// PUT /api/location-tiers — assign (or clear) one location's tier. Versioned
+// tombstones keep delayed requests from resurrecting a cleared assignment.
 export async function PUT(req: NextRequest) {
-  let body: { location?: unknown; tier?: unknown };
+  let body: { location?: unknown; tier?: unknown; editVersion?: unknown };
   try {
-    body = (await req.json()) as { location?: unknown; tier?: unknown };
+    body = (await req.json()) as {
+      location?: unknown;
+      tier?: unknown;
+      editVersion?: unknown;
+    };
   } catch {
     return errorResponse("invalid JSON body", 400);
   }
@@ -71,17 +90,15 @@ export async function PUT(req: NextRequest) {
   if (!clearing && !isTier(rawTier)) {
     return errorResponse(`invalid tier: ${String(rawTier)}`, 400);
   }
-
-  if (clearing) {
-    await prisma.locationTier.deleteMany({ where: { location } });
-    return json({ location, tier: null });
+  const editVersion = parseTierEditVersion(body.editVersion);
+  if (editVersion == null) {
+    return errorResponse("valid editVersion is required", 400);
   }
 
-  const tier = rawTier as string;
-  await prisma.locationTier.upsert({
-    where: { location },
-    create: { location, tier },
-    update: { tier },
-  });
-  return json({ location, tier });
+  const saved = await saveLocationTier(
+    location,
+    clearing ? null : rawTier,
+    editVersion,
+  );
+  return json({ location, ...saved });
 }
