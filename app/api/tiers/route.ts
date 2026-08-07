@@ -16,14 +16,13 @@ export interface TierCompany {
   editVersion: number;
 }
 
-// GET /api/tiers — every distinct discovered company (US/CA entry-level) with its
-// open-role count and current tier assignment, heaviest first so the pool leads
-// with the employers that actually have roles.
+// GET /api/tiers — every distinct discovered company with a judged US/CA
+// entry-level role, including Workday-backed employers.
 export async function GET() {
   const [grouped, tierRows] = await Promise.all([
     prisma.job.groupBy({
       by: ["company"],
-      where: { isWorkday: false, isEntryLevel: true, country: { in: ["US", "CA"] } },
+      where: { isEntryLevel: true, country: { in: ["US", "CA"] } },
       _count: { _all: true },
     }),
     prisma.companyTier.findMany(),

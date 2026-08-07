@@ -27,7 +27,7 @@ export interface TierLocation {
 export async function GET() {
   const [jobs, tierRows] = await Promise.all([
     prisma.job.findMany({
-      where: { isWorkday: false, isEntryLevel: true, country: { in: ["US", "CA"] } },
+      where: { isEntryLevel: true, country: { in: ["US", "CA"] } },
       select: { location: true },
     }),
     prisma.locationTier.findMany(),

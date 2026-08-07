@@ -45,6 +45,15 @@ test.describe("company tiers", () => {
     await expect(pool.locator(`[data-key="AcmeE2E"]`)).toHaveCount(0);
   });
 
+  test("search includes companies backed only by Workday roles", async ({ page }) => {
+    await page.goto("/tiers");
+    await page.getByTestId("tier-search").fill("workdayonly");
+
+    await expect(
+      page.getByTestId("tier-pool").locator(`[data-key="WorkdayOnlyE2E"]`),
+    ).toBeVisible();
+  });
+
   test("assigning a tier via the select persists across reload", async ({ page }) => {
     await page.goto("/tiers");
 
