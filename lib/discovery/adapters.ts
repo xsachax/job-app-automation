@@ -7,7 +7,7 @@
 // Only the "api" companies live here; the client-rendered / bot-gated companies
 // are handled by lib/discovery/browser.ts (Playwright).
 
-import { classifyCountry, type Country } from "./entryLevel";
+import { classifyCountry, isSoftwareRole, type Country } from "./entryLevel";
 import type { ApiCompany, DiscoverySystem, BrowserSystem } from "./companies";
 import { prisma } from "../db";
 import { DEFAULT_YC_CONFIG, type YcConfig } from "./config";
@@ -77,13 +77,24 @@ async function fetchText(url: string, timeoutMs = 8000): Promise<string> {
 
 function stripHtml(s: string | undefined | null): string {
   if (!s) return "";
-  return s.replace(/<[^>]+>/g, " ").replace(/&[a-z]+;/g, " ").replace(/\s+/g, " ").trim().slice(0, 8000);
+  return decodeEntities(s.replace(/<[^>]+>/g, " "))
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 8000);
 }
 
 // Decode the handful of HTML entities that show up in scraped title/location
 // strings (TalentBrew returns server-rendered HTML fragments).
 function decodeEntities(s: string): string {
   return s
+    .replace(/&#x([0-9a-f]+);/gi, (entity, value) => {
+      const codePoint = Number.parseInt(value, 16);
+      return codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : entity;
+    })
+    .replace(/&#(\d+);/g, (entity, value) => {
+      const codePoint = Number.parseInt(value, 10);
+      return codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : entity;
+    })
     .replace(/&amp;/g, "&")
     .replace(/&#0?39;/g, "'")
     .replace(/&apos;/g, "'")
@@ -364,75 +375,162 @@ async function snap(c: ApiCompany): Promise<DiscoveryPosting[]> {
   });
 }
 
-// --------------------------------- Phenom (GitHub) ---------------------------------
+// --------------------------- Jibe-style careers API ---------------------------
 
 async function phenom(c: ApiCompany): Promise<DiscoveryPosting[]> {
   const q = c.queryTerms[0];
-  const data = (await fetchJson(
-    `https://${c.token}/api/jobs?keywords=${encodeURIComponent(q)}&limit=100`,
-    { redirect: "follow" },
-  )) as {
-    jobs?: {
-      data?: {
-        req_id?: string;
-        title?: string;
-        full_location?: string;
-        country?: string;
-        description?: string;
-        apply_url?: string;
-        posted_date?: string;
-      };
-    }[];
-  };
-  return (data.jobs ?? []).map((j) => {
-    const d = j.data ?? {};
-    return mk("phenom", c.name, {
-      title: d.title ?? "",
-      location: d.full_location ?? d.country ?? "",
-      applyUrl: d.apply_url ?? "",
-      externalId: String(d.req_id ?? ""),
-      description: stripHtml(d.description),
-      postedAt: toDate(d.posted_date),
-    });
-  });
+  const limit = 100;
+  const out: DiscoveryPosting[] = [];
+  const seen = new Set<string>();
+
+  for (let page = 1; page <= 20; page++) {
+    const data = (await fetchJson(
+      `https://${c.token}/api/jobs?keywords=${encodeURIComponent(q)}&limit=${limit}&page=${page}`,
+      { redirect: "follow" },
+    )) as {
+      totalCount?: number;
+      count?: number;
+      jobs?: {
+        data?: {
+          req_id?: string;
+          title?: string;
+          full_location?: string;
+          country?: string;
+          description?: string;
+          apply_url?: string;
+          posted_date?: string;
+        };
+      }[];
+    };
+    const jobs = data.jobs ?? [];
+    let added = 0;
+
+    for (const j of jobs) {
+      const d = j.data ?? {};
+      const key = String(d.req_id || d.apply_url || "");
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      added++;
+      out.push(
+        mk("phenom", c.name, {
+          title: d.title ?? "",
+          location: d.full_location ?? d.country ?? "",
+          applyUrl: d.apply_url ?? "",
+          externalId: String(d.req_id ?? ""),
+          description: stripHtml(d.description),
+          postedAt: toDate(d.posted_date),
+        }),
+      );
+    }
+
+    const total = data.totalCount ?? data.count;
+    if (
+      jobs.length === 0 ||
+      added === 0 ||
+      (total != null && seen.size >= total) ||
+      (total == null && jobs.length < limit)
+    ) {
+      break;
+    }
+  }
+
+  return out;
 }
 
 // ----------------------------------- Workday -----------------------------------
 
 async function workday(c: ApiCompany): Promise<DiscoveryPosting[]> {
   const w = c.workday!;
-  const q = c.queryTerms[0];
-  const out: DiscoveryPosting[] = [];
-  for (let offset = 0; offset < 100; offset += 20) {
-    const data = (await fetchJson(`https://${w.host}/wday/cxs/${w.tenant}/${w.site}/jobs`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ appliedFacets: {}, limit: 20, offset, searchText: q }),
-    })) as {
-      jobPostings?: {
-        title?: string;
-        externalPath?: string;
-        locationsText?: string;
-        postedOn?: string;
-        bulletFields?: string[];
-      }[];
-    };
-    const jobs = data.jobPostings ?? [];
-    for (const j of jobs) {
-      out.push(
-        mk("workday", c.name, {
-          title: j.title ?? "",
-          location: j.locationsText ?? "",
-          applyUrl: j.externalPath ? `https://${w.host}/en-US/${w.site}${j.externalPath}` : "",
-          externalId: j.bulletFields?.[0] ?? j.externalPath ?? "",
-          description: "",
-          postedAt: parseWorkdayPostedOn(j.postedOn),
-        }),
-      );
+  type WorkdayListRow = {
+    title?: string;
+    externalPath?: string;
+    locationsText?: string;
+    postedOn?: string;
+    bulletFields?: string[];
+  };
+
+  const rows = new Map<string, WorkdayListRow>();
+  for (const searchText of w.searchTerms ?? [c.queryTerms[0]]) {
+    for (let offset = 0; offset < 100; offset += 20) {
+      const data = (await fetchJson(`https://${w.host}/wday/cxs/${w.tenant}/${w.site}/jobs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ appliedFacets: {}, limit: 20, offset, searchText }),
+      })) as { jobPostings?: WorkdayListRow[] };
+      const jobs = data.jobPostings ?? [];
+      for (const j of jobs) {
+        const key = j.bulletFields?.[0] ?? j.externalPath ?? "";
+        if (key && !rows.has(key)) rows.set(key, j);
+      }
+      if (jobs.length < 20) break;
     }
-    if (jobs.length < 20) break;
   }
-  return out;
+
+  return mapPool([...rows.values()], 5, async (j) => {
+    const title = j.title ?? "";
+    const location = j.locationsText ?? "";
+    const generatedUrl = j.externalPath
+      ? `https://${w.host}/en-US/${w.site}${j.externalPath}`
+      : "";
+    const listPosting = () =>
+      mk("workday", c.name, {
+        title,
+        location,
+        applyUrl: generatedUrl,
+        externalId: j.bulletFields?.[0] ?? j.externalPath ?? "",
+        description: "",
+        postedAt: parseWorkdayPostedOn(j.postedOn),
+      });
+
+    if (
+      !w.fetchDescriptions ||
+      !j.externalPath ||
+      !isSoftwareRole(title)
+    ) {
+      return listPosting();
+    }
+
+    let data: {
+      jobPostingInfo?: {
+        title?: string;
+        jobDescription?: string;
+        location?: string;
+        postedOn?: string;
+        jobReqId?: string;
+        externalUrl?: string;
+        additionalLocations?: string[];
+      };
+    };
+    try {
+      data = (await fetchJson(
+        `https://${w.host}/wday/cxs/${w.tenant}/${w.site}${j.externalPath}`,
+      )) as typeof data;
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      console.warn(
+        `[discovery] ${c.name} Workday detail unavailable for ${j.externalPath}; using list data (${reason})`,
+      );
+      return listPosting();
+    }
+    if (!data.jobPostingInfo) {
+      console.warn(
+        `[discovery] ${c.name} Workday detail missing for ${j.externalPath}; using list data`,
+      );
+      return listPosting();
+    }
+    const detail = data.jobPostingInfo;
+    const detailLocation = [detail.location, ...(detail.additionalLocations ?? [])]
+      .filter(Boolean)
+      .join(" | ");
+    return mk("workday", c.name, {
+      title: detail.title ?? title,
+      location: detailLocation || location,
+      applyUrl: detail.externalUrl ?? generatedUrl,
+      externalId: detail.jobReqId ?? j.bulletFields?.[0] ?? j.externalPath,
+      description: stripHtml(detail.jobDescription),
+      postedAt: parseWorkdayPostedOn(detail.postedOn ?? j.postedOn),
+    });
+  });
 }
 
 // ----------------------------------- Spotify ----------------------------------

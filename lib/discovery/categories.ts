@@ -43,7 +43,7 @@ const BIGTECH = new Set(
     "Intuit", "Nvidia", "Adobe", "Salesforce", "Zoom", "Coinbase", "DoorDash",
     "Robinhood", "Dropbox", "Pinterest", "Cloudflare", "Lyft", "Airbnb",
     "Roblox", "HubSpot", "Datadog", "Waymo", "Apple", "Tesla", "Google",
-    "Shopify", "Meta", "LinkedIn",
+    "Shopify", "Meta", "LinkedIn", "Rivian", "Cisco",
   ].map(norm),
 );
 

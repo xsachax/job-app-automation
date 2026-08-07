@@ -186,6 +186,189 @@ describe("lever adapter", () => {
   });
 });
 
+describe("Jibe careers adapter", () => {
+  it("paginates through every advertised result", async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const page = new URL(String(input)).searchParams.get("page");
+      return jsonResponse(
+        page === "1"
+          ? {
+              totalCount: 3,
+              jobs: [
+                {
+                  data: {
+                    req_id: "1",
+                    title: "Software Engineer",
+                    full_location: "Atlanta, Georgia",
+                    apply_url: "https://careers-acme.icims.com/jobs/1/login",
+                  },
+                },
+                {
+                  data: {
+                    req_id: "2",
+                    title: "Software Engineer II",
+                    full_location: "Vancouver, Canada",
+                    apply_url: "https://careers-acme.icims.com/jobs/2/login",
+                  },
+                },
+              ],
+            }
+          : {
+              totalCount: 3,
+              jobs: [
+                {
+                  data: {
+                    req_id: "3",
+                    title: "Cloud Engineer",
+                    full_location: "Atlanta, Georgia",
+                    apply_url: "https://careers-acme.icims.com/jobs/3/login",
+                  },
+                },
+              ],
+            },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const posts = await fetchCompanyPostings({
+      name: "Acme",
+      method: "api",
+      system: "phenom",
+      token: "careers.acme.test",
+      countryFilter: "post",
+      queryTerms: ["software engineer"],
+    });
+
+    expect(posts.map((post) => post.externalId)).toEqual(["1", "2", "3"]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("Workday adapter details", () => {
+  it("loads official descriptions for relevant configured roles", async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith("/jobs")) {
+        return jsonResponse({
+          jobPostings: [
+            {
+              title: "Software Engineer II",
+              externalPath: "/job/software-engineer-ii",
+              locationsText: "RTP, North Carolina, US",
+              postedOn: "Posted Today",
+              bulletFields: ["2001"],
+            },
+            {
+              title: "Hardware Engineer",
+              externalPath: "/job/hardware-engineer",
+              locationsText: "Austin, Texas, US",
+              bulletFields: ["2002"],
+            },
+          ],
+        });
+      }
+      if (url.endsWith("/job/software-engineer-ii")) {
+        return jsonResponse({
+          jobPostingInfo: {
+            title: "Software Engineer II",
+            location: "RTP, North Carolina, US",
+            jobReqId: "2001",
+            postedOn: "Posted Today",
+            externalUrl: "https://acme.wd5.myworkdayjobs.com/Acme/job/software-engineer-ii",
+            jobDescription: "Bachelor's degree and 2&#43; years of software engineering experience.",
+          },
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const posts = await fetchCompanyPostings({
+      name: "Acme",
+      method: "api",
+      system: "workday",
+      countryFilter: "post",
+      queryTerms: ["software engineer"],
+      workday: {
+        host: "acme.wd5.myworkdayjobs.com",
+        tenant: "acme",
+        site: "Acme",
+        searchTerms: ["new grad"],
+        fetchDescriptions: true,
+      },
+    });
+
+    const software = posts.find((post) => post.externalId === "2001");
+    expect(software?.description).toContain("2+ years");
+    expect(software?.applyUrl).toBe(
+      "https://acme.wd5.myworkdayjobs.com/Acme/job/software-engineer-ii",
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps list results when one detail request fails", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith("/jobs")) {
+        return jsonResponse({
+          jobPostings: [
+            {
+              title: "Software Engineer I",
+              externalPath: "/job/software-engineer-i",
+              locationsText: "San Jose, California, US",
+              bulletFields: ["2001"],
+            },
+            {
+              title: "Software Engineer II",
+              externalPath: "/job/software-engineer-ii",
+              locationsText: "RTP, North Carolina, US",
+              bulletFields: ["2002"],
+            },
+          ],
+        });
+      }
+      if (url.endsWith("/job/software-engineer-i")) {
+        return jsonResponse({
+          jobPostingInfo: {
+            title: "Software Engineer I",
+            location: "San Jose, California, US",
+            jobReqId: "2001",
+            jobDescription: "Build software.",
+          },
+        });
+      }
+      if (url.endsWith("/job/software-engineer-ii")) {
+        return new Response("", { status: 404 });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const posts = await fetchCompanyPostings({
+      name: "Acme",
+      method: "api",
+      system: "workday",
+      countryFilter: "post",
+      queryTerms: ["software engineer"],
+      workday: {
+        host: "acme.wd5.myworkdayjobs.com",
+        tenant: "acme",
+        site: "Acme",
+        searchTerms: ["new grad"],
+        fetchDescriptions: true,
+      },
+    });
+
+    expect(posts.map((post) => post.externalId)).toEqual(["2001", "2002"]);
+    expect(posts.find((post) => post.externalId === "2001")?.description).toBe("Build software.");
+    expect(posts.find((post) => post.externalId === "2002")?.description).toBe("");
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("Workday detail unavailable for /job/software-engineer-ii"),
+    );
+  });
+});
+
 describe("discovery catalog", () => {
   it("registers the newly added companies with the expected system", () => {
     const bySystem = (name: string) => API_COMPANIES.find((c) => c.name === name)?.system;
@@ -208,6 +391,8 @@ describe("discovery catalog", () => {
     expect(bySystem("Mercor")).toBe("ashby");
     expect(bySystem("Sierra")).toBe("ashby");
     expect(bySystem("Harvey")).toBe("ashby");
+    expect(bySystem("Rivian")).toBe("phenom");
+    expect(bySystem("Cisco")).toBe("workday");
   });
 
   it("registers the quant / trading firms with the expected system", () => {

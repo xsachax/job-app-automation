@@ -12,7 +12,7 @@ import {
 } from "../tiers";
 import { fitAdvice, gapAdvice } from "./advice";
 import { freshnessFit } from "./freshness";
-import { minRequiredYoE } from "../discovery/entryLevel";
+import { minRequiredBachelorYoE } from "../discovery/entryLevel";
 
 export interface ScoreAllJobsOptions {
   onlyUnscored?: boolean;
@@ -207,7 +207,7 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
     const salary = salaryFit(job, salaryTarget);
     const freshness = freshnessFit(job, now);
     const experience = experienceFit(
-      minRequiredYoE(compactText(job.title, job.description)),
+      minRequiredBachelorYoE(compactText(job.title, job.description)),
       candidateYears,
     );
 
