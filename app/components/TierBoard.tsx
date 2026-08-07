@@ -5,7 +5,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { api } from "./api";
+import { JudgeProgressBar, useJudgeRun } from "./JudgeProgress";
 import { cls, PageHeader } from "./ui";
 import { TIERS, type Tier } from "@/lib/tiers";
 import {
@@ -112,6 +112,7 @@ export function TierBoard({
   const [dragKey, setDragKey] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [judging, setJudging] = useState(false);
+  const judgeRun = useJudgeRun();
   const error = persistenceError ?? actionError;
 
   const byTier = useMemo(() => {
@@ -145,10 +146,7 @@ export function TierBoard({
     setMessage(null);
     try {
       await saveNow();
-      const result = await api<{ scored: number; scanned: number }>("/api/judge/score", {
-        method: "POST",
-        body: JSON.stringify({}),
-      });
+      const result = await judgeRun.runJudge();
       setMessage(
         `Judge re-ran with your tiers: ${result.scored} scored of ${result.scanned} scanned.`,
       );
@@ -194,11 +192,22 @@ export function TierBoard({
               Retry saves
             </button>
           )}
-          <button className={cls.btn} onClick={runJudge} disabled={judging}>
+          <button
+            className={cls.btn}
+            onClick={runJudge}
+            disabled={judging || judgeRun.running}
+          >
             {judging ? "Re-running…" : "Re-run judge"}
           </button>
         </div>
       </PageHeader>
+
+      <JudgeProgressBar
+        active={judgeRun.running}
+        progress={judgeRun.progress}
+        error={judgeRun.progressError}
+        className="mb-4 ml-auto max-w-xl"
+      />
 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">

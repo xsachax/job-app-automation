@@ -10,11 +10,23 @@ export function errorResponse(e: unknown, status = 400) {
 }
 
 export function isSameOriginRequest(request: NextRequest): boolean {
-  const origin = request.headers.get("origin");
-  if (!origin) return false;
+  const originHeader = request.headers.get("origin");
+  if (!originHeader) return false;
 
   try {
-    return new URL(origin).origin === request.nextUrl.origin;
+    const origin = new URL(originHeader);
+    const host = request.headers.get("host");
+    if (!host) return origin.origin === request.nextUrl.origin;
+
+    const forwardedProtocol = request.headers
+      .get("x-forwarded-proto")
+      ?.split(",", 1)[0]
+      ?.trim();
+    const protocol = forwardedProtocol || request.nextUrl.protocol.replace(/:$/, "");
+    return (
+      origin.host.toLowerCase() === host.trim().toLowerCase() &&
+      origin.protocol === `${protocol.toLowerCase()}:`
+    );
   } catch {
     return false;
   }
