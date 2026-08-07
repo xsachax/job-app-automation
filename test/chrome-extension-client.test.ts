@@ -8,6 +8,7 @@ import {
   isGoogleChromeBrowser,
   launchAutofillApplication,
   pingAutofillExtension,
+  preferredOfficeLocationsFromTiers,
   sendChromeExtensionMessage,
   syncAutofillProfile,
   type ChromeRuntimeLike,
@@ -37,6 +38,7 @@ const PROFILE = {
   fieldOfStudy: " Computer Science ",
   graduationDate: "2025-05",
   relevantExperienceYears: 2,
+  softwareIndustryExperienceYears: 1.5,
   certifications: [" AWS Certified Developer ", "CKA"],
   undergraduateGpa: "3.8",
   graduateGpa: "",
@@ -46,6 +48,8 @@ const PROFILE = {
   greScore: "325",
   heardAboutJob: "LinkedIn",
   heardAboutJobOther: "Conference",
+  previousEmployers: ["Cisco", "Rivian"],
+  compensationExpectation: "$150,000 USD",
   securityClearances: ["None"],
   canPerformEssentialFunctions: true,
   pronouns: "Other",
@@ -54,6 +58,8 @@ const PROFILE = {
   genderOther: "Stale hidden value",
   raceEthnicity: "Other",
   raceEthnicityOther: "West Asian",
+  hispanicLatino: "no",
+  transgenderStatus: "Prefer not to answer",
   disabilityStatus: "no",
   veteranStatus: "Not a protected veteran",
   linkedin: " https://www.linkedin.com/in/jane ",
@@ -99,7 +105,12 @@ describe("Chrome extension identity and profile mapping", () => {
   });
 
   it("maps the app profile to the extension schema", () => {
-    expect(buildAutofillProfile(PROFILE, "US")).toEqual({
+    expect(
+      buildAutofillProfile(PROFILE, "US", [
+        "New York, NY",
+        "Toronto, ON",
+      ]),
+    ).toEqual({
       firstName: "Jane",
       preferredName: "JJ",
       lastName: "Doe",
@@ -107,6 +118,18 @@ describe("Chrome extension identity and profile mapping", () => {
       phone: "+1 555 0100",
       country: "United States",
       location: "New York, NY",
+      usCountry: "United States",
+      usLocation: "New York, NY",
+      usWorkAuthorization: "yes",
+      usRequiresSponsorship: "no",
+      usCitizenshipStatus: "U.S. citizen",
+      usCitizenshipStatusOther: "",
+      caCountry: "Canada",
+      caLocation: "Toronto, ON",
+      caWorkAuthorization: "no",
+      caRequiresSponsorship: "yes",
+      caCitizenshipStatus: "Other",
+      caCitizenshipStatusOther: "Protected person",
       linkedinUrl: "https://www.linkedin.com/in/jane",
       githubUrl: "https://github.com/jane",
       portfolioUrl: "https://jane.dev",
@@ -116,6 +139,7 @@ describe("Chrome extension identity and profile mapping", () => {
       fieldOfStudy: "Computer Science",
       graduationDate: "2025-05",
       relevantExperienceYears: "2",
+      softwareIndustryExperienceYears: "1.5",
       certifications: "AWS Certified Developer, CKA",
       undergraduateGpa: "3.8",
       graduateGpa: "",
@@ -125,6 +149,9 @@ describe("Chrome extension identity and profile mapping", () => {
       greScore: "325",
       heardAboutJob: "LinkedIn",
       heardAboutJobOther: "",
+      previousEmployers: "Cisco\nRivian",
+      compensationExpectation: "$150,000 USD",
+      preferredOfficeLocations: "New York, NY\nToronto, ON",
       securityClearances: "None",
       canPerformEssentialFunctions: "yes",
       citizenshipStatus: "U.S. citizen",
@@ -137,6 +164,8 @@ describe("Chrome extension identity and profile mapping", () => {
       genderOther: "",
       raceEthnicity: "Other",
       raceEthnicityOther: "West Asian",
+      hispanicLatino: "no",
+      transgenderStatus: "Prefer not to answer",
       disabilityStatus: "no",
       veteranStatus: "Not a protected veteran",
       coverLetter: "Hello hiring team.\n\nThank you.",
@@ -180,6 +209,30 @@ describe("Chrome extension identity and profile mapping", () => {
       citizenshipStatusOther: "Non-citizen national",
       pronounsOther: "",
     });
+    expect(
+      buildAutofillProfile(
+        {
+          usCitizenshipStatus: "U.S. citizen",
+          usCitizenshipStatusOther: "Stale U.S. detail",
+          caCitizenshipStatus: "Permanent resident",
+          caCitizenshipStatusOther: "Stale Canada detail",
+        },
+        "US",
+      ),
+    ).toMatchObject({
+      usCitizenshipStatusOther: "",
+      caCitizenshipStatusOther: "",
+      citizenshipStatusOther: "",
+    });
+    expect(
+      buildAutofillProfile({
+        previousEmployers: [
+          "Uber Technologies Inc",
+          "Uber",
+          "Artera Technologies",
+        ],
+      }).previousEmployers,
+    ).toBe("Uber\nArtera Technologies");
   });
 
   it("supports legacy portfolio URLs and cleared eligibility answers", () => {
@@ -195,6 +248,20 @@ describe("Chrome extension identity and profile mapping", () => {
       workAuthorization: "",
       requiresSponsorship: "",
     });
+  });
+
+  it("includes only unique S-C location tiers in multi-office answers", () => {
+    expect(
+      preferredOfficeLocationsFromTiers([
+        { location: "New York, NY", tier: "S" },
+        { location: "Toronto, ON", tier: "C" },
+        { location: "Austin, TX", tier: "D" },
+        { location: "Seattle, WA", tier: "F" },
+        { location: " new york, ny ", tier: "A" },
+        { location: "", tier: "B" },
+        { location: 42, tier: "S" },
+      ]),
+    ).toEqual(["New York, NY", "Toronto, ON"]);
   });
 });
 

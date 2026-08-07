@@ -1,4 +1,5 @@
 import type { ProfileData } from "./settings";
+import { canonicalCompanyName } from "./company-names";
 
 export const CHROME_AUTOFILL_EXTENSION_ID =
   "naihpjhebnkenkfdlblbefoimhhcdfcl";
@@ -92,6 +93,18 @@ export interface AutofillProfile {
   phone: string;
   country: string;
   location: string;
+  usCountry: string;
+  usLocation: string;
+  usWorkAuthorization: "" | "yes" | "no";
+  usRequiresSponsorship: "" | "yes" | "no";
+  usCitizenshipStatus: string;
+  usCitizenshipStatusOther: string;
+  caCountry: string;
+  caLocation: string;
+  caWorkAuthorization: "" | "yes" | "no";
+  caRequiresSponsorship: "" | "yes" | "no";
+  caCitizenshipStatus: string;
+  caCitizenshipStatusOther: string;
   linkedinUrl: string;
   githubUrl: string;
   portfolioUrl: string;
@@ -101,6 +114,7 @@ export interface AutofillProfile {
   fieldOfStudy: string;
   graduationDate: string;
   relevantExperienceYears: string;
+  softwareIndustryExperienceYears: string;
   certifications: string;
   undergraduateGpa: string;
   graduateGpa: string;
@@ -110,6 +124,9 @@ export interface AutofillProfile {
   greScore: string;
   heardAboutJob: string;
   heardAboutJobOther: string;
+  previousEmployers: string;
+  compensationExpectation: string;
+  preferredOfficeLocations: string;
   securityClearances: string;
   canPerformEssentialFunctions: "" | "yes" | "no";
   citizenshipStatus: string;
@@ -122,6 +139,8 @@ export interface AutofillProfile {
   genderOther: string;
   raceEthnicity: string;
   raceEthnicityOther: string;
+  hispanicLatino: string;
+  transgenderStatus: string;
   disabilityStatus: string;
   veteranStatus: string;
   coverLetter: string;
@@ -164,18 +183,40 @@ function choice(value: unknown): "" | "yes" | "no" {
   return value === true ? "yes" : value === false ? "no" : "";
 }
 
-function listText(value: unknown): string {
+function listText(value: unknown, separator = ", "): string {
   if (!Array.isArray(value)) return "";
   return value
     .filter((item): item is string => typeof item === "string")
     .map((item) => item.trim())
     .filter(Boolean)
-    .join(", ");
+    .join(separator);
+}
+
+function companyListText(value: unknown): string {
+  if (!Array.isArray(value)) return "";
+  const seen = new Set<string>();
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => canonicalCompanyName(item))
+    .filter((item) => {
+      const key = item.toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .join("\n");
+}
+
+function numberText(value: unknown): string {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? String(value)
+    : "";
 }
 
 export function buildAutofillProfile(
   profile: ProfileData,
   country?: string | null,
+  preferredOfficeLocations: string[] = [],
 ): AutofillProfile {
   const normalizedCountry = country?.trim().toLowerCase();
   const isCanada = normalizedCountry === "ca" || normalizedCountry === "canada";
@@ -201,6 +242,28 @@ export function buildAutofillProfile(
       : isCanada
         ? text(profile.caLocation)
         : text(profile.usLocation) || text(profile.location),
+    usCountry: text(profile.usCountry) || "United States",
+    usLocation: text(profile.usLocation) || text(profile.location),
+    usWorkAuthorization: choice(
+      profile.usWorkAuthorized ?? profile.workAuthorized,
+    ),
+    usRequiresSponsorship: choice(
+      profile.usRequiresSponsorship ?? profile.requiresSponsorship,
+    ),
+    usCitizenshipStatus: text(profile.usCitizenshipStatus),
+    usCitizenshipStatusOther:
+      text(profile.usCitizenshipStatus) === "Other"
+        ? text(profile.usCitizenshipStatusOther)
+        : "",
+    caCountry: text(profile.caCountry) || "Canada",
+    caLocation: text(profile.caLocation),
+    caWorkAuthorization: choice(profile.caWorkAuthorized),
+    caRequiresSponsorship: choice(profile.caRequiresSponsorship),
+    caCitizenshipStatus: text(profile.caCitizenshipStatus),
+    caCitizenshipStatusOther:
+      text(profile.caCitizenshipStatus) === "Other"
+        ? text(profile.caCitizenshipStatusOther)
+        : "",
     linkedinUrl: text(profile.linkedin),
     githubUrl: text(profile.github),
     portfolioUrl: text(profile.website) || text(profile.portfolio),
@@ -210,12 +273,10 @@ export function buildAutofillProfile(
       text(profile.degree) === "Other" ? text(profile.degreeOther) : "",
     fieldOfStudy: text(profile.fieldOfStudy),
     graduationDate: text(profile.graduationDate),
-    relevantExperienceYears:
-      typeof profile.relevantExperienceYears === "number" &&
-      Number.isFinite(profile.relevantExperienceYears) &&
-      profile.relevantExperienceYears >= 0
-        ? String(profile.relevantExperienceYears)
-        : "",
+    relevantExperienceYears: numberText(profile.relevantExperienceYears),
+    softwareIndustryExperienceYears: numberText(
+      profile.softwareIndustryExperienceYears,
+    ),
     certifications: listText(profile.certifications),
     undergraduateGpa: text(profile.undergraduateGpa),
     graduateGpa: text(profile.graduateGpa),
@@ -228,6 +289,9 @@ export function buildAutofillProfile(
       text(profile.heardAboutJob) === "Other"
         ? text(profile.heardAboutJobOther)
         : "",
+    previousEmployers: companyListText(profile.previousEmployers),
+    compensationExpectation: text(profile.compensationExpectation),
+    preferredOfficeLocations: listText(preferredOfficeLocations, "\n"),
     securityClearances: listText(profile.securityClearances),
     canPerformEssentialFunctions: choice(profile.canPerformEssentialFunctions),
     citizenshipStatus: !hasCountryContext
@@ -265,6 +329,8 @@ export function buildAutofillProfile(
       text(profile.raceEthnicity) === "Other"
         ? text(profile.raceEthnicityOther)
         : "",
+    hispanicLatino: text(profile.hispanicLatino),
+    transgenderStatus: text(profile.transgenderStatus),
     disabilityStatus: text(profile.disabilityStatus),
     veteranStatus: text(profile.veteranStatus),
     coverLetter: text(profile.coverLetterTemplate),
@@ -286,12 +352,45 @@ async function loadSavedResumeFile(): Promise<AutofillResumeFile | null> {
   if (!response.ok) {
     throw new Error(`Could not load the saved resume PDF (${response.status}).`);
   }
+
   const bytes = new Uint8Array(await response.arrayBuffer());
   return {
     fileName: response.headers.get("x-resume-filename") || "resume.pdf",
     mimeType: "application/pdf",
     base64: bytesToBase64(bytes),
   };
+}
+
+export function preferredOfficeLocationsFromTiers(
+  locations: { location?: unknown; tier?: unknown }[],
+): string[] {
+  const acceptedTiers = new Set(["S", "A", "B", "C"]);
+  const seen = new Set<string>();
+  return locations
+    .filter((item) => acceptedTiers.has(String(item.tier || "").toUpperCase()))
+    .map((item) => (typeof item.location === "string" ? item.location.trim() : ""))
+    .filter((location) => {
+      const key = location.toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 100);
+}
+
+async function loadPreferredOfficeLocations(): Promise<string[]> {
+  if (typeof window === "undefined") return [];
+  const response = await fetch("/api/location-tiers", { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`Could not load ranked office locations (${response.status}).`);
+  }
+  const payload = (await response.json()) as {
+    locations?: { location?: unknown; tier?: unknown }[];
+  };
+  if (!Array.isArray(payload.locations)) {
+    throw new Error("The ranked office location response is invalid.");
+  }
+  return preferredOfficeLocationsFromTiers(payload.locations);
 }
 
 export function getChromeRuntime(): ChromeRuntimeLike | null {
@@ -345,11 +444,14 @@ export async function syncAutofillProfile(
   profile: ProfileData,
   runtime?: ChromeRuntimeLike | null,
 ): Promise<ChromeExtensionResponse> {
-  const resumeFile = await loadSavedResumeFile();
+  const [resumeFile, preferredOfficeLocations] = await Promise.all([
+    loadSavedResumeFile(),
+    loadPreferredOfficeLocations(),
+  ]);
   return sendChromeExtensionMessage(
     {
       type: "JOB_AUTOFILL_SET_PROFILE",
-      profile: buildAutofillProfile(profile),
+      profile: buildAutofillProfile(profile, undefined, preferredOfficeLocations),
       resumeFile,
     },
     runtime,
@@ -361,12 +463,19 @@ export async function launchAutofillApplication(
   profile: ProfileData,
   runtime?: ChromeRuntimeLike | null,
 ): Promise<AutofillLaunchResponse> {
-  const resumeFile = await loadSavedResumeFile();
+  const [resumeFile, preferredOfficeLocations] = await Promise.all([
+    loadSavedResumeFile(),
+    loadPreferredOfficeLocations(),
+  ]);
   return sendChromeExtensionMessage(
     {
       type: "JOB_AUTOFILL_LAUNCH",
       ...job,
-      profile: buildAutofillProfile(profile, job.country),
+      profile: buildAutofillProfile(
+        profile,
+        job.country,
+        preferredOfficeLocations,
+      ),
       resumeFile,
     },
     runtime,

@@ -26,6 +26,17 @@ test.describe("profile page", () => {
     await expect(page.getByLabel("Degree")).toBeVisible();
     await expect(page.getByLabel("Field of study / discipline")).toBeVisible();
     await expect(page.getByLabel("Relevant experience")).toBeVisible();
+    await expect(
+      page.getByLabel("Software engineering industry experience"),
+    ).toBeVisible();
+    await expect(page.getByLabel("Add previous employer")).toBeVisible();
+    await expect(
+      page.getByLabel("Target total annual compensation"),
+    ).toBeVisible();
+    await expect(page.getByLabel("Are you Hispanic or Latino?")).toBeVisible();
+    await expect(
+      page.getByLabel("Do you identify as transgender?"),
+    ).toBeVisible();
   });
 
   test("edits target roles as explicit removable values", async ({ page }) => {
@@ -162,7 +173,7 @@ test.describe("profile page", () => {
       page.getByRole("heading", { name: "Voluntary self-identification" }),
     ).toBeVisible();
     await expect(page.getByLabel("Pronouns")).toBeVisible();
-    await expect(page.getByLabel("Gender")).toBeVisible();
+    await expect(page.getByLabel("Gender", { exact: true })).toBeVisible();
     await expect(page.getByLabel("Race / ethnicity")).toBeVisible();
     await expect(page.getByLabel("Disability status")).toBeVisible();
     await expect(page.getByLabel("Protected veteran status")).toBeVisible();
@@ -226,7 +237,7 @@ test.describe("profile page", () => {
 
       await page.getByLabel("Pronouns").selectOption("Other");
       await page.getByLabel("Please specify your pronouns").fill("Ze/hir");
-      await page.getByLabel("Gender").selectOption("Other");
+      await page.getByLabel("Gender", { exact: true }).selectOption("Other");
       await page
         .getByLabel("Please self-describe your gender")
         .fill("Genderqueer");
@@ -287,13 +298,18 @@ test.describe("profile page", () => {
             fieldOfStudy: "",
             graduationDate: "",
             relevantExperienceYears: null,
+            softwareIndustryExperienceYears: null,
             certifications: [],
             heardAboutJob: "",
             heardAboutJobOther: "",
+            previousEmployers: [],
+            compensationExpectation: "",
             securityClearances: [],
             canPerformEssentialFunctions: null,
             usCitizenshipStatus: "",
             usCitizenshipStatusOther: "",
+            hispanicLatino: "",
+            transgenderStatus: "",
           }),
         });
       }, originalProfile);
@@ -315,6 +331,9 @@ test.describe("profile page", () => {
         .fill("Computer Engineering");
       await page.getByLabel("Graduation date").fill("2027-06");
       await page.getByLabel("Relevant experience").fill("1.5");
+      await page
+        .getByLabel("Software engineering industry experience")
+        .fill("2");
       await page.getByLabel("Add certification").fill("Autosave Certificate");
       await page.getByLabel("Add certification").press("Enter");
       await page
@@ -323,6 +342,15 @@ test.describe("profile page", () => {
       await page
         .getByLabel("Please specify how you heard about this job")
         .fill("Community meetup");
+      await page.getByLabel("Add previous employer").fill("Cisco");
+      await page.getByLabel("Add previous employer").press("Enter");
+      await page
+        .getByLabel("Target total annual compensation")
+        .fill("$150,000 USD");
+      await page.getByLabel("Are you Hispanic or Latino?").selectOption("no");
+      await page
+        .getByLabel("Do you identify as transgender?")
+        .selectOption("Prefer not to answer");
       await page.getByLabel("Add security clearance").fill("None");
       await page.getByLabel("Add security clearance").press("Enter");
       await page
@@ -349,8 +377,23 @@ test.describe("profile page", () => {
       await expect(page.getByLabel("Graduation date")).toHaveValue("2027-06");
       await expect(page.getByLabel("Relevant experience")).toHaveValue("1.5");
       await expect(
+        page.getByLabel("Software engineering industry experience"),
+      ).toHaveValue("2");
+      await expect(
         page.getByRole("button", { name: "Remove Autosave Certificate" }),
       ).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: "Remove Cisco" }),
+      ).toBeVisible();
+      await expect(
+        page.getByLabel("Target total annual compensation"),
+      ).toHaveValue("$150,000 USD");
+      await expect(page.getByLabel("Are you Hispanic or Latino?")).toHaveValue(
+        "no",
+      );
+      await expect(
+        page.getByLabel("Do you identify as transgender?"),
+      ).toHaveValue("Prefer not to answer");
       await expect(
         page.getByLabel("Please specify how you heard about this job"),
       ).toHaveValue("Community meetup");
@@ -375,13 +418,18 @@ test.describe("profile page", () => {
           fieldOfStudy: "Computer Engineering",
           graduationDate: "2027-06",
           relevantExperienceYears: 1.5,
+          softwareIndustryExperienceYears: 2,
           certifications: ["Autosave Certificate"],
           heardAboutJob: "Other",
           heardAboutJobOther: "Community meetup",
+          previousEmployers: ["Cisco"],
+          compensationExpectation: "$150,000 USD",
           securityClearances: ["None"],
           canPerformEssentialFunctions: true,
           usCitizenshipStatus: "Other",
           usCitizenshipStatusOther: "Non-citizen national",
+          hispanicLatino: "no",
+          transgenderStatus: "Prefer not to answer",
         });
     } finally {
       await page.waitForTimeout(700);
@@ -596,6 +644,9 @@ test.describe("profile page", () => {
           location: "",
           workAuthorization: "",
           requiresSponsorship: "",
+          usCountry: "United States",
+          usRequiresSponsorship: "no",
+          preferredOfficeLocations: "San Francisco, CA",
         },
       },
     });

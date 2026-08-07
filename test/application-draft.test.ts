@@ -18,6 +18,8 @@ describe("application draft profile mapping", () => {
         genderOther: "Genderqueer",
         raceEthnicity: "Other",
         raceEthnicityOther: "West Asian",
+        hispanicLatino: "no",
+        transgenderStatus: "Prefer not to answer",
         veteranStatus: "Not a protected veteran",
         disabilityStatus: "no",
       }),
@@ -28,6 +30,8 @@ describe("application draft profile mapping", () => {
       genderOther: "Genderqueer",
       raceEthnicity: "Other",
       raceEthnicityOther: "West Asian",
+      hispanicLatino: "no",
+      transgenderStatus: "Prefer not to answer",
       veteranStatus: "Not a protected veteran",
       disabilityStatus: "no",
     });

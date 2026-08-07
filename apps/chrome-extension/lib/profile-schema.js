@@ -169,6 +169,90 @@
       placeholder: "Toronto, ON"
     },
     {
+      key: "usCountry",
+      label: "Saved U.S. country",
+      group: "contact",
+      aliases: [],
+      controls: []
+    },
+    {
+      key: "usLocation",
+      label: "Saved U.S. location",
+      group: "contact",
+      aliases: [],
+      controls: []
+    },
+    {
+      key: "usWorkAuthorization",
+      label: "Saved U.S. work authorization",
+      group: "eligibility",
+      aliases: [],
+      controls: []
+    },
+    {
+      key: "usRequiresSponsorship",
+      label: "Saved U.S. sponsorship requirement",
+      group: "eligibility",
+      aliases: [],
+      controls: []
+    },
+    {
+      key: "usCitizenshipStatus",
+      label: "Saved U.S. citizenship status",
+      group: "eligibility",
+      aliases: [],
+      controls: []
+    },
+    {
+      key: "usCitizenshipStatusOther",
+      label: "Saved U.S. citizenship detail",
+      group: "eligibility",
+      aliases: [],
+      controls: []
+    },
+    {
+      key: "caCountry",
+      label: "Saved Canada country",
+      group: "contact",
+      aliases: [],
+      controls: []
+    },
+    {
+      key: "caLocation",
+      label: "Saved Canada location",
+      group: "contact",
+      aliases: [],
+      controls: []
+    },
+    {
+      key: "caWorkAuthorization",
+      label: "Saved Canada work authorization",
+      group: "eligibility",
+      aliases: [],
+      controls: []
+    },
+    {
+      key: "caRequiresSponsorship",
+      label: "Saved Canada sponsorship requirement",
+      group: "eligibility",
+      aliases: [],
+      controls: []
+    },
+    {
+      key: "caCitizenshipStatus",
+      label: "Saved Canada citizenship status",
+      group: "eligibility",
+      aliases: [],
+      controls: []
+    },
+    {
+      key: "caCitizenshipStatusOther",
+      label: "Saved Canada citizenship detail",
+      group: "eligibility",
+      aliases: [],
+      controls: []
+    },
+    {
       key: "city",
       label: "City",
       group: "contact",
@@ -422,6 +506,22 @@
       controls: ["text", "select", "combobox"]
     },
     {
+      key: "softwareIndustryExperienceYears",
+      label: "Software engineering industry experience",
+      group: "education",
+      input: "text",
+      aliases: [
+        "years of software engineering industry experience",
+        "software engineering industry experience",
+        "software engineer industry experience",
+        "software development industry experience",
+        "years of software engineering experience excluding internships",
+        "software engineering experience excluding internships",
+        "industry experience excluding internships"
+      ],
+      controls: ["text", "select", "combobox"]
+    },
+    {
       key: "certifications",
       label: "Certifications",
       group: "education",
@@ -536,6 +636,55 @@
       ],
       allowGenericWithContext: true,
       controls: ["text", "textarea"]
+    },
+    {
+      key: "previousEmployers",
+      label: "Previous employers",
+      group: "eligibility",
+      input: "select",
+      maxLength: 5_000,
+      aliases: [
+        "have you worked at",
+        "have you ever worked at",
+        "have you previously worked at",
+        "have you worked for",
+        "have you ever worked for",
+        "have you previously worked for",
+        "were you previously employed by",
+        "prior employment with",
+        "former employee"
+      ],
+      controls: ["choice", "select", "combobox"]
+    },
+    {
+      key: "compensationExpectation",
+      label: "Target total annual compensation",
+      group: "eligibility",
+      input: "text",
+      aliases: [
+        "target total annual compensation expectations",
+        "target total annual compensation expectation",
+        "target total compensation expectations",
+        "total annual compensation expectations",
+        "expected total annual compensation"
+      ],
+      controls: ["text", "textarea"]
+    },
+    {
+      key: "preferredOfficeLocations",
+      label: "S–C ranked office locations",
+      group: "eligibility",
+      input: "text",
+      maxLength: 5_000,
+      aliases: [
+        "office locations you can work from",
+        "office locations can you work from",
+        "following office locations",
+        "select all office locations",
+        "which office locations",
+        "locations are you willing to work from"
+      ],
+      controls: ["check-many"]
     },
     {
       key: "securityClearances",
@@ -729,6 +878,19 @@
       controls: ["text", "textarea"]
     },
     {
+      key: "transgenderStatus",
+      label: "Transgender identity",
+      group: "demographics",
+      input: "select",
+      aliases: [
+        "do you identify as transgender",
+        "are you transgender",
+        "transgender identity",
+        "transgender status"
+      ],
+      controls: ["choice", "select", "combobox"]
+    },
+    {
       key: "raceEthnicity",
       label: "Race or ethnicity",
       group: "demographics",
@@ -766,6 +928,19 @@
       ],
       allowGenericWithContext: true,
       controls: ["text", "textarea"]
+    },
+    {
+      key: "hispanicLatino",
+      label: "Hispanic or Latino identity",
+      group: "demographics",
+      input: "select",
+      aliases: [
+        "are you hispanic or latino",
+        "do you identify as hispanic or latino",
+        "hispanic or latino identity",
+        "hispanic latino ethnicity"
+      ],
+      controls: ["choice", "select", "combobox"]
     },
     {
       key: "disabilityStatus",
@@ -926,7 +1101,55 @@
     const country = String(context.country || profile.country || "")
       .trim()
       .toLowerCase();
-    const location = String(profile.location || "").trim();
+    const isCanada = country === "ca" || country === "canada";
+    const isUnitedStates = [
+      "us",
+      "usa",
+      "u s",
+      "u s a",
+      "united states",
+      "united states of america"
+    ].includes(country);
+    const location = String(
+      isCanada
+        ? profile.caLocation || profile.location
+        : isUnitedStates
+          ? profile.usLocation || profile.location
+          : profile.location || ""
+    ).trim();
+    const workAuthorization = String(
+      isCanada
+        ? profile.caWorkAuthorization || profile.workAuthorization
+        : isUnitedStates
+          ? profile.usWorkAuthorization || profile.workAuthorization
+          : profile.workAuthorization || ""
+    ).trim();
+    const requiresSponsorship = String(
+      isCanada
+        ? profile.caRequiresSponsorship || profile.requiresSponsorship
+        : isUnitedStates
+          ? profile.usRequiresSponsorship || profile.requiresSponsorship
+          : profile.requiresSponsorship || ""
+    ).trim();
+    const citizenshipStatus = String(
+      isCanada
+        ? profile.caCitizenshipStatus || profile.citizenshipStatus
+        : isUnitedStates
+          ? profile.usCitizenshipStatus || profile.citizenshipStatus
+          : profile.citizenshipStatus || ""
+    ).trim();
+    const citizenshipStatusOther =
+      citizenshipStatus === "Other"
+        ? String(
+            isCanada
+              ? profile.caCitizenshipStatusOther ||
+                  profile.citizenshipStatusOther
+              : isUnitedStates
+                ? profile.usCitizenshipStatusOther ||
+                    profile.citizenshipStatusOther
+                : profile.citizenshipStatusOther || ""
+          ).trim()
+        : "";
     const locationValues = locationParts(location);
     const phoneValues = phoneParts(profile.phone, country);
     const graduationValues = graduationParts(profile.graduationDate);
@@ -938,14 +1161,27 @@
       emailConfirmation: String(profile.email || "").trim(),
       phoneCountryCode: phoneValues.countryCode,
       phoneNational: phoneValues.national,
+      location,
       city: locationValues.city,
       region: locationValues.region,
       country:
-        country === "ca" || country === "canada"
+        isCanada
           ? "Canada"
-          : ["us", "usa", "u s", "u s a", "united states", "united states of america"].includes(country)
+          : isUnitedStates
             ? "United States"
             : String(profile.country || context.country || "").trim(),
+      workAuthorization,
+      requiresSponsorship,
+      citizenshipStatus,
+      citizenshipStatusOther,
+      usCitizenshipStatusOther:
+        String(profile.usCitizenshipStatus || "").trim() === "Other"
+          ? String(profile.usCitizenshipStatusOther || "").trim()
+          : "",
+      caCitizenshipStatusOther:
+        String(profile.caCitizenshipStatus || "").trim() === "Other"
+          ? String(profile.caCitizenshipStatusOther || "").trim()
+          : "",
       graduationDate: graduationValues.date,
       graduationDateInput: graduationValues.input,
       graduationMonth: graduationValues.month,
@@ -956,7 +1192,7 @@
 
   function formatControlValue(value, controlKind) {
     const rawValue = String(value || "").trim();
-    return controlKind === "textarea"
+    return ["textarea", "check-many"].includes(controlKind)
       ? rawValue
       : rawValue.replace(/\s+/g, " ");
   }
@@ -970,7 +1206,8 @@
     for (const field of fields) {
       if (field.stored === false) continue;
       const rawValue = rawProfile[field.key];
-      const maxLength = field.key === "coverLetter" ? 20_000 : 1_000;
+      const maxLength =
+        field.maxLength || (field.key === "coverLetter" ? 20_000 : 1_000);
       let value =
         typeof rawValue === "string" ? rawValue.trim().slice(0, maxLength) : "";
 
@@ -978,7 +1215,11 @@
         [
           "workAuthorization",
           "requiresSponsorship",
-          "canPerformEssentialFunctions"
+          "canPerformEssentialFunctions",
+          "usWorkAuthorization",
+          "usRequiresSponsorship",
+          "caWorkAuthorization",
+          "caRequiresSponsorship"
         ].includes(field.key) &&
         !["", "yes", "no"].includes(value)
       ) {
@@ -1022,7 +1263,9 @@
         value = "";
       }
       if (
-        field.key === "relevantExperienceYears" &&
+        ["relevantExperienceYears", "softwareIndustryExperienceYears"].includes(
+          field.key
+        ) &&
         value &&
         (!/^\d{1,2}(?:\.\d)?$/.test(value) ||
           Number(value) < 0 ||

@@ -19,6 +19,7 @@ async function installContentPanel(
     revealPanel = false,
     frameMode = false,
     country = "",
+    company = "",
     profileAvailability,
   }: {
     html: string;
@@ -32,6 +33,7 @@ async function installContentPanel(
     revealPanel?: boolean;
     frameMode?: boolean;
     country?: string;
+    company?: string;
     profileAvailability?: Record<string, boolean>;
   },
 ) {
@@ -56,6 +58,7 @@ async function installContentPanel(
             applicationOrigins: string[];
             jobTitle: string;
             country: string;
+            company: string;
           };
           profile?: Record<string, string>;
           profileAvailability?: Record<string, boolean>;
@@ -129,6 +132,7 @@ async function installContentPanel(
   await page.evaluate(async ({
     embeddedFrame,
     applicationCountry,
+    applicationCompany,
     availableProfile,
   }) => {
     const harness = (
@@ -146,6 +150,7 @@ async function installContentPanel(
         applicationOrigins: [location.origin],
         jobTitle: "Content script fixture",
         country: applicationCountry,
+        company: applicationCompany,
       },
       profile: {},
       profileAvailability: availableProfile,
@@ -157,6 +162,7 @@ async function installContentPanel(
   }, {
     embeddedFrame: frameMode,
     applicationCountry: country,
+    applicationCompany: company,
     availableProfile: profileAvailability ?? {},
   });
 }
@@ -237,6 +243,64 @@ test("disabling the extension cancels an in-flight profile fill", async ({ page 
 
   expect(result).toMatchObject({ ok: false });
   await expect(page.locator("#applicant-email")).toHaveValue("");
+});
+
+test("cancelled combobox fill preserves newer user input", async ({ page }) => {
+  await installContentPanel(page, {
+    html: `
+      <label id="school-label" for="school">School</label>
+      <input id="school" role="combobox" aria-labelledby="school-label" aria-controls="school-options">
+      <div id="school-options" role="listbox" hidden></div>
+      <script>
+        const input = document.getElementById("school");
+        const listbox = document.getElementById("school-options");
+        let loading = false;
+        const open = () => {
+          listbox.hidden = false;
+          if (loading || listbox.children.length) return;
+          loading = true;
+          setTimeout(() => {
+            const option = document.createElement("div");
+            option.setAttribute("role", "option");
+            option.textContent = "University of Ottawa";
+            option.addEventListener("click", () => {
+              document.body.dataset.optionClicked = "true";
+              input.value = option.textContent;
+            });
+            listbox.append(option);
+          }, 300);
+        };
+        input.addEventListener("click", open);
+        input.addEventListener("input", open);
+      </script>
+    `,
+    profile: { school: "University of Ottawa" },
+  });
+
+  const result = await page.evaluate(async () => {
+    const harness = (
+      globalThis as unknown as {
+        __panelHarness: {
+          invoke(message: unknown): Promise<unknown>;
+        };
+      }
+    ).__panelHarness;
+    const fill = harness.invoke({ type: "JOB_AUTOFILL_FILL" });
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    await harness.invoke({ type: "JOB_AUTOFILL_EXTENSION_DISABLED" });
+    const input = document.getElementById("school") as HTMLInputElement;
+    input.value = "User choice";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    return fill;
+  });
+
+  expect(result).toMatchObject({ ok: false });
+  await page.waitForTimeout(300);
+  await expect(page.locator("#school")).toHaveValue("User choice");
+  await expect(page.locator("body")).not.toHaveAttribute(
+    "data-option-clicked",
+    "true",
+  );
 });
 
 test("shows ready fields from availability without preloading profile values", async ({
@@ -596,6 +660,7 @@ test("fills generic Other details only when nearby context identifies them", asy
     profile: {
       degreeOther: "Diploma in Software Engineering",
       heardAboutJobOther: "Hackathon",
+      citizenshipStatus: "Other",
       citizenshipStatusOther: "Non-citizen national",
       pronounsOther: "Ze/hir",
       genderOther: "Genderqueer",
@@ -733,16 +798,52 @@ test("does not reuse saved answers for generic or reversed questions", async ({
         <label><input type="radio" name="unable" value="yes"> Yes</label>
         <label><input type="radio" name="unable" value="no"> No</label>
       </fieldset>
+      <label>Have you worked for more than two years as a software engineer?
+        <select id="worked-duration">
+          <option value="">Select</option>
+          <option value="yes">Yes</option>
+          <option value="no">No</option>
+        </select>
+      </label>
     `,
     profile: {
       heardAboutJob: "Employee referral",
       canPerformEssentialFunctions: "yes",
+      previousEmployers: "Cisco\nRivian",
     },
   });
 
   expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 0 });
   await expect(page.locator("#source-details")).toHaveValue("");
   await expect(page.locator('input[name="unable"]:checked')).toHaveCount(0);
+  await expect(page.locator("#worked-duration")).toHaveValue("");
+});
+
+test("keeps unrelated named checkboxes manual inside a shared fieldset", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `
+      <fieldset>
+        <legend>Application acknowledgements</legend>
+        <label><input id="certify" type="checkbox" name="certify"> I certify that this application is accurate</label>
+        <label><input id="newsletter" type="checkbox" name="newsletter"> Send me job alerts</label>
+      </fieldset>
+    `,
+    profile: {
+      preferredOfficeLocations: "New York, NY\nToronto, ON",
+    },
+    revealPanel: true,
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 0 });
+  await expect(page.locator("#certify")).not.toBeChecked();
+  await expect(page.locator("#newsletter")).not.toBeChecked();
+  await expect(
+    page
+      .locator("#job-autofill-extension-panel")
+      .getByText("Review this checkbox manually."),
+  ).toHaveCount(2);
 });
 
 test("rescans fields added by a hydrated application step", async ({ page }) => {
@@ -792,6 +893,222 @@ test("uses ATS metadata when generated controls have no labels", async ({
   );
   await expect(page.locator("#ashby-email")).toHaveValue("sacha@example.com");
   await expect(page.locator("#workday-city")).toHaveValue("Toronto");
+});
+
+test("fills a Greenhouse-style application from the complete saved profile", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `
+      <main id="application-form">
+        <div class="application-question">
+          <label id="city-label" for="city">Location (City)</label>
+          <input id="city" role="combobox" aria-labelledby="city-label" aria-controls="city-options" aria-expanded="false">
+          <div id="city-options" role="listbox" hidden></div>
+        </div>
+        <div class="application-question">
+          <label id="school-label" for="school">School</label>
+          <input id="school" role="combobox" aria-labelledby="school-label" aria-controls="school-options" aria-expanded="false">
+          <div id="school-options" role="listbox" hidden></div>
+        </div>
+        <div class="application-question">
+          <label id="degree-label" for="degree">Degree</label>
+          <input id="degree" role="combobox" aria-labelledby="degree-label" aria-controls="degree-options" aria-expanded="false">
+          <div id="degree-options" role="listbox" hidden></div>
+        </div>
+        <div class="application-question">
+          <label id="authorization-label" for="authorization">Are you legally authorized to work in the US?</label>
+          <input id="authorization" role="combobox" aria-labelledby="authorization-label" aria-controls="authorization-options" aria-expanded="false">
+          <div id="authorization-options" role="listbox" hidden></div>
+        </div>
+        <div class="application-question">
+          <label id="sponsorship-now-label" for="sponsorship-now">Will you now require immigration sponsorship?</label>
+          <input id="sponsorship-now" role="combobox" aria-labelledby="sponsorship-now-label" aria-controls="sponsorship-now-options" aria-expanded="false">
+          <div id="sponsorship-now-options" role="listbox" hidden></div>
+        </div>
+        <div class="application-question">
+          <label id="sponsorship-future-label" for="sponsorship-future">Will you in the future require immigration sponsorship?</label>
+          <input id="sponsorship-future" role="combobox" aria-labelledby="sponsorship-future-label" aria-controls="sponsorship-future-options" aria-expanded="false">
+          <div id="sponsorship-future-options" role="listbox" hidden></div>
+        </div>
+        <label>Have you previously worked for Cisco?
+          <select id="worked-cisco">
+            <option value="">Select</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+        </label>
+        <label>Have you ever worked at Datadog?
+          <select id="worked-datadog">
+            <option value="">Select</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+        </label>
+        <fieldset class="application-question">
+          <legend>This role is currently open to candidates who can work from one of the following office locations. Select all that apply.</legend>
+          <label><input id="office-new-york" type="checkbox" name="office-new-york" value="nyc"> New York, New York, United States</label>
+          <label><input id="office-toronto" type="checkbox" name="office-toronto" value="toronto"> Toronto, Ontario, Canada</label>
+          <label><input id="office-austin" type="checkbox" name="office-austin" value="austin"> Austin, Texas, United States</label>
+        </fieldset>
+        <label>How many years of software engineering industry experience do you have?
+          <input id="software-years" type="number">
+        </label>
+        <label>How many years of software engineering industry experience do you have (excluding internships)?
+          <input id="software-years-excluding-internships" type="number">
+        </label>
+        <label>What are your target total annual compensation expectations?
+          <input id="compensation">
+        </label>
+        <div class="application-question">
+          <label id="pronouns-label" for="pronouns">Pronouns</label>
+          <input id="pronouns" role="combobox" aria-labelledby="pronouns-label" aria-controls="pronouns-options" aria-expanded="false">
+          <div id="pronouns-options" role="listbox" hidden></div>
+        </div>
+        <div class="application-question">
+          <label id="gender-label" for="gender">Gender identity</label>
+          <input id="gender" role="combobox" aria-labelledby="gender-label" aria-controls="gender-options" aria-expanded="false">
+          <div id="gender-options" role="listbox" hidden></div>
+        </div>
+        <div class="application-question">
+          <label id="race-label" for="race">Race / Ethnicity</label>
+          <input id="race" role="combobox" aria-labelledby="race-label" aria-controls="race-options" aria-expanded="false">
+          <div id="race-options" role="listbox" hidden></div>
+        </div>
+        <div class="application-question">
+          <label id="disability-label" for="disability">Disability status</label>
+          <input id="disability" role="combobox" aria-labelledby="disability-label" aria-controls="disability-options" aria-expanded="false">
+          <div id="disability-options" role="listbox" hidden></div>
+        </div>
+        <div class="application-question">
+          <label id="veteran-label" for="veteran">Protected veteran status</label>
+          <input id="veteran" role="combobox" aria-labelledby="veteran-label" aria-controls="veteran-options" aria-expanded="false">
+          <div id="veteran-options" role="listbox" hidden></div>
+        </div>
+        <div class="application-question">
+          <label id="hispanic-label" for="hispanic">Are you Hispanic or Latino?</label>
+          <input id="hispanic" role="combobox" aria-labelledby="hispanic-label" aria-controls="hispanic-options" aria-expanded="false">
+          <div id="hispanic-options" role="listbox" hidden></div>
+        </div>
+        <div class="application-question">
+          <label id="transgender-label" for="transgender">Do you identify as transgender?</label>
+          <input id="transgender" role="combobox" aria-labelledby="transgender-label" aria-controls="transgender-options" aria-expanded="false">
+          <div id="transgender-options" role="listbox" hidden></div>
+        </div>
+      </main>
+      <script>
+        const comboboxOptions = {
+          city: [["sf", "San Francisco"], ["nyc", "New York"]],
+          school: [["uottawa", "University of Ottawa"], ["stanford", "Stanford University"]],
+          degree: [["bs", "Bachelor of Science"], ["ms", "Master of Science"]],
+          authorization: [["yes", "Yes"], ["no", "No"]],
+          "sponsorship-now": [["yes", "Yes"], ["no", "No"]],
+          "sponsorship-future": [["yes", "Yes"], ["no", "No"]],
+          pronouns: [["they", "They / Them / Theirs"], ["she", "She / Her / Hers"]],
+          gender: [["nonbinary", "Non-binary"], ["woman", "Woman"]],
+          race: [["asian", "Asian"], ["white", "White"]],
+          disability: [
+            ["yes", "Yes, I have a disability or have had one in the past"],
+            ["no", "No, I do not have a disability and have not had one in the past"]
+          ],
+          veteran: [
+            ["protected", "I identify as one or more classifications of a protected veteran"],
+            ["not-protected", "I am not a protected veteran"]
+          ],
+          hispanic: [["yes", "Yes, Hispanic or Latino"], ["no", "No, not Hispanic or Latino"]],
+          transgender: [["yes", "Yes"], ["no", "No"]]
+        };
+
+        for (const [id, options] of Object.entries(comboboxOptions)) {
+          const input = document.getElementById(id);
+          const listbox = document.getElementById(id + "-options");
+          let loading = false;
+          const open = () => {
+            input.setAttribute("aria-expanded", "true");
+            listbox.hidden = false;
+            if (listbox.children.length || loading) return;
+            loading = true;
+            setTimeout(() => {
+              for (const [value, label] of options) {
+                const option = document.createElement("div");
+                option.setAttribute("role", "option");
+                option.dataset.value = value;
+                option.textContent = label;
+                option.addEventListener("click", () => {
+                  for (const candidate of listbox.querySelectorAll("[role=option]")) {
+                    candidate.setAttribute("aria-selected", String(candidate === option));
+                  }
+                  input.value = label;
+                  input.dataset.value = value;
+                  input.setAttribute("aria-valuetext", label);
+                  input.setAttribute("aria-expanded", "false");
+                  listbox.hidden = true;
+                  input.dispatchEvent(new Event("change", { bubbles: true }));
+                });
+                listbox.append(option);
+              }
+              loading = false;
+            }, 140);
+          };
+          input.addEventListener("click", open);
+          input.addEventListener("input", open);
+        }
+      </script>
+    `,
+    profile: {
+      location: "San Francisco, CA",
+      school: "University of Ottawa",
+      degree: "Bachelor's degree",
+      workAuthorization: "yes",
+      requiresSponsorship: "no",
+      previousEmployers: "Cisco\nRivian",
+      preferredOfficeLocations: "New York, NY\nToronto, ON",
+      softwareIndustryExperienceYears: "2",
+      compensationExpectation: "$150,000 USD",
+      pronouns: "They/them",
+      gender: "Non-binary",
+      raceEthnicity: "Asian",
+      disabilityStatus: "no",
+      veteranStatus: "Not a protected veteran",
+      hispanicLatino: "no",
+      transgenderStatus: "no",
+    },
+    country: "US",
+    company: "Cisco",
+  });
+
+  const result = await invokeAutofill(page);
+  expect(result).toMatchObject({ ok: true });
+  await expect(page.locator("#city")).toHaveValue("San Francisco");
+  await expect(page.locator("#school")).toHaveValue("University of Ottawa");
+  await expect(page.locator("#degree")).toHaveValue("Bachelor of Science");
+  await expect(page.locator("#authorization")).toHaveValue("Yes");
+  await expect(page.locator("#sponsorship-now")).toHaveValue("No");
+  await expect(page.locator("#sponsorship-future")).toHaveValue("No");
+  await expect(page.locator("#worked-cisco")).toHaveValue("yes");
+  await expect(page.locator("#worked-datadog")).toHaveValue("");
+  await expect(page.locator("#office-new-york")).toBeChecked();
+  await expect(page.locator("#office-toronto")).toBeChecked();
+  await expect(page.locator("#office-austin")).not.toBeChecked();
+  await expect(page.locator("#software-years")).toHaveValue("2");
+  await expect(
+    page.locator("#software-years-excluding-internships"),
+  ).toHaveValue("2");
+  await expect(page.locator("#compensation")).toHaveValue("$150,000 USD");
+  await expect(page.locator("#pronouns")).toHaveValue("They / Them / Theirs");
+  await expect(page.locator("#gender")).toHaveValue("Non-binary");
+  await expect(page.locator("#race")).toHaveValue("Asian");
+  await expect(page.locator("#disability")).toHaveValue(
+    "No, I do not have a disability and have not had one in the past",
+  );
+  await expect(page.locator("#veteran")).toHaveValue(
+    "I am not a protected veteran",
+  );
+  await expect(page.locator("#hispanic")).toHaveValue(
+    "No, not Hispanic or Latino",
+  );
+  await expect(page.locator("#transgender")).toHaveValue("No");
+  expect(result).toMatchObject({ filled: 18 });
 });
 
 test("uploads the saved PDF only to a recognized resume input", async ({ page }) => {

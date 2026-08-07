@@ -237,7 +237,10 @@ function CountryAutofillSection({
             readOnly
           />
         </FieldShell>
-        <FieldShell label={locationLabel}>
+        <FieldShell
+          label={locationLabel}
+          hint="Include the city and state or province. Autofill extracts the city when a form asks for it separately."
+        >
           <input
             aria-label={locationLabel}
             className={cls.input}
@@ -260,7 +263,10 @@ function CountryAutofillSection({
             <option value="no">No</option>
           </select>
         </FieldShell>
-        <FieldShell label="Do you need visa sponsorship?">
+        <FieldShell
+          label="Do you need visa sponsorship?"
+          hint="Used for both current and future immigration-sponsorship questions."
+        >
           <select
             aria-label="Do you need visa sponsorship?"
             className={cls.input}
@@ -981,6 +987,33 @@ export default function ProfilePage() {
                     placeholder="Years, for example 1.5"
                   />
                 </FieldShell>
+                <FieldShell
+                  label="Software engineering industry experience"
+                  hint="Years excluding internships. Used for software-industry experience questions, including forms that state the exclusion explicitly."
+                >
+                  <input
+                    aria-label="Software engineering industry experience"
+                    type="number"
+                    min="0"
+                    max="50"
+                    step="0.5"
+                    className={cls.input}
+                    value={
+                      profile.softwareIndustryExperienceYears == null
+                        ? ""
+                        : String(profile.softwareIndustryExperienceYears)
+                    }
+                    onChange={(event) =>
+                      setField(
+                        "softwareIndustryExperienceYears",
+                        event.target.value === ""
+                          ? null
+                          : Number(event.target.value),
+                      )
+                    }
+                    placeholder="Years, for example 2"
+                  />
+                </FieldShell>
                 <FieldShell label="Certifications">
                   <TagEditor
                     label="certification"
@@ -1066,6 +1099,31 @@ export default function ProfilePage() {
                   />
                 </FieldShell>
               )}
+              <FieldShell
+                label="Previous employers"
+                hint='Add every company you have worked for. The extension treats this as a complete list when answering "Have you worked at X?" and leaves the question manual when the list is empty.'
+              >
+                <TagEditor
+                  label="previous employer"
+                  items={profile.previousEmployers}
+                  placeholder="Cisco"
+                  empty="No previous-employer answer saved."
+                  onChange={(items) => setField("previousEmployers", items)}
+                />
+              </FieldShell>
+              <FieldShell
+                label="Target total annual compensation"
+                hint="Use the exact text you want entered, such as $150,000 USD or Negotiable."
+              >
+                <input
+                  aria-label="Target total annual compensation"
+                  className={cls.input}
+                  value={profile.compensationExpectation ?? ""}
+                  onChange={(event) =>
+                    setField("compensationExpectation", event.target.value)
+                  }
+                />
+              </FieldShell>
               <FieldShell
                 label="Active security clearances"
                 hint='Add "None" explicitly when you do not hold a clearance.'
@@ -1166,6 +1224,23 @@ export default function ProfilePage() {
                     />
                   </FieldShell>
                 )}
+                <FieldShell label="Do you identify as transgender?">
+                  <select
+                    aria-label="Do you identify as transgender?"
+                    className={cls.input}
+                    value={profile.transgenderStatus ?? ""}
+                    onChange={(event) =>
+                      setField("transgenderStatus", event.target.value)
+                    }
+                  >
+                    <option value="">Select an answer</option>
+                    <option value="yes">Yes</option>
+                    <option value="no">No</option>
+                    <option value="Prefer not to answer">
+                      Prefer not to answer
+                    </option>
+                  </select>
+                </FieldShell>
                 <FieldShell label="Race / ethnicity">
                   <select
                     aria-label="Race / ethnicity"
@@ -1214,6 +1289,23 @@ export default function ProfilePage() {
                     />
                   </FieldShell>
                 )}
+                <FieldShell label="Are you Hispanic or Latino?">
+                  <select
+                    aria-label="Are you Hispanic or Latino?"
+                    className={cls.input}
+                    value={profile.hispanicLatino ?? ""}
+                    onChange={(event) =>
+                      setField("hispanicLatino", event.target.value)
+                    }
+                  >
+                    <option value="">Select an answer</option>
+                    <option value="yes">Yes</option>
+                    <option value="no">No</option>
+                    <option value="Prefer not to answer">
+                      Prefer not to answer
+                    </option>
+                  </select>
+                </FieldShell>
                 <FieldShell label="Disability status">
                   <select
                     aria-label="Disability status"

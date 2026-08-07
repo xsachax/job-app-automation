@@ -60,6 +60,7 @@ export interface ProfileData {
   fieldOfStudy?: string;
   graduationDate?: string; // YYYY-MM
   relevantExperienceYears?: number | null;
+  softwareIndustryExperienceYears?: number | null;
   certifications?: string[];
   undergraduateGpa?: string;
   graduateGpa?: string;
@@ -69,6 +70,8 @@ export interface ProfileData {
   greScore?: string;
   heardAboutJob?: string;
   heardAboutJobOther?: string;
+  previousEmployers?: string[];
+  compensationExpectation?: string;
   securityClearances?: string[];
   canPerformEssentialFunctions?: boolean | null;
   usCitizenshipStatus?: string;
@@ -81,6 +84,8 @@ export interface ProfileData {
   genderOther?: string;
   raceEthnicity?: string;
   raceEthnicityOther?: string;
+  hispanicLatino?: string;
+  transgenderStatus?: string;
   veteranStatus?: string;
   disabilityStatus?: string;
   // Common compliance / eligibility questions.
@@ -123,6 +128,7 @@ export const DEFAULT_PROFILE: ProfileData = {
   fieldOfStudy: "",
   graduationDate: "",
   relevantExperienceYears: null,
+  softwareIndustryExperienceYears: null,
   certifications: [],
   undergraduateGpa: "",
   graduateGpa: "",
@@ -132,6 +138,8 @@ export const DEFAULT_PROFILE: ProfileData = {
   greScore: "",
   heardAboutJob: "",
   heardAboutJobOther: "",
+  previousEmployers: [],
+  compensationExpectation: "",
   securityClearances: [],
   canPerformEssentialFunctions: null,
   usCitizenshipStatus: "",
@@ -144,6 +152,8 @@ export const DEFAULT_PROFILE: ProfileData = {
   genderOther: "",
   raceEthnicity: "",
   raceEthnicityOther: "",
+  hispanicLatino: "",
+  transgenderStatus: "",
   veteranStatus: "",
   disabilityStatus: "",
   usCountry: "United States",

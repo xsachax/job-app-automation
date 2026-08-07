@@ -106,8 +106,9 @@ npm run discover -- "Y Combinator"
   never outrank a higher-tier company, and the maximum score is 97. See below.
 - **Comprehensive application profile** — the **Profile** page stores country-specific
   location/work authorization, education, GPAs and test scores, citizenship, clearances,
-  common application defaults, voluntary demographics, a saved résumé PDF, target roles,
-  skills, and qualifications.
+  software-industry experience, prior employers, compensation expectations, common application
+  defaults, explicit voluntary demographics, a saved résumé PDF, target roles, skills, and
+  qualifications.
 - **Durable editing** — profile changes auto-save with per-field conflict protection and a
   session draft; company and location tier edits use an ordered retryable save queue, so
   switching pages does not discard work.
@@ -209,11 +210,13 @@ and ATS metadata instead of relying on exact field names. It supports native and
 dynamic steps, open shadow roots, and embedded forms from Greenhouse, Lever, Ashby, Workday,
 SmartRecruiters, iCIMS, Oracle/Taleo, and SAP SuccessFactors. Uncertain matches are left blank
 and highlighted for review. The saved PDF is attached only to recognized résumé fields;
-consent checkboxes and other uploads stay manual, and the extension never submits an
-application. Application pages receive only field-availability flags until you explicitly click
-autofill. Turn it off globally from its browser-owned popup. If it is off, disconnected, or not
-configured, dashboard job links behave as normal external links. The unpacked extension has a
-stable ID, so no ID copy/paste is needed.
+Greenhouse-style school/degree lists and delayed portal dropdowns are matched semantically.
+Multi-location questions select only locations ranked S through C on the location tier board;
+consent checkboxes and other uploads stay manual. The extension never submits an application.
+Application pages receive only field-availability flags until you explicitly click autofill.
+Turn it off globally from its browser-owned popup. If it is off, disconnected, or not configured,
+dashboard job links behave as normal external links. The unpacked extension has a stable ID, so
+no ID copy/paste is needed.
 
 ---
 
@@ -373,10 +376,12 @@ boards. Sort/filter the queue by **Best fit** / **min fit** to surface the stron
 
 The **Profile** page is the local source of truth for both the Judge and extension. It covers
 contact information; separate US/Canada country, city, work-authorization, sponsorship, and
-citizenship answers; school, degree, discipline, graduation date, experience, certifications,
+citizenship answers; school, degree, discipline, graduation date, relevant and non-internship
+software-industry experience, previous employers, target total compensation, certifications,
 GPAs, SAT/ACT/GRE scores, security clearances, accommodations, "how did you hear about us,"
-voluntary demographics, and résumé/cover-letter data. Contact and demographic answers are
-autofill-only and never influence Judge scores.
+explicit Hispanic/Latino and transgender answers, other voluntary demographics, and
+résumé/cover-letter data. Contact and demographic answers are autofill-only and never influence
+Judge scores.
 
 A **résumé PDF URL** is fetched and parsed server-side, with **pasted résumé text** as a
 fallback. **Fetch text** writes a `ResumeVersion` and non-destructively fills blank Judge
