@@ -55,6 +55,7 @@ function mergeSkills(existing: unknown, parsed: unknown): string[] {
  * profile fields. Existing non-empty answers the user set by hand are preserved.
  */
 export async function refreshProfile(sourceOverride?: string): Promise<RefreshResult> {
+  const refreshStartedAt = Date.now();
   const profile = await getProfile();
   const configuredSource = (sourceOverride || profile.resumeUrl || profile.resumeSource || "").trim();
   let source = configuredSource;
@@ -110,7 +111,11 @@ export async function refreshProfile(sourceOverride?: string): Promise<RefreshRe
     remember(updates, updatedFields, "resumePath", source);
   }
 
-  const updatedProfile = await saveProfile(updates);
+  const updatedProfile = await saveProfile(updates, {
+    fieldVersions: Object.fromEntries(
+      Object.keys(updates).map((key) => [key, refreshStartedAt]),
+    ),
+  });
 
   if (resumePdf) {
     const sha256 = createHash("sha256").update(resumePdf.bytes).digest("hex");

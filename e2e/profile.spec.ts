@@ -217,7 +217,9 @@ test.describe("profile page", () => {
       const usSection = page.getByRole("region", {
         name: "Jobs in the United States",
       });
-      await usSection.getByLabel("Citizenship status").selectOption("Other");
+      await usSection
+        .getByLabel("Citizenship status", { exact: true })
+        .selectOption("Other");
       await usSection
         .getByLabel("Please specify citizenship status")
         .fill("Non-citizen national");
@@ -263,6 +265,272 @@ test.describe("profile page", () => {
           body: JSON.stringify(profile),
         });
       }, originalProfile);
+    }
+  });
+
+  test("autosaves structured answers before navigating away", async ({ page }) => {
+    await page.goto("/profile");
+    const originalProfile = await page.evaluate(async () =>
+      fetch("/api/profile").then((response) => response.json()),
+    );
+
+    try {
+      await page.evaluate(async (profile) => {
+        sessionStorage.removeItem("job-pipeline-profile-draft-v1");
+        await fetch("/api/profile", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...profile,
+            school: "",
+            degree: "",
+            fieldOfStudy: "",
+            graduationDate: "",
+            relevantExperienceYears: null,
+            certifications: [],
+            heardAboutJob: "",
+            heardAboutJobOther: "",
+            securityClearances: [],
+            canPerformEssentialFunctions: null,
+            usCitizenshipStatus: "",
+            usCitizenshipStatusOther: "",
+          }),
+        });
+      }, originalProfile);
+      await page.reload();
+
+      const usSection = page.getByRole("region", {
+        name: "Jobs in the United States",
+      });
+      await usSection
+        .getByLabel("Citizenship status", { exact: true })
+        .selectOption("Other");
+      await usSection
+        .getByLabel("Please specify citizenship status")
+        .fill("Non-citizen national");
+      await page.getByLabel("School").fill("Autosave University");
+      await page.getByLabel("Degree").selectOption("Bachelor's degree");
+      await page
+        .getByLabel("Field of study / discipline")
+        .fill("Computer Engineering");
+      await page.getByLabel("Graduation date").fill("2027-06");
+      await page.getByLabel("Relevant experience").fill("1.5");
+      await page.getByLabel("Add certification").fill("Autosave Certificate");
+      await page.getByLabel("Add certification").press("Enter");
+      await page
+        .getByLabel("How did you hear about this job?")
+        .selectOption("Other");
+      await page
+        .getByLabel("Please specify how you heard about this job")
+        .fill("Community meetup");
+      await page.getByLabel("Add security clearance").fill("None");
+      await page.getByLabel("Add security clearance").press("Enter");
+      await page
+        .getByLabel(
+          "Can perform essential job functions with or without reasonable accommodations?",
+        )
+        .selectOption("yes");
+
+      await page.getByRole("link", { name: "Jobs", exact: true }).click();
+      await expect(page).toHaveURL(/\/jobs$/);
+      await page.getByRole("link", { name: "Profile", exact: true }).click();
+
+      await expect(
+        usSection.getByLabel("Citizenship status", { exact: true }),
+      ).toHaveValue("Other");
+      await expect(
+        usSection.getByLabel("Please specify citizenship status"),
+      ).toHaveValue("Non-citizen national");
+      await expect(page.getByLabel("School")).toHaveValue("Autosave University");
+      await expect(page.getByLabel("Degree")).toHaveValue("Bachelor's degree");
+      await expect(page.getByLabel("Field of study / discipline")).toHaveValue(
+        "Computer Engineering",
+      );
+      await expect(page.getByLabel("Graduation date")).toHaveValue("2027-06");
+      await expect(page.getByLabel("Relevant experience")).toHaveValue("1.5");
+      await expect(
+        page.getByRole("button", { name: "Remove Autosave Certificate" }),
+      ).toBeVisible();
+      await expect(
+        page.getByLabel("Please specify how you heard about this job"),
+      ).toHaveValue("Community meetup");
+      await expect(
+        page.getByRole("button", { name: "Remove None" }),
+      ).toBeVisible();
+      await expect(
+        page.getByLabel(
+          "Can perform essential job functions with or without reasonable accommodations?",
+        ),
+      ).toHaveValue("yes");
+
+      await expect
+        .poll(() =>
+          page.evaluate(async () =>
+            fetch("/api/profile").then((response) => response.json()),
+          ),
+        )
+        .toMatchObject({
+          school: "Autosave University",
+          degree: "Bachelor's degree",
+          fieldOfStudy: "Computer Engineering",
+          graduationDate: "2027-06",
+          relevantExperienceYears: 1.5,
+          certifications: ["Autosave Certificate"],
+          heardAboutJob: "Other",
+          heardAboutJobOther: "Community meetup",
+          securityClearances: ["None"],
+          canPerformEssentialFunctions: true,
+          usCitizenshipStatus: "Other",
+          usCitizenshipStatusOther: "Non-citizen national",
+        });
+    } finally {
+      await page.waitForTimeout(700);
+      await page.evaluate(async (profile) => {
+        sessionStorage.removeItem("job-pipeline-profile-draft-v1");
+        await fetch("/api/profile", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(profile),
+        });
+      }, originalProfile);
+    }
+  });
+
+  test("does not discard edits made while an explicit save is in flight", async ({
+    page,
+  }) => {
+    await page.goto("/profile");
+    const originalProfile = await page.evaluate(async () =>
+      fetch("/api/profile").then((response) => response.json()),
+    );
+    let releaseSave!: () => void;
+    let markSaveStarted!: () => void;
+    const saveGate = new Promise<void>((resolve) => {
+      releaseSave = resolve;
+    });
+    const saveStarted = new Promise<void>((resolve) => {
+      markSaveStarted = resolve;
+    });
+    let delayed = false;
+
+    await page.route("**/api/profile", async (route) => {
+      if (
+        !delayed &&
+        route.request().method() === "PUT" &&
+        route.request().postDataJSON().firstName === "Save Race"
+      ) {
+        delayed = true;
+        markSaveStarted();
+        await saveGate;
+      }
+      await route.continue();
+    });
+
+    try {
+      await page.getByLabel("First name").fill("Save Race");
+      await page.getByRole("button", { name: "Save profile", exact: true }).click();
+      await saveStarted;
+      await page.getByLabel("School").fill("Edited During Save University");
+      releaseSave();
+
+      await expect(page.getByText(/Profile saved/)).toBeVisible();
+      await page.getByRole("link", { name: "Jobs", exact: true }).click();
+      await page.getByRole("link", { name: "Profile", exact: true }).click();
+      await expect(page.getByLabel("First name")).toHaveValue("Save Race");
+      await expect(page.getByLabel("School")).toHaveValue(
+        "Edited During Save University",
+      );
+      await expect
+        .poll(() =>
+          page.evaluate(async () =>
+            fetch("/api/profile").then((response) => response.json()),
+          ),
+        )
+        .toMatchObject({
+          firstName: "Save Race",
+          school: "Edited During Save University",
+        });
+    } finally {
+      releaseSave();
+      await page.waitForTimeout(700);
+      await page.evaluate(async (profile) => {
+        sessionStorage.removeItem("job-pipeline-profile-draft-v1");
+        await fetch("/api/profile", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(profile),
+        });
+      }, originalProfile);
+    }
+  });
+
+  test("keeps the newer edit when browser-tab saves arrive out of order", async ({
+    page,
+    context,
+  }) => {
+    await page.goto("/profile");
+    const originalProfile = await page.evaluate(async () =>
+      fetch("/api/profile").then((response) => response.json()),
+    );
+    const secondPage = await context.newPage();
+    let releaseOlderSave!: () => void;
+    let markOlderSaveStarted!: () => void;
+    const olderSaveGate = new Promise<void>((resolve) => {
+      releaseOlderSave = resolve;
+    });
+    const olderSaveStarted = new Promise<void>((resolve) => {
+      markOlderSaveStarted = resolve;
+    });
+    let delayed = false;
+
+    await page.route("**/api/profile", async (route) => {
+      if (
+        !delayed &&
+        route.request().method() === "PUT" &&
+        route.request().postDataJSON().school === "Older Tab University"
+      ) {
+        delayed = true;
+        markOlderSaveStarted();
+        await olderSaveGate;
+      }
+      await route.continue();
+    });
+
+    try {
+      await secondPage.goto("/profile");
+      await page.getByLabel("School").fill("Older Tab University");
+      await page.getByRole("button", { name: "Save profile", exact: true }).click();
+      await olderSaveStarted;
+
+      await secondPage.waitForTimeout(5);
+      await secondPage.getByLabel("School").fill("Newer Tab University");
+      await secondPage
+        .getByRole("button", { name: "Save profile", exact: true })
+        .click();
+      await expect(secondPage.getByText(/Profile saved/)).toBeVisible();
+
+      releaseOlderSave();
+      await expect(page.getByText(/Profile saved/)).toBeVisible();
+      await expect
+        .poll(() =>
+          secondPage.evaluate(async () =>
+            fetch("/api/profile").then((response) => response.json()),
+          ),
+        )
+        .toMatchObject({ school: "Newer Tab University" });
+    } finally {
+      releaseOlderSave();
+      await page.unroute("**/api/profile");
+      await secondPage.waitForTimeout(700);
+      await secondPage.evaluate(async (profile) => {
+        sessionStorage.removeItem("job-pipeline-profile-draft-v1");
+        await fetch("/api/profile", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(profile),
+        });
+      }, originalProfile);
+      await secondPage.close();
     }
   });
 
