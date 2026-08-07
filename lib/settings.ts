@@ -1,5 +1,10 @@
 import { prisma } from "./db";
 import type { Criteria } from "./matching/score";
+import {
+  PROFILE_FIELD_VERSIONS_KEY,
+  parseProfileFieldVersions,
+  type ProfileFieldVersions,
+} from "./profile/versioning";
 
 export const DEFAULT_CRITERIA: Criteria = {
   titles: ["Software Engineer"],
@@ -168,6 +173,7 @@ const LEGACY_PROFILE_KEYS = [
 
 function normalizeProfileData(data: ProfileData): ProfileData {
   const profile = { ...DEFAULT_PROFILE, ...data };
+  delete profile[PROFILE_FIELD_VERSIONS_KEY];
   const legacyCountry = String(profile.country || "").trim().toLowerCase();
   const legacyIsCanada =
     legacyCountry === "ca" || legacyCountry.includes("canada");
@@ -200,32 +206,80 @@ function normalizeProfileData(data: ProfileData): ProfileData {
   return profile;
 }
 
-export async function getProfile(): Promise<ProfileData> {
-  const row = await prisma.profile.findUnique({ where: { id: "me" } });
-  if (!row) return { ...DEFAULT_PROFILE };
+function parseStoredProfile(data?: string): {
+  profile: ProfileData;
+  fieldVersions: ProfileFieldVersions;
+} {
+  if (!data) {
+    return { profile: { ...DEFAULT_PROFILE }, fieldVersions: {} };
+  }
   try {
-    return normalizeProfileData(JSON.parse(row.data) as ProfileData);
+    const parsed = JSON.parse(data) as ProfileData;
+    return {
+      profile: normalizeProfileData(parsed),
+      fieldVersions: parseProfileFieldVersions(
+        parsed[PROFILE_FIELD_VERSIONS_KEY],
+      ),
+    };
   } catch {
-    return { ...DEFAULT_PROFILE };
+    return { profile: { ...DEFAULT_PROFILE }, fieldVersions: {} };
   }
 }
 
-export async function saveProfile(data: ProfileData): Promise<ProfileData> {
-  const current = await getProfile();
-  const merged = normalizeProfileData({ ...current, ...data });
-  const resumeUrlChanged =
-    Object.prototype.hasOwnProperty.call(data, "resumeUrl") &&
-    String(current.resumeUrl || "").trim() !==
-      String(merged.resumeUrl || "").trim();
-  await prisma.$transaction(async (tx) => {
+export async function getProfile(): Promise<ProfileData> {
+  const row = await prisma.profile.findUnique({ where: { id: "me" } });
+  return parseStoredProfile(row?.data).profile;
+}
+
+export async function saveProfile(
+  data: ProfileData,
+  options: { fieldVersions?: ProfileFieldVersions } = {},
+): Promise<ProfileData> {
+  return prisma.$transaction(async (tx) => {
+    const row = await tx.profile.findUnique({ where: { id: "me" } });
+    const stored = parseStoredProfile(row?.data);
+    const mergedInput = { ...stored.profile };
+    const nextVersions = { ...stored.fieldVersions };
+    const receivedAt = Date.now();
+    let resumeUrlChanged = false;
+
+    for (const [key, value] of Object.entries(data)) {
+      if (key === PROFILE_FIELD_VERSIONS_KEY) continue;
+      const incomingVersion = options.fieldVersions?.[key] ?? receivedAt;
+      if (incomingVersion < (nextVersions[key] ?? 0)) continue;
+      if (
+        key === "resumeUrl" &&
+        String(mergedInput.resumeUrl || "").trim() !== String(value || "").trim()
+      ) {
+        resumeUrlChanged = true;
+      }
+      mergedInput[key] = value;
+      nextVersions[key] = incomingVersion;
+    }
+
+    const merged = normalizeProfileData(mergedInput);
+    for (const key of LEGACY_PROFILE_KEYS) {
+      delete nextVersions[key];
+    }
     await tx.profile.upsert({
       where: { id: "me" },
-      update: { data: JSON.stringify(merged) },
-      create: { id: "me", data: JSON.stringify(merged) },
+      update: {
+        data: JSON.stringify({
+          ...merged,
+          [PROFILE_FIELD_VERSIONS_KEY]: nextVersions,
+        }),
+      },
+      create: {
+        id: "me",
+        data: JSON.stringify({
+          ...merged,
+          [PROFILE_FIELD_VERSIONS_KEY]: nextVersions,
+        }),
+      },
     });
     if (resumeUrlChanged) {
       await tx.resumeAsset.deleteMany({ where: { id: "me" } });
     }
+    return merged;
   });
-  return merged;
 }

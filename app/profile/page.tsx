@@ -8,6 +8,7 @@ import {
   syncAutofillProfile,
 } from "@/lib/chromeExtension";
 import type { ProfileData } from "@/lib/settings";
+import { useProfilePersistence } from "./useProfilePersistence";
 
 type Profile = ProfileData;
 
@@ -313,8 +314,16 @@ function CountryAutofillSection({
 }
 
 export default function ProfilePage() {
-  const [profile, setProfile] = useState<Profile>({});
-  const [loading, setLoading] = useState(true);
+  const {
+    profile,
+    loading,
+    saveStatus,
+    persistenceError,
+    updateProfile,
+    replaceProfile,
+    saveNow,
+    reloadProfile,
+  } = useProfilePersistence();
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [judging, setJudging] = useState(false);
@@ -330,16 +339,6 @@ export default function ProfilePage() {
 
   useEffect(() => {
     let active = true;
-    (async () => {
-      try {
-        const data = await api<Profile>("/api/profile");
-        if (active) setProfile(data);
-      } catch (e) {
-        if (active) setError((e as Error).message);
-      } finally {
-        if (active) setLoading(false);
-      }
-    })();
     (async () => {
       try {
         const data = await api<ConnectionSummary>("/api/connections");
@@ -364,13 +363,7 @@ export default function ProfilePage() {
   }, []);
 
   function setField<K extends keyof Profile>(key: K, value: Profile[K]) {
-    setProfile((current) => ({ ...current, [key]: value }));
-  }
-
-  async function reloadProfile(): Promise<Profile> {
-    const loaded = await api<Profile>("/api/profile");
-    setProfile(loaded);
-    return loaded;
+    updateProfile((current) => ({ ...current, [key]: value }));
   }
 
   async function reloadResumeAssetStatus(): Promise<ResumeAssetStatus | null> {
@@ -382,12 +375,9 @@ export default function ProfilePage() {
   }
 
   async function persistProfile(): Promise<Profile> {
-    const saved = await api<Profile>("/api/profile", {
-      method: "PUT",
-      body: JSON.stringify(profile),
-    });
+    await saveNow();
     await reloadResumeAssetStatus();
-    return saved;
+    return saveNow();
   }
 
   async function syncSavedProfile(saved: Profile): Promise<string> {
@@ -406,7 +396,7 @@ export default function ProfilePage() {
     setMessage(null);
     try {
       const saved = await persistProfile();
-      setProfile(saved);
+      replaceProfile(saved);
       const syncMessage = await syncSavedProfile(saved);
       setMessage(`Profile saved. The judge will use these details on the next run.${syncMessage}`);
     } catch (e) {
@@ -423,7 +413,7 @@ export default function ProfilePage() {
     setMessage(null);
     try {
       const saved = await persistProfile();
-      setProfile(saved);
+      replaceProfile(saved);
       const result = await api<RefreshResult>("/api/profile/refresh", {
         method: "POST",
         body: JSON.stringify({ source: saved.resumeUrl || saved.resumeSource || undefined }),
@@ -448,7 +438,7 @@ export default function ProfilePage() {
     setMessage(null);
     try {
       const saved = await persistProfile();
-      setProfile(saved);
+      replaceProfile(saved);
       const syncMessage = await syncSavedProfile(saved);
       const result = await api<JudgeResult>("/api/judge/score", {
         method: "POST",
@@ -523,6 +513,7 @@ export default function ProfilePage() {
   const resumeSourceMatches =
     resumeAsset &&
     (profile.resumeUrl ?? "").trim() === resumeAsset.source.trim();
+  const visibleError = error ?? persistenceError;
 
   return (
     <div className="max-w-5xl">
@@ -544,9 +535,9 @@ export default function ProfilePage() {
           {message}
         </div>
       )}
-      {error && (
+      {visibleError && (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
-          {error}
+          {visibleError}
         </div>
       )}
 
@@ -557,8 +548,8 @@ export default function ProfilePage() {
               Application autofill
             </h2>
             <p className="mt-1 max-w-2xl text-sm text-gray-600 dark:text-gray-400">
-              Saved with your app profile. The Chrome extension syncs automatically when
-              you save or open a job.
+              Changes save automatically. The Chrome extension syncs when you select
+              Save profile or open a job.
             </p>
 
             <div className="mt-4 grid gap-4 md:grid-cols-3">
@@ -640,7 +631,7 @@ export default function ProfilePage() {
                   className={cls.input}
                   value={profile.website || profile.portfolio || ""}
                   onChange={(e) =>
-                    setProfile((current) => ({
+                    updateProfile((current) => ({
                       ...current,
                       website: e.target.value,
                       portfolio: "",
@@ -1382,7 +1373,20 @@ export default function ProfilePage() {
           <section className={cls.card}>
             <h2 className="text-lg font-semibold text-gray-950 dark:text-gray-50">Next step</h2>
             <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-              Save first, then run the judge. Deterministic scores fill every eligible discovery job without overwriting agent-reviewed fits.
+              Profile changes save automatically. Use the actions below to sync Chrome
+              immediately or re-run the judge.
+            </p>
+            <p
+              aria-live="polite"
+              className="mt-2 text-xs text-gray-500 dark:text-gray-400"
+            >
+              {saveStatus === "pending" || saveStatus === "saving"
+                ? "Saving profile changes…"
+                : saveStatus === "error"
+                  ? "Profile autosave needs attention."
+                  : saveStatus === "saved"
+                    ? "All profile changes saved."
+                    : "Changes will be saved automatically."}
             </p>
             <div className="mt-4 flex flex-col gap-2">
               <button

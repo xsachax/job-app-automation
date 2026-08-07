@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "../lib/db";
 import { fetchResumePdf } from "../lib/profile/pdf";
 import { refreshProfile } from "../lib/profile/refresh";
+import { PROFILE_FIELD_VERSIONS_KEY } from "../lib/profile/versioning";
 import { getProfile, saveProfile } from "../lib/settings";
 import { resetDb } from "./helpers";
 
@@ -111,6 +112,43 @@ describe("resume PDF ingest", () => {
     await saveProfile({});
     const stored = await prisma.profile.findUniqueOrThrow({ where: { id: "me" } });
     expect(JSON.parse(stored.data)).not.toHaveProperty("spacexEmploymentHistory");
+  });
+
+  it("ignores delayed field updates that are older than saved edits", async () => {
+    await saveProfile(
+      {
+        school: "New school",
+        degree: "Bachelor's degree",
+      },
+      {
+        fieldVersions: {
+          school: 200,
+          degree: 200,
+        },
+      },
+    );
+    await saveProfile(
+      {
+        school: "Stale school",
+        degree: "Master's degree",
+        fieldOfStudy: "Computer Science",
+      },
+      {
+        fieldVersions: {
+          school: 100,
+          degree: 300,
+          fieldOfStudy: 100,
+        },
+      },
+    );
+
+    const profile = await getProfile();
+    expect(profile).toMatchObject({
+      school: "New school",
+      degree: "Master's degree",
+      fieldOfStudy: "Computer Science",
+    });
+    expect(profile).not.toHaveProperty(PROFILE_FIELD_VERSIONS_KEY);
   });
 
   it("invalidates saved PDF bytes when the resume link changes", async () => {
