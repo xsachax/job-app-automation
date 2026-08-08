@@ -13,12 +13,14 @@
 // resume-aware score even before the agent reviews anything. Agent scores at the
 // current resume version are preserved by the baseline pass.
 
+import { createHash } from "node:crypto";
 import { prisma } from "../db";
 import { getProfile, getCriteria } from "../settings";
 import type { Criteria } from "./score";
 import { scoreResumeFit, type ResumeContext } from "./resume";
 import type { ParsedResume } from "../llm/types";
 import { ACTIVE_JOB_WHERE } from "../jobs/availability";
+import { canonicalSkill } from "../discovery/enrich";
 
 // Statuses whose resume score we still refresh (informational). Progressed rows
 // keep their pipeline status; only the fit score is updated.
@@ -30,8 +32,51 @@ export interface ResumeContextResult {
   source: "resume" | "profile" | "none";
 }
 
+function mergeLists(
+  keyFor: (value: string) => string,
+  ...lists: unknown[]
+): string[] {
+  const values: string[] = [];
+  const seen = new Set<string>();
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    for (const value of list) {
+      if (typeof value !== "string") continue;
+      const item = value.trim();
+      const key = keyFor(item);
+      if (!item || !key || seen.has(key)) continue;
+      seen.add(key);
+      values.push(item);
+    }
+  }
+  return values;
+}
+
+function compactText(...values: unknown[]): string {
+  return values
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function resumeContextId(prefix: string, ctx: ResumeContext): string {
+  const stableContext = {
+    skills: [...(ctx.skills ?? [])].map(canonicalSkill).sort(),
+    titles: [...(ctx.titles ?? [])].map((value) => value.toLowerCase()).sort(),
+    summary: ctx.summary ?? "",
+    text: ctx.text ?? "",
+  };
+  const digest = createHash("sha256")
+    .update(JSON.stringify(stableContext))
+    .digest("hex")
+    .slice(0, 16);
+  return `${prefix}:${digest}`;
+}
+
 /** Load the freshest resume context — latest ResumeVersion, else the profile. */
 export async function getResumeContext(): Promise<ResumeContextResult> {
+  const profile = await getProfile();
   const version = await prisma.resumeVersion.findFirst({ orderBy: { createdAt: "desc" } });
   if (version) {
     let parsed: ParsedResume & { titles?: string[] } = {};
@@ -40,33 +85,44 @@ export async function getResumeContext(): Promise<ResumeContextResult> {
     } catch {
       /* keep empty */
     }
+    const ctx: ResumeContext = {
+      skills: mergeLists(canonicalSkill, profile.skills, parsed.skills),
+      titles: mergeLists(
+        (value) => value.toLowerCase(),
+        profile.targetRoles,
+        profile.titles,
+        parsed.titles,
+      ),
+      summary: compactText(profile.summary, parsed.summary),
+      text: compactText(profile.resumeText, version.text),
+    };
     return {
-      versionId: version.id,
+      versionId: resumeContextId(version.id, ctx),
       source: "resume",
-      ctx: {
-        skills: parsed.skills ?? [],
-        titles: parsed.titles ?? [],
-        summary: parsed.summary ?? "",
-        text: version.text ?? "",
-      },
+      ctx,
     };
   }
-  const profile = await getProfile();
-  const hasProfile = (profile.skills?.length ?? 0) > 0 || Boolean(profile.summary);
-  return {
-    versionId: null,
-    source: hasProfile ? "profile" : "none",
-    ctx: {
-      skills: profile.skills ?? [],
-      titles: [],
-      summary: profile.summary ?? "",
-      text: profile.summary ?? "",
-    },
+  const hasProfile =
+    (profile.skills?.length ?? 0) > 0 ||
+    (profile.targetRoles?.length ?? 0) > 0 ||
+    (Array.isArray(profile.titles) && profile.titles.length > 0) ||
+    Boolean(profile.summary) ||
+    Boolean(profile.resumeText);
+  const ctx: ResumeContext = {
+    skills: mergeLists(canonicalSkill, profile.skills),
+    titles: mergeLists(
+      (value) => value.toLowerCase(),
+      profile.targetRoles,
+      profile.titles,
+    ),
+    summary: profile.summary ?? "",
+    text: compactText(profile.summary, profile.resumeText),
   };
-}
-
-function hasResumeSignal(ctx: ResumeContext): boolean {
-  return (ctx.skills?.length ?? 0) > 0 || (ctx.text?.trim().length ?? 0) > 20;
+  return {
+    versionId: hasProfile ? resumeContextId("profile", ctx) : null,
+    source: hasProfile ? "profile" : "none",
+    ctx,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -86,9 +142,6 @@ export interface RescoreResult {
  */
 export async function rescoreResumeFit(): Promise<RescoreResult> {
   const { versionId, ctx, source } = await getResumeContext();
-  if (!hasResumeSignal(ctx)) {
-    return { scored: 0, preservedAgent: 0, resumeVersionId: versionId, source };
-  }
 
   const matches = await prisma.match.findMany({
     where: { job: { isWorkday: false, ...ACTIVE_JOB_WHERE } },
@@ -101,12 +154,21 @@ export async function rescoreResumeFit(): Promise<RescoreResult> {
   for (const m of matches) {
     if (SKIP_RESCORE_STATUS.has(m.status)) continue;
     // Preserve a fresh agent judgement (same resume version).
-    if (m.matchProvider === "agent" && m.scoredResumeVersion === versionId) {
+    if (
+      versionId !== null &&
+      m.matchProvider === "agent" &&
+      m.scoredResumeVersion === versionId
+    ) {
       preservedAgent++;
       continue;
     }
     const r = scoreResumeFit(
-      { title: m.job.title, description: m.job.description, company: m.job.company },
+      {
+        title: m.job.title,
+        description: m.job.description,
+        company: m.job.company,
+        skills: safeParseArr(m.job.skills),
+      },
       ctx,
     );
     await prisma.match.update({
@@ -167,7 +229,9 @@ const REVIEW_INSTRUCTIONS =
   "summary of fit + any gaps, and recommend (true if worth applying). Judge real skill/domain " +
   "overlap and seniority — reward transferable experience, penalize hard-requirement gaps. " +
   "Write results as JSON {\"scores\":[{jobId,score,reasons:[],summary,recommend}]} to a file " +
-  "and run: npm run match:apply -- --in <file>.";
+  "and run: npm run match:apply -- --in <file>. If export used a custom --out path, also " +
+  "pass --review <exported-review-file>. Apply verifies that the exported résumé context " +
+  "is still current and rejects stale results.";
 
 function safeParseArr(s: string | null): string[] {
   try {
@@ -204,7 +268,10 @@ export async function buildReviewBatch(opts: BuildReviewOptions = {}): Promise<R
 
   const items: ReviewItem[] = [];
   for (const m of matches) {
-    const alreadyAgent = m.matchProvider === "agent" && m.scoredResumeVersion === versionId;
+    const alreadyAgent =
+      versionId !== null &&
+      m.matchProvider === "agent" &&
+      m.scoredResumeVersion === versionId;
     if (alreadyAgent && !opts.includeAgentScored) continue;
     items.push({
       jobId: m.jobId,
@@ -264,10 +331,23 @@ function clampScore(n: unknown): number | null {
   return Math.max(0, Math.min(100, Math.round(v)));
 }
 
-/** Persist agent-produced resume scores onto their Match rows. */
-export async function applyAgentScores(scores: AgentScore[]): Promise<ApplyResult> {
+/** Persist agent-produced scores only when they target the reviewed resume context. */
+export async function applyAgentScores(
+  scores: AgentScore[],
+  reviewedResumeVersionId: string | null,
+): Promise<ApplyResult> {
   const { versionId } = await getResumeContext();
   const result: ApplyResult = { updated: 0, skipped: [], resumeVersionId: versionId };
+  if (reviewedResumeVersionId !== versionId) {
+    result.skipped = scores.map((score) => ({
+      jobId:
+        score && typeof score.jobId === "string"
+          ? score.jobId
+          : String(score?.jobId ?? "?"),
+      reason: "resume context changed since export; export a new review batch",
+    }));
+    return result;
+  }
   const now = new Date();
 
   for (const s of scores) {

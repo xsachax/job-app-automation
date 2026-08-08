@@ -19,6 +19,7 @@ import {
   tierFirstJudgeScore,
 } from "./scoring";
 import { minRequiredBachelorYoE } from "../discovery/entryLevel";
+import { canonicalSkill } from "../discovery/enrich";
 
 export interface ScoreAllJobsOptions {
   onlyUnscored?: boolean;
@@ -100,6 +101,21 @@ function cleanList(values: unknown): string[] {
   return out;
 }
 
+function cleanSkills(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const item = value.trim();
+    const key = canonicalSkill(item);
+    if (!item || !key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
 function compactText(...parts: Array<string | null | undefined>): string {
   return parts
     .map((part) => part?.trim())
@@ -136,7 +152,7 @@ export function buildQualificationContext(profile: ProfileData): string {
 }
 
 export function buildResumeContext(profile: ProfileData): ResumeContext {
-  const skills = cleanList(profile.skills);
+  const skills = cleanSkills(profile.skills);
   const titles = cleanList([
     ...(Array.isArray(profile.targetRoles) ? profile.targetRoles : []),
     ...(Array.isArray(profile.titles) ? profile.titles : []),
@@ -208,6 +224,12 @@ function baseAgentSummary(summary: string | null): string {
       /^(?:strong|possible|weak) fit: .*?score band\.\s*(?:Agent résumé assessment:\s*)?/i,
       "",
     )
+    .replace(
+      /(?:\b(?:watch-?out|gap)\s*:\s*)?\bsalary (?:is )?not listed\b[.!]?/gi,
+      "",
+    )
+    .replace(/\s{2,}/g, " ")
+    .replace(/^[\s.,;:–—-]+|[\s,;:–—-]+$/g, "")
     .trim();
 }
 
@@ -249,8 +271,6 @@ function appendContextSignals(
   }
   if (salary.reason && salary.delta !== 0) {
     (salary.delta > 0 ? strengths : gaps).push(salary.reason);
-  } else if (salary.reason && !salary.known) {
-    gaps.push("Salary is not listed");
   }
   if (isTier(locTier) && canonicalLoc && locationMod !== 0) {
     const reason = `${canonicalLoc} is location tier ${locTier}, moving the score within its company band`;

@@ -238,6 +238,41 @@ describe("scoreAllJobs", () => {
     ).toBeNull();
   });
 
+  it("uses saved résumé text as positive skill evidence without making missing pay a gap", async () => {
+    await saveProfile({
+      skills: ["Python"],
+      targetRoles: ["Software Engineer"],
+      resumeText:
+        "Technical Skills: TypeScript, React.JS, Node JS, and Amazon Web Services.",
+    });
+    await saveCriteria({ salaryTarget: 125000 });
+    const job = await makeJob({
+      key: "saved-resume-text",
+      title: "Frontend Software Engineer",
+      description: "Build TypeScript and React interfaces with Node.js on AWS.",
+      skills: ["TypeScript", "React", "Node.js", "AWS"],
+    });
+
+    await scoreAllJobs();
+
+    const scored = await prisma.job.findUniqueOrThrow({
+      where: { id: job.id },
+    });
+    const reasons = JSON.parse(scored.fitReasons ?? "[]") as string[];
+    const skillReason = reasons.find((reason) =>
+      /^Fit: Matches 4 saved résumé skills:/i.test(reason),
+    );
+    expect(skillReason).toBeDefined();
+    expect(skillReason).toMatch(/TypeScript/i);
+    expect(skillReason).toMatch(/React/i);
+    expect(skillReason).toMatch(/Node\.js/i);
+    expect(skillReason).toMatch(/AWS/i);
+    expect(reasons.join(" ")).not.toMatch(
+      /No saved résumé skills directly match|salary is not listed/i,
+    );
+    expect(scored.fitSummary).not.toMatch(/salary is not listed/i);
+  });
+
   it("does not overwrite agent evidence applied after the scoring snapshot", async () => {
     await saveProfile({
       skills: ["TypeScript"],
@@ -347,6 +382,39 @@ describe("scoreAllJobs salary axis", () => {
     expect(reasons.some((reason) => /\bpay\b.*\btarget\b/i.test(reason))).toBe(
       false,
     );
+  });
+
+  it("removes legacy missing-salary gaps when preserving an agent assessment", async () => {
+    await saveProfile({ skills: ["TypeScript"] });
+    await saveCriteria({ salaryTarget: 110000 });
+    const job = await makeJob({
+      key: "legacy-missing-pay",
+      title: "Software Engineer",
+      description: "Build TypeScript services.",
+      fitScore: 80,
+      fitProvider: "agent",
+    });
+    await prisma.job.update({
+      where: { id: job.id },
+      data: {
+        fitBaseScore: 80,
+        fitBaseReasons: JSON.stringify([
+          "Fit: TypeScript experience matches",
+          "Gap: Salary is not listed",
+        ]),
+        fitBaseSummary:
+          "Strong TypeScript overlap. Watch-out: Salary is not listed.",
+      },
+    });
+
+    await scoreAllJobs();
+
+    const scored = await prisma.job.findUniqueOrThrow({
+      where: { id: job.id },
+    });
+    expect(scored.fitProvider).toBe("agent");
+    expect(scored.fitReasons).not.toMatch(/salary is not listed/i);
+    expect(scored.fitSummary).not.toMatch(/salary is not listed/i);
   });
 });
 

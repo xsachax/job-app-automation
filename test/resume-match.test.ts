@@ -99,7 +99,54 @@ describe("scoreResumeFit", () => {
       },
     );
 
+    expect(r.matchedSkills).toEqual(
+      expect.arrayContaining(["machine learning", "next.js", "postgres", "pytorch"]),
+    );
+    expect(r.reasons).toEqual([
+      expect.stringMatching(/matches 4 saved résumé skills/i),
+    ]);
     expect(r.missingSignals).toEqual([]);
+  });
+
+  it("recovers skills from composite legacy profile values", () => {
+    const r = scoreResumeFit(
+      {
+        title: "Full-stack Engineer",
+        description: "Build TypeScript and React services with Node.js.",
+        skills: ["TypeScript", "React", "Node.js"],
+      },
+      {
+        skills: [
+          "Languages: TypeScript / Python",
+          "Frameworks: React.JS & Node JS",
+        ],
+      },
+    );
+
+    expect(r.matchedSkills).toEqual(
+      expect.arrayContaining(["TypeScript", "React", "Node.js"]),
+    );
+    expect(r.missingSignals).toEqual([]);
+  });
+
+  it("uses exact saved résumé text for structured skills outside the vocabulary", () => {
+    const r = scoreResumeFit(
+      {
+        title: "Workflow Engineer",
+        description: "Build durable workflows.",
+        skills: ["Temporal"],
+      },
+      {
+        text: "Built production workflow orchestration with Temporal.",
+      },
+    );
+
+    expect(r.matchedSkills).toEqual(["Temporal"]);
+    expect(r.reasons).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/matches 1 saved résumé skill: Temporal/i),
+      ]),
+    );
   });
 
   it("clamps into 0..100 and handles an empty resume", () => {

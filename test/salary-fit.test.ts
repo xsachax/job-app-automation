@@ -11,11 +11,11 @@ describe("salaryFit", () => {
     expect(salaryFit({ salaryMin: 90000 }, 0)).toEqual({ delta: 0, known: false, reason: null });
   });
 
-  it("is neutral (but flagged) when the posting lists no salary", () => {
+  it("is fully neutral when the posting lists no salary", () => {
     const r = salaryFit({ salaryMin: null, salaryMax: null }, 110000);
     expect(r.delta).toBe(0);
     expect(r.known).toBe(false);
-    expect(r.reason).toBe("salary not listed");
+    expect(r.reason).toBeNull();
   });
 
   it("boosts strongly when pay is well above target", () => {

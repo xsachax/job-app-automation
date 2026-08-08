@@ -407,7 +407,7 @@ company and contextual signals. `POST /api/judge/score`, `GET /api/judge/score`,
 boards. Sort/filter the queue by **Best fit** / **min fit** to surface the strongest matches.
 
 > **Scrape everything, then judge** — jobs are always stored and deduped first, so
-> retuning Settings or importing a new résumé re-scores instantly with no re-scraping.
+> retuning Settings or importing a new résumé can be re-scored with no re-scraping.
 
 ## Import your info (Profile)
 
@@ -425,6 +425,14 @@ fallback. **Fetch text** writes a `ResumeVersion` and non-destructively fills bl
 signals; **Save and re-run judge** flushes pending profile changes before scoring. Normal
 field edits auto-save after a short delay, persist a session draft until acknowledged by the
 server, and flush when the page is hidden or closed.
+
+Skill matching canonicalizes casing, punctuation, and common aliases (for example,
+`Node JS`/`Node.js`, `ReactJS`/`React`, and `AWS`/`Amazon Web Services`). Positive overlap
+must be present in saved résumé/profile evidence (skills, summary, qualifications, or
+résumé text). Existing profiles and `ResumeVersion` rows do not need to be re-imported:
+use **Re-run judge** for dashboard cards,
+or `npm run match:rescore` for legacy `Match` rows. Missing compensation remains neutral and
+is shown only as job metadata, never as a résumé gap or score penalty.
 
 The same page hosts **LinkedIn connections** import (upload/paste `Connections.csv`) for
 warm-intro tagging — see [Warm intros](#warm-intros-linkedin-connections).
