@@ -530,6 +530,126 @@ test.describe("unpacked extension non-text runtime", () => {
       await expect(popup.locator("[data-notice]")).toHaveText(
         "Filled 0 fields. Review the page.",
       );
+
+      const initialChangeCount = await application.evaluate(
+        () =>
+          (
+            globalThis as unknown as { __atsHarness: FixtureState }
+          ).__atsHarness.events.filter(
+            (event) =>
+              event.target === "reverting-source" && event.type === "change",
+          ).length,
+      );
+      await popup.locator("[data-fill]").click();
+      await expect
+        .poll(() =>
+          application.evaluate(
+            () =>
+              (
+                globalThis as unknown as { __atsHarness: FixtureState }
+              ).__atsHarness.events.filter(
+                (event) =>
+                  event.target === "reverting-source" &&
+                  event.type === "change",
+              ).length,
+          ),
+        )
+        .toBeGreaterThan(initialChangeCount);
+      await expect
+        .poll(() => extensionState(popup, applicationUrl))
+        .toMatchObject({
+          session: {
+            progress: {
+              filledByExtension: 0,
+              needsAttention: 1,
+              unknownFields: [{ status: "failed" }],
+            },
+          },
+        });
+    } finally {
+      await runtime.close();
+      await closeServer(fixture.server);
+    }
+  });
+
+  test("rejects query-only combobox state and preserves failure across replacement", async () => {
+    const fixture = await startFixtureServer();
+    const runtime = await launchUnpackedExtension([
+      "--host-resolver-rules=MAP ats.test 127.0.0.1",
+    ]);
+    try {
+      const applicationUrl = `${fixture.origin}/application?mode=rejected-combo`;
+      const application = await launchFromDashboard(runtime, applicationUrl);
+      const popup = await openPopupForPage(runtime, application);
+
+      await popup.locator("[data-fill]").click();
+      const rejectedSource = application.locator(
+        '[data-testid="rejected-source"]',
+      );
+      await expect(rejectedSource).toHaveValue("LinkedIn");
+      await expect(rejectedSource).toHaveAttribute(
+        "data-job-autofill-review",
+        "failed",
+      );
+
+      await expect
+        .poll(() =>
+          application.evaluate(
+            () =>
+              (
+                globalThis as unknown as { __atsHarness: FixtureState }
+              ).__atsHarness.replacements["rejected-source"],
+          ),
+        )
+        .toBe(2);
+      await expect(rejectedSource).toHaveAttribute(
+        "id",
+        "rejected-source-rerendered",
+      );
+      const state = await application.evaluate(
+        () =>
+          (globalThis as unknown as { __atsHarness: FixtureState }).__atsHarness,
+      );
+      expect(state.model["rejected-source"]).toBe("LinkedIn");
+      expect(state.model["rejected-source-committed"]).toBe(false);
+
+      await expect
+        .poll(() => extensionState(popup, applicationUrl))
+        .toMatchObject({
+          session: {
+            progress: {
+              answered: 0,
+              filledByExtension: 0,
+              needsAttention: 1,
+              unknownFields: [
+                {
+                  label: expect.stringMatching(/how did you hear about us/i),
+                  status: "failed",
+                  reason: expect.stringMatching(/commit|selected|value/i),
+                },
+              ],
+            },
+          },
+        });
+      await expect(popup.locator("[data-notice]")).toHaveText(
+        "Filled 0 fields. Review the page.",
+      );
+
+      await rejectedSource.fill("");
+      await expect
+        .poll(() => extensionState(popup, applicationUrl))
+        .toMatchObject({
+          session: {
+            progress: {
+              filledByExtension: 0,
+              readyToFill: 1,
+              needsAttention: 0,
+            },
+          },
+        });
+      await expect(rejectedSource).not.toHaveAttribute(
+        "data-job-autofill-review",
+      );
     } finally {
       await runtime.close();
       await closeServer(fixture.server);

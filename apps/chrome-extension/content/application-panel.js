@@ -567,13 +567,14 @@
 
   function questionRemainsReady(question) {
     const answered =
-      question.kind === "check-many"
+      !state.fillIssues.has(question.key) &&
+      (question.kind === "check-many"
         ? isCheckManyAnswered(
             question.elements,
             question.matchedValue,
             question.match?.definition?.key
           )
-        : isAnswered(question.elements);
+        : isAnswered(question.elements));
     if (
       question.elements.some(
         (element) => !element.isConnected || !isCandidateControl(element)
@@ -597,6 +598,15 @@
     );
   }
 
+  function shouldAttemptQuestion(question) {
+    return (
+      question.status === "ready" ||
+      (question.status === "failed" &&
+        !question.answered &&
+        state.fillIssues.has(question.key))
+    );
+  }
+
   function wasFilledByExtension(elements) {
     return elements.some((element) => {
       if (!state.extensionValues.has(element)) {
@@ -614,6 +624,20 @@
       }
       if (inputType(element) === "file") {
         return element.files?.[0]?.name === filledValue;
+      }
+      if (
+        elementRole(element) === "combobox" &&
+        filledValue?.kind === "combobox-commit"
+      ) {
+        return interactions
+          .comboboxCommitEvidence(element, {
+            includeUnassociatedHidden: true
+          })
+          .some(
+            (evidence) =>
+              evidence.source === filledValue.source &&
+              text(evidence.value) === text(filledValue.value)
+          );
       }
       if (isContentEditable(element)) {
         return text(element.textContent) === text(filledValue);
@@ -756,6 +780,88 @@
     return roleGroup
       ? `role:${elementIdentity(roleGroup)}`
       : `element:${elementIdentity(control)}`;
+  }
+
+  function identityValue(value) {
+    return encodeURIComponent(text(value));
+  }
+
+  function stableDomPath(element, ignoreElementId = false) {
+    const segments = [];
+    let current = element;
+    for (let depth = 0; current && depth < 10; depth += 1) {
+      if (current.id && (!ignoreElementId || current !== element)) {
+        segments.unshift(`#${identityValue(current.id)}`);
+        break;
+      }
+      const parent = current.parentElement;
+      const tag = tagName(current).toLowerCase() || "element";
+      if (!parent) {
+        segments.unshift(tag);
+        break;
+      }
+      const siblings = Array.from(parent.children).filter(
+        (candidate) => tagName(candidate) === tagName(current)
+      );
+      segments.unshift(`${tag}:${siblings.indexOf(current) + 1}`);
+      current = parent;
+    }
+    return segments.join("/");
+  }
+
+  function semanticControlIdentity(element) {
+    const attributes = [
+      ["data-automation-id", element?.getAttribute?.("data-automation-id")],
+      ["data-testid", element?.getAttribute?.("data-testid")],
+      ["data-field-name", element?.getAttribute?.("data-field-name")],
+      ["name", element?.getAttribute?.("name")],
+      ["autocomplete", element?.getAttribute?.("autocomplete")],
+      ["aria-label", element?.getAttribute?.("aria-label")]
+    ];
+    const explicit = attributes.find(([, value]) => text(value));
+    const path = stableDomPath(element, true);
+    if (explicit) {
+      return `${explicit[0]}:${identityValue(explicit[1])}@${path}`;
+    }
+    return `path:${path}`;
+  }
+
+  function stableRootIdentity(element) {
+    const rootNode = element?.getRootNode?.();
+    if (rootNode?.host) {
+      return `shadow:${semanticControlIdentity(rootNode.host)}`;
+    }
+    let frameElement = null;
+    try {
+      frameElement = element?.ownerDocument?.defaultView?.frameElement || null;
+    } catch {
+      frameElement = null;
+    }
+    const documentUrl = element?.ownerDocument?.URL || location.href;
+    return frameElement
+      ? `frame:${identityValue(documentUrl)}:${semanticControlIdentity(
+          frameElement
+        )}`
+      : `document:${identityValue(documentUrl)}`;
+  }
+
+  function stableQuestionIdentity(elements, kind, label, match) {
+    const first = elements[0];
+    const roleGroup = first.closest?.(
+      '[role="radiogroup"], [role="group"], fieldset'
+    );
+    const anchors = roleGroup ? [roleGroup] : elements;
+    const controls = anchors
+      .map(semanticControlIdentity)
+      .sort()
+      .join("|");
+    return [
+      stableRootIdentity(first),
+      kind,
+      match?.definition?.key || "unmatched",
+      identityValue(label),
+      controls
+    ].join("::");
   }
 
   function resolveMatchedValue(
@@ -931,7 +1037,7 @@
     );
     const questions = [];
 
-    for (const [key, elements] of groups) {
+    for (const [groupKey, elements] of groups) {
       const grouped =
         elements.length > 1 ||
         inputType(elements[0]) === "radio" ||
@@ -966,15 +1072,18 @@
         inputType(elements[0]),
         adapterDetails
       );
+      const key =
+        stableQuestionIdentity(elements, kind, label, match) || groupKey;
       const matchedValue = resolved.value;
       const answered =
-        kind === "check-many"
+        !state.fillIssues.has(key) &&
+        (kind === "check-many"
           ? isCheckManyAnswered(
               elements,
               matchedValue,
               match?.definition?.key
             )
-          : isAnswered(elements);
+          : isAnswered(elements));
       const required = isRequiredQuestion(elements, signals);
       const filledByExtension = answered && wasFilledByExtension(elements);
       const safeSingleCheckbox =
@@ -991,7 +1100,10 @@
       let status = "unknown";
       let reason = "The field was not recognized.";
 
-      if (answered) {
+      if (state.fillIssues.has(key)) {
+        status = "failed";
+        reason = state.fillIssues.get(key);
+      } else if (answered) {
         status = "answered";
         reason = "";
       } else if (!required) {
@@ -1005,9 +1117,6 @@
       ) {
         status = "manual";
         reason = "Review this checkbox manually.";
-      } else if (state.fillIssues.has(key)) {
-        status = "failed";
-        reason = state.fillIssues.get(key);
       } else if (analysis.status === "uncertain" && !match) {
         status = "uncertain";
         reason = analysis.reason;
@@ -1379,6 +1488,7 @@
         registration.observer.disconnect();
         rootNode.removeEventListener?.("input", handleFieldChange, true);
         rootNode.removeEventListener?.("change", handleFieldChange, true);
+        rootNode.removeEventListener?.("click", handleFieldClick, true);
         state.observers.delete(rootNode);
       }
     }
@@ -1401,6 +1511,7 @@
       );
       rootNode.addEventListener?.("input", handleFieldChange, true);
       rootNode.addEventListener?.("change", handleFieldChange, true);
+      rootNode.addEventListener?.("click", handleFieldClick, true);
       state.observers.set(rootNode, { key: observerKey, observer });
     }
   }
@@ -1517,24 +1628,20 @@
       ]
         .filter(Boolean)
         .flatMap((value) => String(value).split(/\s+/));
-      options = controlledIds.flatMap((id) =>
-        Array.from(
-          first.ownerDocument
-            ?.getElementById(id)
-            ?.querySelectorAll(ats.optionSelectorFor(state.adapter)) || []
+      options = Array.from(
+        new Set(
+          controlledIds.flatMap((id) =>
+            Array.from(
+              first.ownerDocument
+                ?.getElementById(id)
+                ?.querySelectorAll(ats.optionSelectorFor(state.adapter)) || []
+            )
+          )
         )
       );
     }
     return Array.from(
       new Set(options.map((option) => optionText(option)).filter(Boolean))
-    );
-  }
-
-  function selectedControlText(element) {
-    return (
-      text(element.getAttribute("aria-valuetext")) ||
-      (isInput(element) ? text(element.value) : text(element.textContent)) ||
-      optionText(element)
     );
   }
 
@@ -1662,18 +1769,26 @@
     const controlledIds = interactions.controlledListboxIds(element);
 
     if (controlledIds.length) {
-      return controlledIds.flatMap((id) =>
-        optionsFrom(ownerDocument.getElementById(id))
+      return Array.from(
+        new Set(
+          controlledIds.flatMap((id) =>
+            optionsFrom(ownerDocument.getElementById(id))
+          )
+        )
       );
     }
 
-    return interactions
-      .scopedListboxes(
-        element,
-        visibleListboxes(element),
-        initiallyVisible
+    return Array.from(
+      new Set(
+        interactions
+          .scopedListboxes(
+            element,
+            visibleListboxes(element),
+            initiallyVisible
+          )
+          .flatMap(optionsFrom)
       )
-      .flatMap(optionsFrom);
+    );
   }
 
   function wait(milliseconds) {
@@ -1861,6 +1976,15 @@
         );
       }
 
+      const commitEvidenceBeforeClick = new Set(
+        interactions
+          .comboboxCommitEvidence(element, {
+            includeUnassociatedHidden: true
+          })
+          .map(
+            (evidence) => `${evidence.source}\u0000${evidence.value}`
+          )
+      );
       assertActive();
       if (
         isInput(element) &&
@@ -1895,25 +2019,40 @@
         if (!current) {
           continue;
         }
-        const committedValue = interactions.committedControlValue(current);
-        const selected =
-          matcher.scoreChoice(
-            value,
-            committedValue,
-            selectedControlText(current),
-            fieldKey
-          ) >= matcher.MINIMUM_SCORE ||
-          (usedFallback &&
-            matcher.scoreSafeFallback(
-              fieldKey,
-              committedValue,
-              selectedControlText(current)
-            ) >= matcher.MINIMUM_SCORE);
+        const committedEvidence = interactions
+          .comboboxCommitEvidence(current, {
+            includeUnassociatedHidden: true
+          })
+          .filter(
+            (evidence) =>
+              !commitEvidenceBeforeClick.has(
+                `${evidence.source}\u0000${evidence.value}`
+              )
+          )
+          .find(
+            (evidence) =>
+              matcher.scoreChoice(
+                value,
+                evidence.value,
+                evidence.value,
+                fieldKey
+              ) >= matcher.MINIMUM_SCORE ||
+              (usedFallback &&
+                matcher.scoreSafeFallback(
+                  fieldKey,
+                  evidence.value,
+                  evidence.value
+                ) >= matcher.MINIMUM_SCORE)
+          );
         const popupClosed =
           current.getAttribute("aria-expanded") !== "true" &&
           visibleComboOptions(current, initiallyVisible).length === 0;
-        if (selected && popupClosed) {
-          state.extensionValues.set(current, committedValue || String(value));
+        if (committedEvidence && popupClosed) {
+          state.extensionValues.set(current, {
+            kind: "combobox-commit",
+            source: committedEvidence.source,
+            value: committedEvidence.value
+          });
           return true;
         }
       } while (Date.now() < commitDeadline);
@@ -2274,7 +2413,6 @@
       state.adapter?.augmentDefinitions?.(profileSchema.fields) ||
       profileSchema.fields;
 
-    state.fillIssues.clear();
     if (state.page?.scanOnly) {
       const status = state.shadow?.querySelector("[data-status]");
       if (status) {
@@ -2298,7 +2436,7 @@
 
       for (const question of questions) {
         assertActive();
-        if (!question.required || question.status !== "ready") {
+        if (!question.required || !shouldAttemptQuestion(question)) {
           continue;
         }
         if (!questionRemainsReady(question)) {
@@ -2639,8 +2777,58 @@
     refreshObservers();
   }
 
-  function handleFieldChange() {
+  function questionForEditTarget(target) {
+    const selectedOption = target.closest?.("[role='option']");
+    const listbox = selectedOption?.closest?.("[role='listbox']");
+    return collectQuestions().find((question) => {
+      if (
+        question.elements.some(
+          (element) =>
+            element === target ||
+            element.contains?.(target) ||
+            ats.questionContainer(element, state.adapter, question.elements)
+              ?.contains?.(target)
+        )
+      ) {
+        return true;
+      }
+      return Boolean(
+        listbox?.id &&
+          question.elements.some((element) =>
+            interactions.controlledListboxIds(element).includes(listbox.id)
+          )
+      );
+    });
+  }
+
+  function clearFillIssueForTrustedEdit(event) {
+    if (!event.isTrusted || !state.fillIssues.size || !event.target?.closest) {
+      return false;
+    }
+    const question = questionForEditTarget(event.target);
+    if (!question || !state.fillIssues.delete(question.key)) {
+      return false;
+    }
+    state.progressSignature = "";
+    return true;
+  }
+
+  function handleFieldChange(event) {
+    clearFillIssueForTrustedEdit(event);
     scheduleScan();
+  }
+
+  function handleFieldClick(event) {
+    if (
+      !event.target?.closest?.(
+        "[role='option'], input[type='radio'], input[type='checkbox'], [role='radio'], [role='checkbox']"
+      )
+    ) {
+      return;
+    }
+    if (clearFillIssueForTrustedEdit(event)) {
+      scheduleScan();
+    }
   }
 
   function unmountPanel() {
@@ -2649,6 +2837,7 @@
       registration.observer.disconnect();
       rootNode.removeEventListener?.("input", handleFieldChange, true);
       rootNode.removeEventListener?.("change", handleFieldChange, true);
+      rootNode.removeEventListener?.("click", handleFieldClick, true);
     }
     state.observers.clear();
     clearReviewMarkers(true);

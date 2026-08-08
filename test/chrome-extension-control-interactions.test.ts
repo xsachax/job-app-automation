@@ -6,6 +6,10 @@ interface ListboxLike {
 }
 
 interface ControlInteractions {
+  comboboxCommitEvidence(
+    element: unknown,
+    options?: { includeUnassociatedHidden?: boolean },
+  ): { source: string; value: string }[];
   committedControlValue(element: unknown): string;
   controlledListboxIds(element: unknown): string[];
   controlReference(element: unknown): unknown;
@@ -47,7 +51,6 @@ describe("Chrome extension control interactions", () => {
     expect(interactions.controlledListboxIds(control)).toEqual([
       "school-options",
       "school-help",
-      "school-options",
     ]);
     expect(
       interactions.scopedListboxes(control, [unrelated, owned], [unrelated]),
@@ -115,6 +118,51 @@ describe("Chrome extension control interactions", () => {
     expect(interactions.resolveControl(reference)).toBe(replacement);
   });
 
+  it("rejects same-id candidates in a detached shadow root", () => {
+    const detached = { id: "degree", isConnected: false };
+    const original = {
+      id: "degree",
+      isConnected: false,
+      getRootNode() {
+        return {
+          getElementById() {
+            return detached;
+          },
+          querySelectorAll() {
+            return [detached];
+          },
+        };
+      },
+    };
+
+    expect(
+      interactions.resolveControl(interactions.controlReference(original)),
+    ).toBeNull();
+  });
+
+  it("skips a detached subtree candidate and finds the live replacement", () => {
+    const detached = { id: "degree", isConnected: false };
+    const replacement = { id: "degree", isConnected: true };
+    const original = {
+      id: "degree",
+      isConnected: false,
+      getRootNode() {
+        return {
+          getElementById() {
+            return detached;
+          },
+          querySelectorAll() {
+            return [detached, replacement];
+          },
+        };
+      },
+    };
+
+    expect(
+      interactions.resolveControl(interactions.controlReference(original)),
+    ).toBe(replacement);
+  });
+
   it("reads committed values from non-value-holding visible triggers", () => {
     const control = {
       value: "",
@@ -132,20 +180,81 @@ describe("Chrome extension control interactions", () => {
     const control = {
       value: "",
       textContent: "",
+      tagName: "INPUT",
       getAttribute(name: string) {
         return name === "role" ? "combobox" : null;
       },
       closest(selector: string) {
-        expect(selector).toBe("[class*='__control']");
-        return {
-          querySelectorAll(selectedSelector: string) {
-            expect(selectedSelector).toBe("[class*='__single-value']");
-            return [selected];
-          },
-        };
+        if (selector === "[class*='__control']") {
+          return {
+            querySelectorAll(selectedSelector: string) {
+              expect(selectedSelector).toBe("[class*='__single-value']");
+              return [selected];
+            },
+          };
+        }
+        return null;
       },
     };
 
     expect(interactions.committedControlValue(control)).toBe("United States");
+  });
+
+  it("does not treat editable combobox query text as commit evidence", () => {
+    const control = {
+      value: "LinkedIn",
+      textContent: "",
+      tagName: "INPUT",
+      getAttribute(name: string) {
+        return name === "role" ? "combobox" : null;
+      },
+      closest() {
+        return null;
+      },
+    };
+
+    expect(interactions.comboboxCommitEvidence(control)).toEqual([]);
+    expect(interactions.committedControlValue(control)).toBe("LinkedIn");
+  });
+
+  it("does not treat unrelated hidden field metadata as a committed value", () => {
+    const metadata = {
+      id: "question_id",
+      name: "question_id",
+      value: "12345",
+      getAttribute() {
+        return null;
+      },
+    };
+    const scope = {
+      querySelectorAll(selector: string) {
+        expect(selector).toBe("input[type='hidden']");
+        return [metadata];
+      },
+    };
+    const control = {
+      id: "source-combobox",
+      value: "",
+      textContent: "",
+      tagName: "INPUT",
+      getAttribute(name: string) {
+        const values: Record<string, string> = {
+          role: "combobox",
+          "aria-labelledby": "source-label",
+        };
+        return values[name] ?? null;
+      },
+      closest(selector: string) {
+        return selector === "[class*='__control']" ? null : scope;
+      },
+    };
+
+    expect(interactions.comboboxCommitEvidence(control)).toEqual([]);
+    expect(interactions.committedControlValue(control)).toBe("");
+    expect(
+      interactions.comboboxCommitEvidence(control, {
+        includeUnassociatedHidden: true,
+      }),
+    ).toEqual([{ source: "hidden-value:question_id", value: "12345" }]);
   });
 });

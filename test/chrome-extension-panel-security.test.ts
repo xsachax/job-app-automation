@@ -21,15 +21,16 @@ describe("Chrome extension panel security", () => {
     expect(panelSource).not.toContain("data-profile");
   });
 
-  it("allows failed controls to be retried on the next explicit fill", () => {
+  it("retries unanswered failures without dropping their diagnostics", () => {
     const fillSource = panelSource.slice(
       panelSource.indexOf("async function fillKnownFields"),
       panelSource.indexOf("function handleFieldChange"),
     );
-    expect(fillSource).toContain("state.fillIssues.clear();");
-    expect(fillSource.indexOf("state.fillIssues.clear();")).toBeLessThan(
-      fillSource.indexOf("const questions = collectQuestions();"),
+    expect(fillSource).not.toContain("state.fillIssues.clear();");
+    expect(panelSource).toMatch(
+      /function shouldAttemptQuestion[\s\S]*question\.status === "failed"[\s\S]*!question\.answered[\s\S]*state\.fillIssues\.has\(question\.key\)/,
     );
+    expect(fillSource).toContain("!shouldAttemptQuestion(question)");
   });
 
   it("revalidates the same live session after loading the profile", () => {
@@ -54,7 +55,7 @@ describe("Chrome extension panel security", () => {
     expect(panelSource).toContain('analysis.status === "uncertain"');
     expect(panelSource).toContain('"data-job-autofill-review"');
     expect(panelSource).toMatch(
-      /for \(const question of questions\)[\s\S]*question\.status !== "ready"[\s\S]*continue/,
+      /for \(const question of questions\)[\s\S]*!shouldAttemptQuestion\(question\)[\s\S]*continue/,
     );
   });
 });

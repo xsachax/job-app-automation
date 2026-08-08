@@ -690,6 +690,7 @@
             role="combobox"
             aria-labelledby="ashby-school-label"
             aria-controls="ashby-school-listbox"
+            aria-owns="ashby-school-listbox"
             aria-expanded="false"
             aria-required="true"
             data-testid="school-select"
@@ -753,6 +754,34 @@
         </label>
       </section>
 
+      <section id="rejected-combo-controls" hidden>
+        <h2>Rejected custom combobox diagnostics</h2>
+        <div class="field application-question">
+          <label id="rejected-source-label" for="rejected-source">
+            How did you hear about us? *
+          </label>
+          <input
+            id="rejected-source"
+            data-testid="rejected-source"
+            type="text"
+            role="combobox"
+            aria-labelledby="rejected-source-label"
+            aria-controls="rejected-source-listbox"
+            aria-expanded="false"
+            aria-required="true"
+            value=""
+          >
+          <div id="rejected-source-listbox" role="listbox" hidden>
+            <div
+              id="rejected-source-option"
+              role="option"
+              aria-selected="false"
+              data-value="linkedin"
+            >LinkedIn</div>
+          </div>
+        </div>
+      </section>
+
       <button id="submit-application" type="button">Submit application</button>
     </main>
 
@@ -782,7 +811,8 @@
             "office-new-york": false,
             "office-toronto": true,
             "optional-office-new-york": false,
-            "preserved-country": "ca"
+            "preserved-country": "ca",
+            "rejected-source-committed": false
           },
           replacements: {},
           unrelatedOptionClicks: 0,
@@ -1164,6 +1194,45 @@
               harness.model["reverting-source"] = "";
               renderModel();
             });
+          });
+        }
+
+        if (mode === "rejected-combo") {
+          for (const section of document.querySelectorAll("#application > section")) {
+            section.hidden = section.id !== "rejected-combo-controls";
+          }
+          const source = document.querySelector("#rejected-source");
+          const listbox = document.querySelector("#rejected-source-listbox");
+          const option = document.querySelector("#rejected-source-option");
+          const open = () => {
+            source.setAttribute("aria-expanded", "true");
+          };
+          const revealOptions = () => {
+            open();
+            listbox.hidden = false;
+          };
+          source.addEventListener("click", open);
+          source.addEventListener("input", revealOptions);
+          option.addEventListener("click", () => {
+            source.setAttribute("aria-expanded", "false");
+            listbox.hidden = true;
+            const replacement = source.cloneNode(true);
+            replacement.value = source.value;
+            source.replaceWith(replacement);
+            harness.replacements["rejected-source"] =
+              (harness.replacements["rejected-source"] || 0) + 1;
+            renderModel();
+            setTimeout(() => {
+              const current = document.querySelector(
+                '[data-testid="rejected-source"]'
+              );
+              if (!current) return;
+              const regenerated = current.cloneNode(true);
+              regenerated.id = "rejected-source-rerendered";
+              current.replaceWith(regenerated);
+              harness.replacements["rejected-source"] += 1;
+              renderModel();
+            }, 900);
           });
         }
 

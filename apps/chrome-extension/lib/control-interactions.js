@@ -4,13 +4,17 @@
   }
 
   function controlledListboxIds(element) {
-    return [
-      element?.getAttribute?.("aria-controls"),
-      element?.getAttribute?.("aria-owns")
-    ]
-      .filter(Boolean)
-      .flatMap((value) => String(value).split(/\s+/))
-      .filter(Boolean);
+    return Array.from(
+      new Set(
+        [
+          element?.getAttribute?.("aria-controls"),
+          element?.getAttribute?.("aria-owns")
+        ]
+          .filter(Boolean)
+          .flatMap((value) => String(value).split(/\s+/))
+          .filter(Boolean)
+      )
+    );
   }
 
   function scopedListboxes(element, visibleListboxes, initiallyVisible = []) {
@@ -64,41 +68,160 @@
     }
     if (typeof reference.rootNode.getElementById === "function") {
       const byId = reference.rootNode.getElementById(reference.id);
-      if (byId) {
+      if (byId?.isConnected) {
         return byId;
       }
     }
     return (
       Array.from(reference.rootNode.querySelectorAll?.("[id]") || []).find(
-        (candidate) => candidate.id === reference.id
+        (candidate) => candidate.id === reference.id && candidate.isConnected
       ) || null
     );
   }
 
-  function selectedSiblingValue(element) {
-    if (element?.getAttribute?.("role") !== "combobox") {
-      return "";
+  function semanticTokens(...values) {
+    const ignored = new Set([
+      "combobox",
+      "control",
+      "field",
+      "hidden",
+      "input",
+      "label",
+      "option",
+      "select",
+      "trigger",
+      "value"
+    ]);
+    return new Set(
+      values
+        .flatMap((value) =>
+          text(value)
+            .toLowerCase()
+            .split(/[^a-z0-9]+/)
+        )
+        .filter((value) => value.length > 2 && !ignored.has(value))
+    );
+  }
+
+  function hiddenInputBelongsToCombobox(element, input) {
+    const inputId = text(input?.id);
+    const referencedIds = [
+      element?.getAttribute?.("aria-controls"),
+      element?.getAttribute?.("aria-describedby"),
+      element?.getAttribute?.("aria-owns")
+    ]
+      .filter(Boolean)
+      .flatMap((value) => String(value).split(/\s+/));
+    if (inputId && referencedIds.includes(inputId)) {
+      return true;
     }
-    const control = element.closest?.("[class*='__control']");
+
+    const controlTokens = semanticTokens(
+      element?.id,
+      element?.getAttribute?.("name"),
+      element?.getAttribute?.("aria-label"),
+      element?.getAttribute?.("aria-labelledby"),
+      element?.getAttribute?.("data-automation-id"),
+      element?.getAttribute?.("data-field-name"),
+      element?.getAttribute?.("data-testid")
+    );
+    const inputTokens = semanticTokens(
+      input?.id,
+      input?.name,
+      input?.getAttribute?.("data-automation-id"),
+      input?.getAttribute?.("data-field-name"),
+      input?.getAttribute?.("data-testid")
+    );
+    return Array.from(inputTokens).some((token) => controlTokens.has(token));
+  }
+
+  function comboboxCommitEvidence(element, options = {}) {
+    const includeUnassociatedHidden = Boolean(
+      options.includeUnassociatedHidden
+    );
+    const evidence = [];
+    const seen = new Set();
+    const add = (source, value) => {
+      const normalized = text(value);
+      const fingerprint = `${source}\u0000${normalized}`;
+      if (!normalized || seen.has(fingerprint)) {
+        return;
+      }
+      seen.add(fingerprint);
+      evidence.push({ source, value: normalized });
+    };
+
+    add("data-value", element?.getAttribute?.("data-value"));
+    add("aria-valuetext", element?.getAttribute?.("aria-valuetext"));
+
+    const control = element?.closest?.("[class*='__control']");
     const selectedValues = Array.from(
       control?.querySelectorAll?.("[class*='__single-value']") || []
-    )
-      .map((candidate) => text(candidate.textContent))
-      .filter(Boolean);
-    return selectedValues.length === 1 ? selectedValues[0] : "";
+    );
+    for (const [index, candidate] of selectedValues.entries()) {
+      add(
+        `selected-value:${candidate.id || index}`,
+        candidate.textContent
+      );
+    }
+
+    for (const id of controlledListboxIds(element)) {
+      const listbox = element?.ownerDocument?.getElementById?.(id);
+      const selectedOptions = Array.from(
+        listbox?.querySelectorAll?.(
+          "[role='option'][aria-selected='true'], option:checked"
+        ) || []
+      );
+      for (const [index, option] of selectedOptions.entries()) {
+        add(
+          `selected-option:${id}:${option.id || index}`,
+          option.getAttribute?.("data-value") ||
+            option.value ||
+            option.getAttribute?.("aria-label") ||
+            option.textContent
+        );
+      }
+    }
+
+    const scope =
+      element?.closest?.(
+        "[class*='select__container'], [class*='select-shell'], [class*='combobox'], [data-control], .application-question, .field, [role='group']"
+      ) || element?.parentElement;
+    const hiddenInputs = Array.from(
+      scope?.querySelectorAll?.("input[type='hidden']") || []
+    );
+    for (const [index, input] of hiddenInputs.entries()) {
+      if (
+        !includeUnassociatedHidden &&
+        !hiddenInputBelongsToCombobox(element, input)
+      ) {
+        continue;
+      }
+      add(
+        `hidden-value:${input.id || input.name || index}`,
+        input.value || input.getAttribute?.("value")
+      );
+    }
+
+    const tagName = String(element?.tagName || "").toUpperCase();
+    if (!["INPUT", "TEXTAREA", "SELECT"].includes(tagName)) {
+      add("trigger-text", element?.textContent);
+    }
+
+    return evidence;
   }
 
   function committedControlValue(element) {
+    const evidence = comboboxCommitEvidence(element);
     return (
       text(element?.value) ||
-      text(element?.getAttribute?.("data-value")) ||
-      text(element?.getAttribute?.("aria-valuetext")) ||
-      selectedSiblingValue(element) ||
+      evidence[0]?.value ||
       text(element?.textContent)
     );
   }
 
   const api = Object.freeze({
+    comboboxCommitEvidence,
     committedControlValue,
     controlledListboxIds,
     controlReference,
