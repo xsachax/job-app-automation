@@ -15,7 +15,13 @@
       group: "identity",
       input: "text",
       autocomplete: ["given-name"],
-      aliases: ["first name", "given name", "legal first name", "forename"],
+      aliases: [
+        "first name",
+        "given name",
+        "legal first name",
+        "forename",
+        "given or first name"
+      ],
       controls: ["text"],
       placeholder: "Jane"
     },
@@ -91,6 +97,7 @@
         "email",
         "email address",
         "e mail",
+        "electronic mail address",
         "personal email",
         "candidate email",
         "contact email"
@@ -125,6 +132,8 @@
         "mobile",
         "mobile number",
         "telephone",
+        "telephone number",
+        "cell phone",
         "primary phone",
         "contact number",
         "candidate phone"
@@ -454,6 +463,9 @@
         "linkedin url",
         "linkedin profile",
         "linkedin profile url",
+        "linkedin public profile",
+        "professional networking profile",
+        "professional networking profile url",
         "linkedin website"
       ],
       controls: ["text"],
@@ -470,7 +482,9 @@
         "github profile",
         "github profile url",
         "code repository",
-        "code sample url"
+        "code sample url",
+        "code hosting profile",
+        "source code profile"
       ],
       controls: ["text"],
       placeholder: "https://github.com/jane-doe"
@@ -489,7 +503,9 @@
         "website url",
         "personal site",
         "personal url",
-        "professional website"
+        "professional website",
+        "work portfolio",
+        "work samples url"
       ],
       excludeAliases: ["company website"],
       controls: ["text"],

@@ -42,9 +42,10 @@ test("section headings prevent applicant data from filling reference fields", as
 
 test("disabling the extension cancels an in-flight profile fill", async ({ page }) => {
   await installContentPanel(page, {
-    html: `<label>Email address <input id="applicant-email" autocomplete="email"></label>`,
+    html: `<label>Email address <input id="applicant-email" autocomplete="email" required></label>`,
     profile: { email: "applicant@example.com" },
     deferProfile: true,
+    requiredByDefault: false,
   });
 
   const result = await page.evaluate(async () => {
@@ -74,7 +75,7 @@ test("cancelled combobox fill preserves newer user input", async ({ page }) => {
   await installContentPanel(page, {
     html: `
       <label id="school-label" for="school">School</label>
-      <input id="school" role="combobox" aria-labelledby="school-label" aria-controls="school-options">
+      <input id="school" role="combobox" aria-labelledby="school-label" aria-controls="school-options" aria-required="true">
       <div id="school-options" role="listbox" hidden></div>
       <script>
         const input = document.getElementById("school");
@@ -100,6 +101,7 @@ test("cancelled combobox fill preserves newer user input", async ({ page }) => {
       </script>
     `,
     profile: { school: "University of Ottawa" },
+    requiredByDefault: false,
   });
 
   const result = await page.evaluate(async () => {
@@ -192,6 +194,204 @@ test("shows ready fields from availability without preloading profile values", a
   await expect(page.locator("#applicant-email")).toHaveValue(
     "applicant@example.com",
   );
+});
+
+test("matches composite applicant fields from labels, help text, and ATS metadata", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `
+      <section>
+        <h2>Applicant links</h2>
+        <div class="field-shell" aria-required="true" data-field-name="candidate_linkedin_profile">
+          <label for="required-linkedin">
+            LinkedIn URL
+            <span id="linkedin-help">Please provide your LinkedIn URL</span>
+          </label>
+          <input
+            id="required-linkedin"
+            type="url"
+            aria-describedby="linkedin-help"
+          >
+        </div>
+        <div class="field-shell">
+          <label for="optional-linkedin">
+            LinkedIn URL
+            <span>Please provide your LinkedIn URL</span>
+          </label>
+          <input id="optional-linkedin" type="url">
+        </div>
+        <div class="field-shell required" aria-required="false">
+          <label for="explicitly-optional-linkedin">LinkedIn profile URL</label>
+          <input id="explicitly-optional-linkedin" type="url">
+        </div>
+        <div
+          class="application-field"
+          data-mandatory="true"
+          data-field-name="candidate_given_name"
+        >
+          <label for="given-name">Given name Enter your given name</label>
+          <input id="given-name">
+        </div>
+        <div
+          class="form-group"
+          aria-required="true"
+          data-field-name="candidate_github_profile"
+        >
+          <label for="github-profile">Code hosting profile for your source code</label>
+          <input id="github-profile" type="url">
+        </div>
+        <div class="application-question" aria-required="true">
+          <label for="ambiguous-profile">Professional profile URL</label>
+          <input id="ambiguous-profile" type="url">
+        </div>
+      </section>
+    `,
+    profile: {
+      firstName: "Sacha",
+      linkedinUrl: "https://www.linkedin.com/in/sacha",
+      githubUrl: "https://github.com/sacha",
+      portfolioUrl: "https://sacha.example",
+    },
+    requiredByDefault: false,
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 3 });
+  await expect(page.locator("#required-linkedin")).toHaveValue(
+    "https://www.linkedin.com/in/sacha",
+  );
+  await expect(page.locator("#given-name")).toHaveValue("Sacha");
+  await expect(page.locator("#github-profile")).toHaveValue(
+    "https://github.com/sacha",
+  );
+  await expect(page.locator("#optional-linkedin")).toHaveValue("");
+  await expect(page.locator("#explicitly-optional-linkedin")).toHaveValue("");
+  await expect(page.locator("#ambiguous-profile")).toHaveValue("");
+  await expect(page.locator("#ambiguous-profile")).toHaveAttribute(
+    "data-job-autofill-review",
+    /unknown|uncertain/,
+  );
+});
+
+test("fills required native radio groups from parent and member metadata", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `
+      <style>.styled-choice input { opacity: 0; position: absolute; }</style>
+      <div class="application-question required">
+        <p>Employment eligibility</p>
+        <fieldset>
+          <legend>Are you legally authorized to work?</legend>
+          <label class="styled-choice">
+            <input type="radio" name="authorization" value="yes"> Yes
+          </label>
+          <label class="styled-choice">
+            <input type="radio" name="authorization" value="no"> No
+          </label>
+        </fieldset>
+        <label>
+          Explanation (optional)
+          <input id="authorization-explanation">
+        </label>
+      </div>
+      <fieldset>
+        <legend>Are you open to travel for this role?</legend>
+        <label>
+          <input type="radio" name="travel" value="yes" required> Yes
+        </label>
+        <label><input type="radio" name="travel" value="no"> No</label>
+      </fieldset>
+      <fieldset>
+        <legend>Are you legally authorized to work? (optional)</legend>
+        <label><input type="radio" name="optional-authorization" value="yes"> Yes</label>
+        <label><input type="radio" name="optional-authorization" value="no"> No</label>
+      </fieldset>
+      <script>
+        window.authorizationEvents = [];
+        for (const radio of document.querySelectorAll('[name="authorization"]')) {
+          for (const eventName of ["click", "input", "change"]) {
+            radio.addEventListener(eventName, () =>
+              window.authorizationEvents.push(eventName),
+            );
+          }
+        }
+      </script>
+    `,
+    profile: {
+      workAuthorization: "yes",
+      willingToTravel: "no",
+    },
+    requiredByDefault: false,
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 2 });
+  await expect(
+    page.locator('input[name="authorization"][value="yes"]'),
+  ).toBeChecked();
+  await expect(page.locator('input[name="travel"][value="no"]')).toBeChecked();
+  await expect(page.locator("#authorization-explanation")).toHaveValue("");
+  await expect(
+    page.locator('input[name="optional-authorization"]:checked'),
+  ).toHaveCount(0);
+  expect(
+    await page.evaluate(
+      () =>
+        (globalThis as unknown as { authorizationEvents: string[] })
+          .authorizationEvents,
+    ),
+  ).toEqual(expect.arrayContaining(["click", "input", "change"]));
+});
+
+test("fills required ARIA radios while leaving negated choices manual", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `
+      <div class="application-field">
+        <div id="age-question">Are you 18 years of age or older?</div>
+        <p id="age-help">Select the response that applies to you.</p>
+        <div
+          role="radiogroup"
+          aria-labelledby="age-question"
+          aria-describedby="age-help"
+          aria-required="true"
+        >
+          <div role="radio" aria-checked="false" data-value="true">Yes</div>
+          <div role="radio" aria-checked="false" data-value="false">No</div>
+        </div>
+      </div>
+      <fieldset aria-required="true">
+        <legend>Are you not willing to relocate?</legend>
+        <div role="radio" aria-checked="false" data-value="yes">Yes</div>
+        <div role="radio" aria-checked="false" data-value="no">No</div>
+      </fieldset>
+      <script>
+        for (const group of document.querySelectorAll('[role="radiogroup"], fieldset')) {
+          for (const radio of group.querySelectorAll('[role="radio"]')) {
+            radio.addEventListener("click", () => {
+              for (const candidate of group.querySelectorAll('[role="radio"]')) {
+                candidate.setAttribute("aria-checked", String(candidate === radio));
+              }
+            });
+          }
+        }
+      </script>
+    `,
+    profile: {
+      isAtLeast18: "yes",
+      willingToRelocate: "yes",
+    },
+    requiredByDefault: false,
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 1 });
+  await expect(
+    page.locator('[role="radiogroup"] [role="radio"][data-value="true"]'),
+  ).toHaveAttribute("aria-checked", "true");
+  await expect(
+    page.locator('fieldset [role="radio"][aria-checked="true"]'),
+  ).toHaveCount(0);
 });
 
 test("answers standard negated sponsorship questions safely", async ({ page }) => {

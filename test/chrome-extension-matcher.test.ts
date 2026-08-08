@@ -24,6 +24,7 @@ interface Matcher {
       autocomplete?: string;
       signals: { text: string; weight: number; source?: string }[];
       controlKind: string;
+      optionTexts?: string[];
     },
     definitions: unknown[],
   ): MatchDefinition | null;
@@ -32,6 +33,7 @@ interface Matcher {
       autocomplete?: string;
       signals: { text: string; weight: number; source?: string }[];
       controlKind: string;
+      optionTexts?: string[];
     },
     definitions: unknown[],
   ): {
@@ -305,9 +307,153 @@ describe("Chrome extension field matching", () => {
     );
 
     expect(email?.definition.key).toBe("email");
-    expect(email?.score).toBe(120);
+    expect(email?.score).toBe(132);
     expect(linkedIn?.definition.key).toBe("linkedinUrl");
     expect(github?.definition.key).toBe("githubUrl");
+  });
+
+  it("resolves composite and paraphrased applicant fields without exact labels", () => {
+    const fields = [
+      [
+        "LinkedIn URL Please provide your LinkedIn URL",
+        "text",
+        "linkedinUrl",
+      ],
+      [
+        "Country Please select your country or region",
+        "select",
+        "country",
+      ],
+      ["Given name Enter your given name", "text", "firstName"],
+      ["Electronic mail address (required)", "text", "email"],
+      ["Code hosting profile for your source code", "text", "githubUrl"],
+      ["Work portfolio Please provide your work samples URL", "text", "portfolioUrl"],
+      ["School Please provide your school", "text", "school"],
+    ];
+
+    for (const [label, controlKind, expectedKey] of fields) {
+      expect(
+        matcher.findBestDefinition(
+          {
+            signals: [{ text: label, weight: 1, source: "label" }],
+            controlKind,
+          },
+          profileSchema.fields,
+        )?.definition.key,
+        label,
+      ).toBe(expectedKey);
+    }
+  });
+
+  it("aggregates descriptive and ATS metadata while retaining contradiction guards", () => {
+    expect(
+      matcher.findBestDefinition(
+        {
+          signals: [
+            { text: "Professional profile", weight: 1, source: "label" },
+            {
+              text: "Please provide the public profile used for recruiting",
+              weight: 0.74,
+              source: "description",
+            },
+            {
+              text: "candidate_linkedin_profile_url",
+              weight: 0.92,
+              source: "platform",
+            },
+          ],
+          controlKind: "text",
+        },
+        profileSchema.fields,
+      )?.definition.key,
+    ).toBe("linkedinUrl");
+
+    expect(
+      matcher.findBestDefinition(
+        {
+          signals: [
+            {
+              text: "Referrer's LinkedIn URL Please provide their LinkedIn URL",
+              weight: 1,
+              source: "label",
+            },
+          ],
+          controlKind: "text",
+        },
+        profileSchema.fields,
+      ),
+    ).toBeNull();
+  });
+
+  it("uses radio option shape without reversing negated saved choices", () => {
+    const positive = matcher.findBestDefinition(
+      {
+        signals: [
+          {
+            text: "Are you open to travel for this role?",
+            weight: 1,
+            source: "prompt",
+          },
+        ],
+        controlKind: "choice",
+        optionTexts: ["Yes", "No"],
+      },
+      profileSchema.fields,
+    );
+    const negated = matcher.findBestDefinition(
+      {
+        signals: [
+          {
+            text: "Are you not willing to relocate?",
+            weight: 1,
+            source: "prompt",
+          },
+        ],
+        controlKind: "choice",
+        optionTexts: ["Yes", "No"],
+      },
+      profileSchema.fields,
+    );
+
+    expect(positive?.definition.key).toBe("willingToTravel");
+    expect(negated).toBeNull();
+  });
+
+  it("keeps negated consequential identity choices manual", () => {
+    const positive = matcher.findBestDefinition(
+      {
+        signals: [
+          {
+            text: "Do you identify as transgender?",
+            weight: 1,
+            source: "prompt",
+          },
+        ],
+        controlKind: "choice",
+        optionTexts: ["Yes", "No"],
+      },
+      profileSchema.fields,
+    );
+
+    expect(positive?.definition.key).toBe("transgenderStatus");
+    for (const prompt of [
+      "Do you not identify as transgender?",
+      "Do you not have a disability?",
+      "Are you not a protected veteran?",
+      "Do you not identify as Hispanic or Latino?",
+    ]) {
+      expect(
+        matcher.findBestDefinition(
+          {
+            signals: [{ text: prompt, weight: 1, source: "prompt" }],
+            controlKind: "choice",
+            optionTexts: ["Yes", "No"],
+          },
+          profileSchema.fields,
+        ),
+        prompt,
+      ).toBeNull();
+    }
   });
 
   it("recognizes the reported education and application fields", () => {

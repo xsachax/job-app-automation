@@ -1,6 +1,17 @@
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 
+interface MockElement {
+  tagName?: string;
+  parentElement?: MockElement | null;
+  getAttribute(name: string): string | null;
+  hasAttribute(name: string): boolean;
+  closest(selector: string): MockElement | null;
+  matches?(selector: string): boolean;
+  querySelector(selector: string): MockElement | null;
+  querySelectorAll?(selector: string): MockElement[];
+}
+
 interface AtsAdapter {
   candidateSelector: string;
   optionSelector: string;
@@ -11,12 +22,7 @@ interface AtsAdapter {
   metadataSignals(element: {
     getAttribute(name: string): string | null;
   }): { text: string; weight: number; source: string }[];
-  hasRequiredMetadata(element: {
-    getAttribute(name: string): string | null;
-    hasAttribute(name: string): boolean;
-    closest(selector: string): unknown;
-    querySelector(selector: string): unknown;
-  }): boolean;
+  hasRequiredMetadata(element: MockElement): boolean;
 }
 
 const require = createRequire(import.meta.url);
@@ -24,6 +30,35 @@ require("../apps/chrome-extension/lib/workday-adapter.js");
 const adapter = require(
   "../apps/chrome-extension/lib/ats-adapter.js",
 ) as AtsAdapter;
+
+function mockElement(
+  attributes: Record<string, string> = {},
+  tagName = "INPUT",
+  children: MockElement[] = [],
+): MockElement {
+  return {
+    tagName,
+    parentElement: null,
+    getAttribute(name) {
+      return attributes[name] ?? null;
+    },
+    hasAttribute(name) {
+      return name in attributes;
+    },
+    closest() {
+      return null;
+    },
+    matches() {
+      return false;
+    },
+    querySelector() {
+      return null;
+    },
+    querySelectorAll() {
+      return children;
+    },
+  };
+}
 
 describe("Chrome extension ATS adapter", () => {
   it.each([
@@ -111,6 +146,26 @@ describe("Chrome extension ATS adapter", () => {
       }),
     ).toBe(true);
 
+    const ariaRequiredAttributes: Record<string, string> = {
+      "aria-required": "true",
+    };
+    expect(
+      adapter.hasRequiredMetadata({
+        getAttribute(name) {
+          return ariaRequiredAttributes[name] ?? null;
+        },
+        hasAttribute(name) {
+          return name in ariaRequiredAttributes;
+        },
+        closest() {
+          return null;
+        },
+        querySelector() {
+          return null;
+        },
+      }),
+    ).toBe(true);
+
     const optionalAttributes: Record<string, string> = {
       "data-required": "false",
     };
@@ -130,5 +185,36 @@ describe("Chrome extension ATS adapter", () => {
         },
       }),
     ).toBe(false);
+  });
+
+  it("scopes ancestor required metadata and honors explicit optional metadata", () => {
+    const requiredControl = mockElement();
+    const requiredWrapper = mockElement(
+      { "data-required": "true" },
+      "DIV",
+      [requiredControl],
+    );
+    requiredControl.parentElement = requiredWrapper;
+    expect(adapter.hasRequiredMetadata(requiredControl)).toBe(true);
+
+    const scopedControl = mockElement();
+    const optionalSibling = mockElement();
+    const sharedWrapper = mockElement(
+      { "data-required": "true" },
+      "DIV",
+      [scopedControl, optionalSibling],
+    );
+    scopedControl.parentElement = sharedWrapper;
+    optionalSibling.parentElement = sharedWrapper;
+    expect(adapter.hasRequiredMetadata(scopedControl)).toBe(false);
+
+    const explicitlyOptionalControl = mockElement();
+    const conflictingWrapper = mockElement(
+      { "aria-required": "false", class: "required" },
+      "DIV",
+      [explicitlyOptionalControl],
+    );
+    explicitlyOptionalControl.parentElement = conflictingWrapper;
+    expect(adapter.hasRequiredMetadata(explicitlyOptionalControl)).toBe(false);
   });
 });

@@ -72,6 +72,7 @@
   ];
 
   const requiredMetadataAttributes = [
+    "aria-required",
     "data-required",
     "data-is-required",
     "data-mandatory",
@@ -97,6 +98,13 @@
     "[data-field-required='true' i]",
     "[data-required-field='true' i]"
   ].join(",");
+  const requiredClassNames = new Set([
+    "field-required",
+    "is-required",
+    "mandatory",
+    "required",
+    "required-field"
+  ]);
 
   const candidateSelector = [
     "input",
@@ -117,7 +125,7 @@
     "[data-testid*='option']"
   ].join(",");
 
-  const questionContainerSelector = [
+  const explicitQuestionContainerSelector = [
     ".application-question",
     ".application-field",
     ".form-group",
@@ -126,10 +134,7 @@
     "[data-automation-id*='question']",
     "[data-testid*='field']",
     "[data-testid*='question']",
-    "[data-test*='field']",
-    "fieldset",
-    "[role='radiogroup']",
-    "[role='group']"
+    "[data-test*='field']"
   ].join(",");
 
   function hostnameOf(value) {
@@ -225,7 +230,49 @@
     );
   }
 
-  function isSingleQuestionContainer(container) {
+  function hasExplicitOptionalMetadata(element) {
+    return requiredMetadataAttributes.some((attribute) => {
+      const present =
+        element?.hasAttribute?.(attribute) ??
+        (element?.getAttribute?.(attribute) !== null &&
+          element?.getAttribute?.(attribute) !== undefined);
+      if (!present) {
+        return false;
+      }
+      return [
+        "0",
+        "false",
+        "no",
+        "not mandatory",
+        "not required",
+        "optional"
+      ].includes(
+        String(element?.getAttribute?.(attribute) || "")
+          .trim()
+          .toLowerCase()
+      );
+    });
+  }
+
+  function choiceKind(control) {
+    const type = String(control.getAttribute?.("type") || "").toLowerCase();
+    const role = String(control.getAttribute?.("role") || "").toLowerCase();
+    return ["radio", "checkbox"].includes(type)
+      ? type
+      : ["radio", "checkbox"].includes(role)
+        ? role
+        : "";
+  }
+
+  function hasRequiredClass(element) {
+    const classNames = String(element?.getAttribute?.("class") || "")
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(Boolean);
+    return classNames.some((className) => requiredClassNames.has(className));
+  }
+
+  function isSingleQuestionContainer(container, expectedElements = []) {
     const controls = Array.from(
       container?.querySelectorAll?.(candidateSelector) || []
     ).filter(
@@ -238,15 +285,17 @@
       return true;
     }
 
-    const choiceKinds = controls.map((control) => {
-      const type = String(control.getAttribute?.("type") || "").toLowerCase();
-      const role = String(control.getAttribute?.("role") || "").toLowerCase();
-      return ["radio", "checkbox"].includes(type)
-        ? type
-        : ["radio", "checkbox"].includes(role)
-          ? role
-          : "";
-    });
+    const expected = new Set(expectedElements || []);
+    const expectedChoices = [...expected].filter((control) => choiceKind(control));
+    if (expectedChoices.length) {
+      const choiceControls = controls.filter((control) => choiceKind(control));
+      return (
+        choiceControls.length > 0 &&
+        choiceControls.every((control) => expected.has(control))
+      );
+    }
+
+    const choiceKinds = controls.map(choiceKind);
     if (!choiceKinds[0] || choiceKinds.some((kind) => kind !== choiceKinds[0])) {
       return false;
     }
@@ -271,29 +320,74 @@
     );
   }
 
-  function hasRequiredMetadata(element, adapter = null) {
+  function requirementAncestors(element) {
+    const candidates = [];
+    let current = element?.parentElement;
+    for (let depth = 0; current && depth < 6; depth += 1) {
+      if (["BODY", "FORM", "MAIN"].includes(current.tagName)) {
+        break;
+      }
+      if (
+        requiredMetadataAttributes.some((attribute) =>
+          current.hasAttribute?.(attribute)
+        ) ||
+        hasRequiredClass(current) ||
+        current.matches?.(explicitQuestionContainerSelector)
+      ) {
+        candidates.push(current);
+      }
+      current = current.parentElement;
+    }
+    return candidates;
+  }
+
+  function hasRequiredMetadata(
+    element,
+    adapter = null,
+    expectedElements = []
+  ) {
+    const scopedContainer = questionContainer(
+      element,
+      adapter,
+      expectedElements
+    );
+    if (
+      hasExplicitOptionalMetadata(element) ||
+      (scopedContainer !== element &&
+        hasExplicitOptionalMetadata(scopedContainer))
+    ) {
+      return false;
+    }
     if (adapter?.hasRequiredMetadata?.(element)) {
       return true;
     }
     const candidates = [
       element,
       element?.closest?.("fieldset, [role='group'], [role='radiogroup']"),
-      questionContainer(element)
+      scopedContainer,
+      ...requirementAncestors(element)
     ].filter(Boolean);
     for (const candidate of new Set(candidates)) {
+      if (hasExplicitOptionalMetadata(candidate)) {
+        continue;
+      }
       const hasQuestionScope =
+        candidate === element ||
+        isSingleQuestionContainer(candidate, expectedElements);
+      const hasStrictQuestionScope =
         candidate === element || isSingleQuestionContainer(candidate);
       if (
         hasQuestionScope &&
-        requiredMetadataAttributes.some((attribute) =>
-          requiredMetadataValue(candidate, attribute)
-        )
+        (hasRequiredClass(candidate) ||
+          requiredMetadataAttributes.some((attribute) =>
+            requiredMetadataValue(candidate, attribute)
+          ))
       ) {
         return true;
       }
       try {
         if (
-          hasQuestionScope &&
+          hasStrictQuestionScope &&
           candidate.querySelector?.(requiredMarkerSelector)
         ) {
           return true;
@@ -305,12 +399,25 @@
     return false;
   }
 
-  function questionContainer(element, adapter = null) {
-    const semanticContainer =
-      adapter?.questionContainer?.(element) ||
-      element?.closest?.(questionContainerSelector);
+  function questionContainer(element, adapter = null, expectedElements = []) {
+    const semanticContainer = adapter?.questionContainer?.(element);
     if (semanticContainer) {
       return semanticContainer;
+    }
+    const explicitContainer = element?.closest?.(
+      explicitQuestionContainerSelector
+    );
+    if (
+      explicitContainer &&
+      isSingleQuestionContainer(explicitContainer, expectedElements)
+    ) {
+      return explicitContainer;
+    }
+    const groupedContainer = element?.closest?.(
+      "fieldset, [role='radiogroup'], [role='group']"
+    );
+    if (groupedContainer) {
+      return groupedContainer;
     }
     const parent = element?.parentElement;
     if (

@@ -8,8 +8,39 @@
     "requiresSponsorship"
   ]);
   const currentLocationFieldKeys = new Set(["city", "location"]);
+  const directChoiceNegationKeys = new Set([
+    "willingToRelocate",
+    "willingToTravel",
+    "isAtLeast18",
+    "citizenshipStatus",
+    "gender",
+    "hispanicLatino",
+    "transgenderStatus",
+    "raceEthnicity",
+    "disabilityStatus",
+    "veteranStatus"
+  ]);
   const locationPreferencePattern =
     /\b(?:desired|prefer(?:red|ence|ences)?|relocat(?:e|ed|ing|ion)|willing)\b/;
+  const instructionTokens = new Set([
+    "a",
+    "an",
+    "answer",
+    "choose",
+    "enter",
+    "input",
+    "mandatory",
+    "optional",
+    "please",
+    "provide",
+    "required",
+    "response",
+    "select",
+    "the",
+    "value",
+    "your"
+  ]);
+  const requirementTokens = new Set(["mandatory", "optional", "required"]);
   const thirdPartyContext = [
     "reference",
     "references",
@@ -356,6 +387,25 @@
     return normalized ? normalized.split(" ") : [];
   }
 
+  function semanticTokens(value, preserveRequirement = false) {
+    const seen = new Set();
+    return tokens(value).filter((token) => {
+      if (
+        (instructionTokens.has(token) &&
+          !(preserveRequirement && requirementTokens.has(token))) ||
+        seen.has(token)
+      ) {
+        return false;
+      }
+      seen.add(token);
+      return true;
+    });
+  }
+
+  function semanticSignature(value, preserveRequirement = false) {
+    return semanticTokens(value, preserveRequirement).join(" ");
+  }
+
   function editDistance(left, right) {
     if (left === right) {
       return 0;
@@ -390,11 +440,8 @@
     return editDistance(left, right) <= 1;
   }
 
-  function normalizeExactSignal(value) {
-    return normalizeText(value)
-      .replace(/^(?:optional|required) /, "")
-      .replace(/ (?:optional|required)$/, "")
-      .trim();
+  function normalizeExactSignal(value, preserveRequirement = false) {
+    return semanticSignature(value, preserveRequirement);
   }
 
   function scoreText(value, alias) {
@@ -411,10 +458,32 @@
 
     const valueTokens = tokens(normalizedValue);
     const aliasTokens = tokens(normalizedAlias);
+    const semanticValueTokens = semanticTokens(normalizedValue);
+    const semanticAliasTokens = semanticTokens(normalizedAlias, true);
+    if (
+      semanticValueTokens.length &&
+      semanticAliasTokens.length &&
+      semanticValueTokens.join(" ") === semanticAliasTokens.join(" ")
+    ) {
+      return 100;
+    }
     const paddedValue = ` ${normalizedValue} `;
 
     if (paddedValue.includes(` ${normalizedAlias} `)) {
-      return Math.max(78, 88 - (valueTokens.length - aliasTokens.length) * 2);
+      const unmatchedTokens = semanticValueTokens.filter(
+        (valueToken) =>
+          !semanticAliasTokens.some((aliasToken) =>
+            equivalentToken(aliasToken, valueToken)
+          )
+      ).length;
+      return Math.max(
+        78,
+        Math.min(
+          98,
+          94 + Math.min(semanticAliasTokens.length - 1, 3) * 2 -
+            unmatchedTokens * 3
+        )
+      );
     }
 
     const matchingAliasTokens = aliasTokens.filter((aliasToken) =>
@@ -434,6 +503,50 @@
     }
 
     return 0;
+  }
+
+  function hasUnsupportedChoiceNegation(definition, signals) {
+    if (!directChoiceNegationKeys.has(definition.key)) {
+      return false;
+    }
+    return (signals || [])
+      .filter(
+        (signal) =>
+          !machineSignalSources.has(signal.source) &&
+          !["description", "section"].includes(signal.source)
+      )
+      .some((signal) => {
+        const normalized = normalizeText(signal.text);
+        return (
+          /\b(?:not|never|no longer|unable|unwilling)\b.{0,28}\b(?:willing|open|able|identify|identified|citizen|veteran|disabled|disability|hispanic|latino|transgender|gender)\b/.test(
+            normalized
+          ) ||
+          /\b(?:do not|don t|does not|doesn t|are not|aren t|is not|isn t)\b.{0,28}\b(?:identify|have|consider|willing|able)\b/.test(
+            normalized
+          )
+        );
+      });
+  }
+
+  function controlEvidenceBonus(definition, context) {
+    const options = (context.optionTexts || []).map(normalizeText).filter(Boolean);
+    if (!options.length) {
+      return 0;
+    }
+    const canonicalOptions = new Set(
+      options.flatMap((option) => [
+        canonicalChoice(option, definition.key),
+        tokens(option)[0]
+      ])
+    );
+    if (
+      definition.controls?.includes("choice") &&
+      canonicalOptions.has("yes") &&
+      canonicalOptions.has("no")
+    ) {
+      return 2;
+    }
+    return 1;
   }
 
   function isExcluded(definition, signals) {
@@ -851,7 +964,8 @@
       hasThirdPartyContext(definition, context.signals) ||
       (genericLabel && !contextualGeneric) ||
       !eligibilityDefinitionMatches(definition, context.signals) ||
-      !canPerformDefinitionMatches(definition, context.signals)
+      !canPerformDefinitionMatches(definition, context.signals) ||
+      hasUnsupportedChoiceNegation(definition, context.signals)
     ) {
       return 0;
     }
@@ -867,33 +981,41 @@
         (value) => autocompleteTokens.includes(normalizeText(value))
       )
     ) {
-      return 120;
+      return 132;
     }
 
     let bestScore = contextualGeneric ? 88 : 0;
-    const corroboratingSources = new Set();
+    const corroboratingEvidence = new Set();
     if (contextualGeneric) {
-      corroboratingSources.add("generic-context");
+      corroboratingEvidence.add("generic-context");
     }
     for (const signal of context.signals || []) {
       let signalScore = 0;
       for (const alias of definition.aliases || []) {
-        if (
-          (definition.exactAliases || []).includes(alias) &&
-          normalizeExactSignal(signal.text) !== normalizeText(alias)
-        ) {
-          continue;
-        }
-        const weightedScore = scoreText(signal.text, alias) * (signal.weight || 1);
+        const isExactAlias = (definition.exactAliases || []).includes(alias);
+        const semanticExact =
+          normalizeExactSignal(signal.text) === normalizeExactSignal(alias, true);
+        const aliasScore = Math.max(
+          scoreText(signal.text, alias),
+          semanticExact ? (isExactAlias ? 112 : 108) : 0
+        );
+        const weightedScore = aliasScore * (signal.weight || 1);
         signalScore = Math.max(signalScore, weightedScore);
         bestScore = Math.max(bestScore, weightedScore);
       }
       if (signalScore >= UNCERTAIN_SCORE) {
-        corroboratingSources.add(signal.source || signal.text);
+        corroboratingEvidence.add(
+          semanticSignature(signal.text) || normalizeText(signal.text)
+        );
       }
     }
 
-    return Math.min(120, bestScore + Math.max(0, corroboratingSources.size - 1) * 4);
+    return Math.min(
+      140,
+      bestScore +
+      Math.min(12, Math.max(0, corroboratingEvidence.size - 1) * 4) +
+        controlEvidenceBonus(definition, context)
+    );
   }
 
   function rankDefinitions(context, definitions) {
