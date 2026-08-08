@@ -75,6 +75,8 @@ npm run discover -- "Y Combinator"
   scraping for Apple, plus community GitHub job boards (SimplifyJobs, vanshb03) for the long
   tail of employers, classified to US/Canada entry-level roles. See [Discovery pipeline](#discovery-pipeline).
 - **Two separate queues** — US and Canada, newest-first, with last-24h / 7d / 30d filters.
+- **Rate-safe dashboard refreshes** — the shared scrape control enforces a durable two-hour
+  cooldown and shows a live countdown before the next run can start.
 - **Configurable, nothing hardcoded** — countries, max years of experience, degree/
   internship gates, extra role/exclude keywords, scraper query terms and per-source
   enable/disable all live in the **Settings** page (backed by a `DiscoveryConfig` record).
