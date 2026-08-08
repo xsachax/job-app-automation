@@ -29,6 +29,7 @@ interface RuntimeState {
 interface FixtureState {
   documentShadowOptionClicks: number;
   events: { type: string; target: string; value: string }[];
+  identityOptionClicks: number;
   model: Record<string, string | boolean>;
   replacements: Record<string, number>;
   unrelatedOptionClicks: number;
@@ -746,6 +747,132 @@ test.describe("unpacked extension non-text runtime", () => {
       await expect(popup.locator("[data-notice]")).toHaveText(
         "Filled 0 fields. Review the page.",
       );
+    } finally {
+      await runtime.close();
+      await closeServer(fixture.server);
+    }
+  });
+
+  test("does not clear a query after newer component commit evidence appears", async () => {
+    const fixture = await startFixtureServer();
+    const runtime = await launchUnpackedExtension([
+      "--host-resolver-rules=MAP ats.test 127.0.0.1",
+    ]);
+    try {
+      const applicationUrl = `${fixture.origin}/application?mode=late-commit-evidence`;
+      const application = await launchFromDashboard(runtime, applicationUrl);
+      const popup = await openPopupForPage(runtime, application);
+
+      await popup.locator("[data-fill]").click();
+      const source = application.locator('[data-testid="rejected-source"]');
+      await expect(source).toHaveValue("LinkedIn");
+      await expect(source).toHaveAttribute(
+        "data-value",
+        "employee-referral",
+      );
+      const state = await application.evaluate(
+        () =>
+          (globalThis as unknown as { __atsHarness: FixtureState }).__atsHarness,
+      );
+      expect(state.model["rejected-source-committed"]).toBe(
+        "employee-referral",
+      );
+      expect(eventsFor(state, "rejected-source")).not.toContain("change");
+      expect(eventsFor(state, "rejected-source")).not.toContain("blur");
+      await expect
+        .poll(() => extensionState(popup, applicationUrl))
+        .toMatchObject({
+          session: {
+            progress: {
+              answered: 0,
+              filledByExtension: 0,
+              needsAttention: 1,
+              unknownFields: [{ status: "failed" }],
+            },
+          },
+        });
+      await expect(popup.locator("[data-notice]")).toHaveText(
+        "Filled 0 fields. Review the page.",
+      );
+    } finally {
+      await runtime.close();
+      await closeServer(fixture.server);
+    }
+  });
+
+  test("resolves the compatible replacement behind an unrelated same-ID node", async () => {
+    const fixture = await startFixtureServer();
+    const runtime = await launchUnpackedExtension([
+      "--host-resolver-rules=MAP ats.test 127.0.0.1",
+    ]);
+    try {
+      const applicationUrl = `${fixture.origin}/application?mode=identity-combo`;
+      const application = await launchFromDashboard(runtime, applicationUrl);
+      const popup = await openPopupForPage(runtime, application);
+
+      await popup.locator("[data-fill]").click();
+      await expect(
+        application.locator('[data-testid="identity-source"]'),
+      ).toHaveText("LinkedIn");
+      await expect(
+        application.locator('[data-testid="identity-source-unrelated"]'),
+      ).toHaveText("Unrelated control");
+      const state = await application.evaluate(
+        () =>
+          (globalThis as unknown as { __atsHarness: FixtureState }).__atsHarness,
+      );
+      expect(state.identityOptionClicks).toBe(1);
+      expect(state.model["identity-source"]).toBe("linkedin");
+      await expect
+        .poll(() => extensionState(popup, applicationUrl))
+        .toMatchObject({
+          session: {
+            progress: {
+              filledByExtension: 1,
+              needsAttention: 0,
+            },
+          },
+        });
+    } finally {
+      await runtime.close();
+      await closeServer(fixture.server);
+    }
+  });
+
+  test("fails closed when same-ID replacements are semantically ambiguous", async () => {
+    const fixture = await startFixtureServer();
+    const runtime = await launchUnpackedExtension([
+      "--host-resolver-rules=MAP ats.test 127.0.0.1",
+    ]);
+    try {
+      const applicationUrl = `${fixture.origin}/application?mode=identity-ambiguous`;
+      const application = await launchFromDashboard(runtime, applicationUrl);
+      const popup = await openPopupForPage(runtime, application);
+
+      await popup.locator("[data-fill]").click();
+      await expect(
+        application.locator('[data-probe="compatible-one"]'),
+      ).toHaveText("Choose a source");
+      await expect(
+        application.locator('[data-probe="compatible-two"]'),
+      ).toHaveText("Choose a source");
+      const state = await application.evaluate(
+        () =>
+          (globalThis as unknown as { __atsHarness: FixtureState }).__atsHarness,
+      );
+      expect(state.identityOptionClicks).toBe(0);
+      expect(state.model["identity-source"]).toBeUndefined();
+      await expect
+        .poll(() => extensionState(popup, applicationUrl))
+        .toMatchObject({
+          session: {
+            progress: {
+              filledByExtension: 0,
+              needsAttention: 1,
+              unknownFields: [{ status: "failed" }],
+            },
+          },
+        });
     } finally {
       await runtime.close();
       await closeServer(fixture.server);

@@ -1760,7 +1760,7 @@
       return Array.from(
         new Set(
           interactions
-            .resolveControlledListboxes(element)
+            .resolveControlledListboxes(element, { initiallyVisible })
             .flatMap(optionsFrom)
         )
       );
@@ -1820,12 +1820,25 @@
       : "";
     let ownedValue = isInput(question.elements[0]) ? originalValue : null;
     let ownedState = interactions.controlOwnershipState(question.elements[0]);
+    let initiallyVisible = [];
+    const commitStateFor = (control) =>
+      interactions.componentCommitState(control, {
+        initiallyVisible,
+        visibleListboxes: visibleListboxes(control)
+      });
+    let ownedCommitState = commitStateFor(question.elements[0]);
     let committed = false;
     const restoreTypedValue = () => {
+      const liveControl = interactions.resolveControl(reference);
       const restored = interactions.restoreOwnedControlValue(
         reference,
         ownedValue,
-        originalValue
+        originalValue,
+        ownedCommitState,
+        {
+          initiallyVisible,
+          visibleListboxes: liveControl ? visibleListboxes(liveControl) : []
+        }
       );
       if (restored) {
         dispatchValueEvents(restored);
@@ -1840,7 +1853,7 @@
           "The field was replaced before the extension could open it."
         );
       }
-      const initiallyVisible = visibleListboxes(current);
+      initiallyVisible = visibleListboxes(current);
       current.focus?.();
       dispatchPointerClick(current);
       await wait(60);
@@ -1879,6 +1892,7 @@
         setNativeProperty(current, "value", value);
         ownedValue = String(current.value);
         ownedState = interactions.controlOwnershipState(current);
+        ownedCommitState = commitStateFor(current);
         const EventConstructor =
           current.ownerDocument?.defaultView?.Event || Event;
         current.dispatchEvent(new EventConstructor("input", { bubbles: true }));
@@ -1936,16 +1950,25 @@
           String(current.value) !== originalValue
         ) {
           assertActive();
-          current = interactions.resolveOwnedControl(reference, ownedState);
+          current = interactions.restoreOwnedControlValue(
+            reference,
+            ownedValue,
+            originalValue,
+            ownedCommitState,
+            {
+              initiallyVisible,
+              visibleListboxes: visibleListboxes(current)
+            }
+          );
           if (!isInput(current)) {
             return fillFailure(
               question,
-              "The field was replaced before the extension could choose a fallback option."
+              "The field changed before the extension could prepare fallback options."
             );
           }
-          setNativeProperty(current, "value", originalValue);
           ownedValue = String(current.value);
           ownedState = interactions.controlOwnershipState(current);
+          ownedCommitState = commitStateFor(current);
           const EventConstructor =
             current.ownerDocument?.defaultView?.Event || Event;
           current.dispatchEvent(
@@ -2028,7 +2051,9 @@
       const commitEvidenceBeforeClick = new Set(
         interactions
           .comboboxCommitEvidence(current, {
-            includeUnassociatedHidden: true
+            initiallyVisible,
+            includeUnassociatedHidden: true,
+            visibleListboxes: visibleListboxes(current)
           })
           .map(
             (evidence) => `${evidence.source}\u0000${evidence.value}`
@@ -2075,7 +2100,9 @@
         }
         const committedEvidence = interactions
           .comboboxCommitEvidence(current, {
-            includeUnassociatedHidden: true
+            initiallyVisible,
+            includeUnassociatedHidden: true,
+            visibleListboxes: visibleListboxes(current)
           })
           .filter(
             (evidence) =>

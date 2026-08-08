@@ -801,6 +801,25 @@
         </div>
       </section>
 
+      <section id="identity-combo-controls" hidden>
+        <h2>Same-ID semantic replacement</h2>
+        <div class="field application-question">
+          <label id="identity-source-label" for="identity-source">
+            How did you hear about us? *
+          </label>
+          <button
+            id="identity-source"
+            data-testid="identity-source"
+            type="button"
+            role="combobox"
+            aria-labelledby="identity-source-label"
+            aria-controls="identity-source-listbox"
+            aria-expanded="false"
+            aria-required="true"
+          >Choose a source</button>
+        </div>
+      </section>
+
       <section id="shadow-combo-controls" hidden>
         <h2>Shadow-root custom combobox ownership</h2>
         <div id="shadow-combo-host"></div>
@@ -848,6 +867,7 @@
           },
           replacements: {},
           documentShadowOptionClicks: 0,
+          identityOptionClicks: 0,
           unrelatedOptionClicks: 0,
           shadowOptionClicks: 0,
           staleOptionClicks: 0,
@@ -1228,33 +1248,41 @@
               aria-required="true"
             >Choose a source</button>
             <input id="shadow-source-value" type="hidden" name="shadow_source">
-            <div id="shadow-source-listbox" role="listbox" hidden>
-              <div
-                id="shadow-source-option"
-                role="option"
-                data-value="linkedin"
-              >LinkedIn</div>
-            </div>
           </div>
         `;
         const shadowTrigger = shadowRoot.querySelector("#shadow-source-trigger");
-        const shadowListbox = shadowRoot.querySelector("#shadow-source-listbox");
-        const shadowOption = shadowRoot.querySelector("#shadow-source-option");
+        let shadowHydrationStarted = false;
         shadowTrigger.addEventListener("click", () => {
           shadowTrigger.setAttribute("aria-expanded", "true");
-          shadowListbox.hidden = false;
-        });
-        shadowOption.addEventListener("click", () => {
-          shadowTrigger.dataset.value = shadowOption.dataset.value;
-          shadowTrigger.setAttribute("aria-valuetext", shadowOption.textContent);
-          shadowTrigger.setAttribute("aria-expanded", "false");
-          shadowTrigger.textContent = shadowOption.textContent;
-          shadowRoot.querySelector("#shadow-source-value").value =
-            shadowOption.dataset.value;
-          shadowListbox.hidden = true;
-          harness.shadowOptionClicks += 1;
-          harness.model["shadow-source"] = shadowOption.dataset.value;
-          renderModel();
+          if (shadowHydrationStarted) return;
+          shadowHydrationStarted = true;
+          setTimeout(() => {
+            const shadowListbox = document.createElement("div");
+            shadowListbox.id = "shadow-source-listbox";
+            shadowListbox.setAttribute("role", "listbox");
+            const shadowOption = document.createElement("div");
+            shadowOption.id = "shadow-source-option";
+            shadowOption.setAttribute("role", "option");
+            shadowOption.dataset.value = "linkedin";
+            shadowOption.textContent = "LinkedIn";
+            shadowOption.addEventListener("click", () => {
+              shadowTrigger.dataset.value = shadowOption.dataset.value;
+              shadowTrigger.setAttribute(
+                "aria-valuetext",
+                shadowOption.textContent
+              );
+              shadowTrigger.setAttribute("aria-expanded", "false");
+              shadowTrigger.textContent = shadowOption.textContent;
+              shadowRoot.querySelector("#shadow-source-value").value =
+                shadowOption.dataset.value;
+              shadowListbox.hidden = true;
+              harness.shadowOptionClicks += 1;
+              harness.model["shadow-source"] = shadowOption.dataset.value;
+              renderModel();
+            });
+            shadowListbox.append(shadowOption);
+            shadowRoot.querySelector(".field").append(shadowListbox);
+          }, 140);
         });
         document
           .querySelector("#document-shadow-source-option")
@@ -1341,6 +1369,25 @@
           });
         }
 
+        if (mode === "late-commit-evidence") {
+          for (const section of document.querySelectorAll("#application > section")) {
+            section.hidden = section.id !== "rejected-combo-controls";
+          }
+          const source = document.querySelector("#rejected-source");
+          source.addEventListener("click", () => {
+            source.setAttribute("aria-expanded", "true");
+          });
+          source.addEventListener("input", () => {
+            if (source.value !== "LinkedIn") return;
+            source.dataset.value = "employee-referral";
+            source.setAttribute("aria-valuetext", "Employee referral");
+            source.setAttribute("aria-expanded", "false");
+            harness.model["rejected-source"] = "LinkedIn";
+            harness.model["rejected-source-committed"] = "employee-referral";
+            renderModel();
+          });
+        }
+
         if (mode === "replaced-combo") {
           for (const section of document.querySelectorAll("#application > section")) {
             section.hidden = section.id !== "replaced-combo-controls";
@@ -1390,6 +1437,54 @@
               listbox.append(option);
               document.body.append(listbox);
             }, 300);
+          });
+        }
+
+        if (mode === "identity-combo" || mode === "identity-ambiguous") {
+          for (const section of document.querySelectorAll("#application > section")) {
+            section.hidden = section.id !== "identity-combo-controls";
+          }
+          const source = document.querySelector("#identity-source");
+          source.addEventListener("click", () => {
+            source.setAttribute("aria-expanded", "true");
+            const compatible = source.cloneNode(true);
+            compatible.dataset.probe = "compatible-one";
+            if (mode === "identity-ambiguous") {
+              const secondCompatible = source.cloneNode(true);
+              secondCompatible.dataset.probe = "compatible-two";
+              source.replaceWith(compatible, secondCompatible);
+              harness.replacements["identity-source"] = 2;
+            } else {
+              const unrelated = source.cloneNode(true);
+              unrelated.removeAttribute("role");
+              unrelated.removeAttribute("aria-labelledby");
+              unrelated.removeAttribute("aria-required");
+              unrelated.dataset.testid = "identity-source-unrelated";
+              unrelated.textContent = "Unrelated control";
+              source.replaceWith(unrelated, compatible);
+              harness.replacements["identity-source"] = 1;
+            }
+            setTimeout(() => {
+              const listbox = document.createElement("div");
+              listbox.id = "identity-source-listbox";
+              listbox.setAttribute("role", "listbox");
+              const option = document.createElement("div");
+              option.setAttribute("role", "option");
+              option.dataset.value = "linkedin";
+              option.textContent = "LinkedIn";
+              option.addEventListener("click", () => {
+                compatible.dataset.value = "linkedin";
+                compatible.setAttribute("aria-valuetext", "LinkedIn");
+                compatible.setAttribute("aria-expanded", "false");
+                compatible.textContent = "LinkedIn";
+                harness.identityOptionClicks += 1;
+                harness.model["identity-source"] = "linkedin";
+                listbox.remove();
+                renderModel();
+              });
+              listbox.append(option);
+              document.body.append(listbox);
+            }, 120);
           });
         }
 
