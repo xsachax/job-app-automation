@@ -19,9 +19,13 @@ import {
   type GitHubFetch,
 } from "../scripts/custom/google-job-monitor/notifier.ts";
 
-const fixtureDirectory = path.resolve(
+const repositoryRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  "../scripts/custom/google-job-monitor/fixtures",
+  "..",
+);
+const fixtureDirectory = path.resolve(
+  repositoryRoot,
+  "scripts/custom/google-job-monitor/fixtures",
 );
 const activeTime = new Date("2026-08-08T08:00:00Z");
 
@@ -303,6 +307,71 @@ describe("Google Careers monitor network policy", () => {
       status: "unknown",
       reason: "network_timeout",
     });
+  });
+});
+
+describe("Google Careers workflow stop contract", () => {
+  it("keeps the exact one-week 30-minute schedule", async () => {
+    const workflow = await readFile(
+      path.join(repositoryRoot, ".github/workflows/google-job-monitor.yml"),
+      "utf8",
+    );
+    expect(workflow).toContain('cron: "7,37 * * * *"');
+    expect(workflow).toContain(
+      'MONITOR_START_AT: "2026-08-08T07:33:12Z"',
+    );
+    expect(workflow).toContain(
+      'MONITOR_EXPIRES_AT: "2026-08-15T07:33:12Z"',
+    );
+
+    const start = Date.parse(MONITOR_START_AT);
+    const expiry = Date.parse(MONITOR_EXPIRES_AT);
+    let slots = 0;
+    for (
+      let timestamp = Math.ceil(start / 60_000) * 60_000;
+      timestamp < expiry;
+      timestamp += 60_000
+    ) {
+      if ([7, 37].includes(new Date(timestamp).getUTCMinutes())) slots += 1;
+    }
+    expect(slots).toBe(336);
+  });
+
+  it("gates scheduled jobs on the repository enable variable", async () => {
+    const workflow = await readFile(
+      path.join(repositoryRoot, ".github/workflows/google-job-monitor.yml"),
+      "utf8",
+    );
+    const jobGate = workflow.indexOf(
+      "vars.GOOGLE_JOB_MONITOR_ENABLED == 'true'",
+    );
+    const checkout = workflow.indexOf("- name: Checkout");
+
+    expect(jobGate).toBeGreaterThan(0);
+    expect(jobGate).toBeLessThan(checkout);
+  });
+
+  it("checks terminal success before target access and wires it into the target gate", async () => {
+    const workflow = await readFile(
+      path.join(repositoryRoot, ".github/workflows/google-job-monitor.yml"),
+      "utf8",
+    );
+    const stateCheck = workflow.indexOf(
+      "- name: Check terminal availability state",
+    );
+    const targetCheck = workflow.indexOf(
+      "- name: Run one bounded target check",
+    );
+    const targetSection = workflow.slice(
+      targetCheck,
+      workflow.indexOf("- name: Report target status"),
+    );
+
+    expect(stateCheck).toBeGreaterThan(0);
+    expect(stateCheck).toBeLessThan(targetCheck);
+    expect(targetSection).toContain(
+      "steps.availability_state.outputs.notified == 'false'",
+    );
   });
 });
 

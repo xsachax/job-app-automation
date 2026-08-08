@@ -99,15 +99,17 @@ No SMTP, SMS, email address, phone number, or custom token is required. The
 notifier uses the workflow's short-lived `GITHUB_TOKEN` to create one issue
 assigned to and mentioning `xsachax`; GitHub supplies email/push delivery.
 
-After merging the workflow to the default branch:
+Use exactly one delivery-test path before production:
 
-1. Manually dispatch `Google Careers apply monitor` with
-   `mode=notification-test`.
-2. Confirm delivery of the issue titled
+1. Create the authorized app-native dummy issue assigned to `xsachax` with the
+   title
    `[TEST] Google Careers monitor notification delivery`. It explicitly says
-   that no live check occurred and never claims availability.
-3. Close the test issue to clean it up.
-4. Enable production scheduling only after delivery is confirmed:
+   that no live check occurred and never claims availability. Alternatively,
+   after merge, manually dispatch `mode=notification-test` to create the same
+   safe payload under its custom TEST label.
+2. Confirm delivery, then close the test issue to clean it up.
+3. Do not run the other test path; exactly one dummy notification is intended.
+4. After merge, enable production scheduling only after delivery is confirmed:
 
    ```sh
    gh variable set GOOGLE_JOB_MONITOR_ENABLED \
@@ -131,7 +133,9 @@ gh variable set GOOGLE_JOB_MONITOR_ENABLED \
 The scheduled job is then skipped before checkout, GitHub issue lookup, or
 target network access. No secret is involved. Setting it back to `true` within
 the active UTC window resumes monitoring, so only do that after an explicit
-request. Manual live modes should not be dispatched after a stop request.
+request. Whenever the user tells the creator to stop, the creator must run the
+`false` command immediately. Manual live modes should not be dispatched after
+a stop request.
 
 Production and test notifications each use a distinct fixed label and title.
 The notifier searches open and closed issues before creation, so repeated runs
