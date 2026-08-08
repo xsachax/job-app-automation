@@ -311,12 +311,12 @@ describe("Google Careers monitor network policy", () => {
 });
 
 describe("Google Careers workflow stop contract", () => {
-  it("keeps the exact one-week 30-minute schedule", async () => {
+  it("keeps the exact one-week 15-minute schedule", async () => {
     const workflow = await readFile(
       path.join(repositoryRoot, ".github/workflows/google-job-monitor.yml"),
       "utf8",
     );
-    expect(workflow).toContain('cron: "7,37 * * * *"');
+    expect(workflow).toContain('cron: "7,22,37,52 * * * *"');
     expect(workflow).toContain(
       'MONITOR_START_AT: "2026-08-08T07:33:12Z"',
     );
@@ -332,9 +332,11 @@ describe("Google Careers workflow stop contract", () => {
       timestamp < expiry;
       timestamp += 60_000
     ) {
-      if ([7, 37].includes(new Date(timestamp).getUTCMinutes())) slots += 1;
+      if ([7, 22, 37, 52].includes(new Date(timestamp).getUTCMinutes())) {
+        slots += 1;
+      }
     }
-    expect(slots).toBe(336);
+    expect(slots).toBe(672);
   });
 
   it("gates scheduled jobs on the repository enable variable", async () => {

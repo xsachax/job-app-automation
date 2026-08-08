@@ -75,12 +75,12 @@ User-Agent, a 15-second total timeout, a 4 MiB body limit, and no retries.
 
 ## Schedule and rate
 
-The workflow is scheduled every 30 minutes at minutes 7 and 37. If enabled for
-the full seven-day window, that is at most 336 scheduled target checks. This
-halves the request rate of a 15-minute schedule while retaining a maximum
-nominal detection delay of about 30 minutes. GitHub scheduling delays can
-reduce the actual count. The positive reference is not polled. Manual live dry
-runs add one target check each.
+The workflow is scheduled every 15 minutes at minutes 7, 22, 37, and 52. If
+enabled for the full seven-day window, that is at most 672 scheduled target
+checks. This is the permitted upper frequency and gives a nominal maximum
+detection delay of about 15 minutes. GitHub scheduling delays can reduce the
+actual count. The positive reference is not polled. Manual live dry runs add
+one target check each.
 
 Scheduled production checks are disabled by default. They run only while the
 UTC window is active and the repository variable
