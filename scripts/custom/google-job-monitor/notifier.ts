@@ -32,6 +32,19 @@ export const TEST_NOTIFICATION_TITLE =
   "[TEST] Google Careers monitor notification delivery";
 export const AVAILABLE_NOTIFICATION_TITLE =
   "Google Careers target posting is now applyable";
+const TEST_NOTIFICATION_LABEL = "google-job-monitor-test";
+const AVAILABLE_NOTIFICATION_LABEL = "google-job-monitor-available";
+
+function notificationIdentity(
+  mode: NotificationMode,
+): Pick<NotificationMessage, "label" | "title"> {
+  return mode === "test"
+    ? { title: TEST_NOTIFICATION_TITLE, label: TEST_NOTIFICATION_LABEL }
+    : {
+        title: AVAILABLE_NOTIFICATION_TITLE,
+        label: AVAILABLE_NOTIFICATION_LABEL,
+      };
+}
 
 export function buildNotification(
   mode: NotificationMode,
@@ -40,7 +53,7 @@ export function buildNotification(
   if (mode === "test") {
     return {
       title: TEST_NOTIFICATION_TITLE,
-      label: "google-job-monitor-test",
+      label: TEST_NOTIFICATION_LABEL,
       labelColor: "fbca04",
       labelDescription: "One-shot delivery test for the temporary job monitor",
       body: [
@@ -63,7 +76,7 @@ export function buildNotification(
 
   return {
     title: AVAILABLE_NOTIFICATION_TITLE,
-    label: "google-job-monitor-available",
+    label: AVAILABLE_NOTIFICATION_LABEL,
     labelColor: "0e8a16",
     labelDescription: "One-shot actionable availability detection",
     body: [
@@ -75,7 +88,7 @@ export function buildNotification(
       "",
       "This is a point-in-time detection, not a forecast or a submitted application.",
       "",
-      "This issue is intentionally one-shot; later workflow runs will not create duplicates.",
+      "This issue is intentionally one-shot and terminal; later scheduled runs skip target requests.",
     ].join("\n"),
   };
 }
@@ -162,11 +175,11 @@ export class GitHubIssueNotifier {
   }
 
   private async findExisting(
-    message: NotificationMessage,
+    identity: Pick<NotificationMessage, "label" | "title">,
   ): Promise<IssueSummary | null> {
     const query = new URLSearchParams({
       state: "all",
-      labels: message.label,
+      labels: identity.label,
       per_page: "100",
     });
     const response = await this.request(
@@ -184,11 +197,15 @@ export class GitHubIssueNotifier {
 
     for (const value of payload) {
       const issue = parseIssue(value);
-      if (issue && !issue.isPullRequest && issue.title === message.title) {
+      if (issue && !issue.isPullRequest && issue.title === identity.title) {
         return issue;
       }
     }
     return null;
+  }
+
+  async hasNotification(mode: NotificationMode): Promise<boolean> {
+    return Boolean(await this.findExisting(notificationIdentity(mode)));
   }
 
   async notify(
@@ -198,7 +215,7 @@ export class GitHubIssueNotifier {
     const message = buildNotification(mode, checkedAt);
     await this.ensureLabel(message);
 
-    const existing = await this.findExisting(message);
+    const existing = await this.findExisting(notificationIdentity(mode));
     if (existing) {
       return {
         status: "already_exists",

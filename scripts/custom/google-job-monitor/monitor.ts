@@ -6,8 +6,8 @@ import {
 
 export const TARGET_POSTING_URL =
   "https://www.google.com/about/careers/applications/jobs/results/78703249065943750";
-export const MONITOR_START_AT = "2026-08-08T07:30:14Z";
-export const MONITOR_EXPIRES_AT = "2026-08-10T07:30:14Z";
+export const MONITOR_START_AT = "2026-08-08T07:33:12Z";
+export const MONITOR_EXPIRES_AT = "2026-08-15T07:33:12Z";
 
 export const MONITOR_EXIT_CODES = {
   available: 0,

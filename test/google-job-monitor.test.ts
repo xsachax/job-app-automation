@@ -150,6 +150,14 @@ describe("Google Careers apply detector", () => {
 });
 
 describe("Google Careers monitor network policy", () => {
+  it("uses the exact one-week monitoring window", () => {
+    expect(MONITOR_START_AT).toBe("2026-08-08T07:33:12Z");
+    expect(MONITOR_EXPIRES_AT).toBe("2026-08-15T07:33:12Z");
+    expect(Date.parse(MONITOR_EXPIRES_AT) - Date.parse(MONITOR_START_AT)).toBe(
+      7 * 24 * 60 * 60 * 1_000,
+    );
+  });
+
   it("exits before fetching once the window expires", async () => {
     let requests = 0;
     const fetchImpl: MonitorFetch = async () => {
@@ -388,5 +396,29 @@ describe("GitHub issue notifier", () => {
       issueUrl: "https://github.com/xsachax/job-app-automation/issues/42",
     });
     expect(calls).toHaveLength(2);
+  });
+
+  it("reports an existing availability issue as terminal state", async () => {
+    const calls: string[] = [];
+    const fetchImpl: GitHubFetch = async (input) => {
+      const url = String(input);
+      calls.push(url);
+      return Response.json([
+        {
+          title: "Google Careers target posting is now applyable",
+          number: 44,
+          html_url: "https://github.com/xsachax/job-app-automation/issues/44",
+        },
+      ]);
+    };
+    const notifier = new GitHubIssueNotifier(
+      "xsachax/job-app-automation",
+      "synthetic-token",
+      fetchImpl,
+    );
+
+    await expect(notifier.hasNotification("available")).resolves.toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain("labels=google-job-monitor-available");
   });
 });

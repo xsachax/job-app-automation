@@ -5,8 +5,8 @@ actionable apply control. It monitors observed state; it does not forecast
 whether or when the posting will change, and it never submits an application.
 
 - Target: <https://www.google.com/about/careers/applications/jobs/results/78703249065943750>
-- Monitoring window: `2026-08-08T07:30:14Z` through
-  `2026-08-10T07:30:14Z` (expiry is exclusive)
+- Monitoring window: `2026-08-08T07:33:12Z` through
+  `2026-08-15T07:33:12Z` (expiry is exclusive)
 - Workflow: `.github/workflows/google-job-monitor.yml`
 
 ## Detection
@@ -75,16 +75,23 @@ User-Agent, a 15-second total timeout, a 4 MiB body limit, and no retries.
 
 ## Schedule and rate
 
-The workflow is scheduled every 15 minutes at minutes 7, 22, 37, and 52. If
-enabled for the full 48-hour window, that is at most about 192 scheduled target
-checks. GitHub scheduling delays can reduce the actual count. The positive
-reference is not polled. Manual live dry runs add one target check each.
+The workflow is scheduled every 30 minutes at minutes 7 and 37. If enabled for
+the full seven-day window, that is at most 336 scheduled target checks. This
+halves the request rate of a 15-minute schedule while retaining a maximum
+nominal detection delay of about 30 minutes. GitHub scheduling delays can
+reduce the actual count. The positive reference is not polled. Manual live dry
+runs add one target check each.
 
 Scheduled production checks are disabled by default. They run only while the
 UTC window is active and the repository variable
 `GOOGLE_JOB_MONITOR_ENABLED` is exactly `true`. At or after
-`2026-08-10T07:30:14Z`, the workflow exits before checkout or any target
+`2026-08-15T07:33:12Z`, the workflow exits before checkout or any target
 request. Concurrency prevents overlapping runs.
+
+Before every eligible target request, the workflow checks for the uniquely
+labeled and titled production availability issue. Once that issue exists in
+either open or closed state, availability is treated as terminal and all later
+target requests are skipped. The distinct TEST issue never trips this check.
 
 ## Delivery test and activation
 
@@ -111,11 +118,27 @@ After merging the workflow to the default branch:
 one live check but never notifies. `monitor-once` is rejected until the
 repository variable is enabled.
 
+## Stop early
+
+To stop scheduled monitoring immediately, set the repository-native control
+variable to `false`:
+
+```sh
+gh variable set GOOGLE_JOB_MONITOR_ENABLED \
+  --repo xsachax/job-app-automation --body false
+```
+
+The scheduled job is then skipped before checkout, GitHub issue lookup, or
+target network access. No secret is involved. Setting it back to `true` within
+the active UTC window resumes monitoring, so only do that after an explicit
+request. Manual live modes should not be dispatched after a stop request.
+
 Production and test notifications each use a distinct fixed label and title.
 The notifier searches open and closed issues before creation, so repeated runs
-cannot spam duplicates. Detection emits data; the separate notifier consumes
-only the status and check time. That boundary can later be replaced by an SMTP
-or SMS notifier without changing fetch or detection behavior.
+cannot spam duplicates. The production issue also becomes the terminal state
+that suppresses future target requests. Detection emits data; the separate
+notifier consumes only the status and check time. That boundary can later be
+replaced without changing fetch or detection behavior.
 
 ## Cleanup
 
