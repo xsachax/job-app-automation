@@ -3,6 +3,7 @@ import { json, errorResponse } from "@/lib/http";
 import { getCriteria, getProfile } from "@/lib/settings";
 import { buildResumeContext } from "@/lib/judge/judge";
 import { STRONG_MIN, POSSIBLE_MIN } from "@/lib/judge/status";
+import { ACTIVE_JOB_WHERE } from "@/lib/jobs/availability";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,7 @@ export interface JudgeStatus {
 // same entry-level population the judge scores, regardless of application platform.
 export async function GET() {
   try {
-    const base = { isEntryLevel: true } as const;
+    const base = { isEntryLevel: true, ...ACTIVE_JOB_WHERE } as const;
 
     const [eligible, scored, strong, possible, agentScored, avgAgg, lastAgg, companyTiers, locationTiers, criteria, profile] =
       await Promise.all([

@@ -13,11 +13,18 @@ import {
   type BrowserScrapeResult,
 } from "./browser";
 import {
-  ingestPostings,
+  ingestSourcePostings,
   runDiscovery,
   type DiscoveryRunResult,
   type IngestCounts,
 } from "./run";
+import {
+  describeBrowserSource,
+  reconcileDiscoverySourceRuns,
+  recordDiscoverySourceFailure,
+  verifyUntrackedDiscoveryJobs,
+  type AvailabilityReconciliationResult,
+} from "./lifecycle";
 
 export interface BrowserRefreshResult {
   company: string;
@@ -37,6 +44,10 @@ export interface DiscoveryRefreshResult {
   durationMs: number;
   api: DiscoveryRunResult;
   browser: BrowserRefreshResult[];
+  lifecycle: {
+    sources: AvailabilityReconciliationResult;
+    untracked: AvailabilityReconciliationResult;
+  };
   judge: ScoreAllJobsResult;
   totals: {
     sources: number;
@@ -45,6 +56,8 @@ export interface DiscoveryRefreshResult {
     usEntry: number;
     caEntry: number;
     errors: number;
+    suspect: number;
+    closed: number;
   };
 }
 
@@ -53,6 +66,7 @@ export type DiscoveryRefreshPhase =
   | "starting"
   | "api"
   | "browser"
+  | "reconciling"
   | "scoring"
   | "complete"
   | "failed";
@@ -202,7 +216,9 @@ function browserResult(result: BrowserScrapeResult, counts: IngestCounts): Brows
     caEntry: counts.caEntry,
     created: counts.created,
     updated: counts.updated,
-    ...(result.error ? { error: result.error } : {}),
+    ...(result.error || result.warning
+      ? { error: result.error ?? `partial scrape: ${result.warning}` }
+      : {}),
   };
 }
 
@@ -218,7 +234,7 @@ async function executeRefresh(started: number): Promise<DiscoveryRefreshResult> 
       !disabled.has(company.name.toLowerCase()),
   );
   const totalSources = apiSourceCount + supportedBrowserCompanies.length;
-  const totalSteps = totalSources + 1;
+  const totalSteps = totalSources + 2;
   let completedSources = 0;
   let sourceErrors = 0;
 
@@ -230,6 +246,7 @@ async function executeRefresh(started: number): Promise<DiscoveryRefreshResult> 
   });
   const api = await runDiscovery({
     config,
+    reconcile: false,
     onProgress: (result) => {
       completedSources++;
       if (result.error) sourceErrors++;
@@ -255,7 +272,7 @@ async function executeRefresh(started: number): Promise<DiscoveryRefreshResult> 
         companies: supportedBrowserCompanies.map((company) => company.name),
         onResult: (result) => {
           completedSources++;
-          if (result.error) sourceErrors++;
+          if (result.error || result.warning) sourceErrors++;
           updateProgress({
             completedSources,
             completedSteps: completedSources,
@@ -271,8 +288,17 @@ async function executeRefresh(started: number): Promise<DiscoveryRefreshResult> 
   const browser: BrowserRefreshResult[] = [];
   for (const result of scraped) {
     const counts = zeroCounts();
-    if (!result.error) {
-      await ingestPostings(result.postings, true, counts, {
+    const company = supportedBrowserCompanies.find(
+      (candidate) => candidate.name === result.company,
+    );
+    if (!company) {
+      throw new Error(`Unknown browser source result: ${result.company}`);
+    }
+    const descriptor = describeBrowserSource(company);
+    if (result.error) {
+      await recordDiscoverySourceFailure(descriptor, result.error);
+    } else {
+      await ingestSourcePostings(descriptor, result.postings, true, counts, {
         countries: config.countries,
         entryOptions: toEntryLevelOptions(config),
       });
@@ -281,8 +307,25 @@ async function executeRefresh(started: number): Promise<DiscoveryRefreshResult> 
   }
 
   updateProgress({
-    phase: "scoring",
+    phase: "reconciling",
     completedSteps: completedSources,
+    currentSource: null,
+    message: "Rechecking missing and legacy postings…",
+  });
+  const sourceLifecycle = await reconcileDiscoverySourceRuns(
+    api.companies.flatMap((result) =>
+      result.sourceRunId ? [result.sourceRunId] : [],
+    ),
+    { cycleStartedAt: new Date(started) },
+  );
+  api.lifecycle = sourceLifecycle;
+  const untrackedLifecycle = await verifyUntrackedDiscoveryJobs(
+    new Date(started),
+  );
+
+  updateProgress({
+    phase: "scoring",
+    completedSteps: completedSources + 1,
     currentSource: null,
     message: "Scoring newly discovered jobs…",
   });
@@ -303,6 +346,10 @@ async function executeRefresh(started: number): Promise<DiscoveryRefreshResult> 
     durationMs: finished - started,
     api,
     browser,
+    lifecycle: {
+      sources: api.lifecycle,
+      untracked: untrackedLifecycle,
+    },
     judge,
     totals: {
       sources: api.companies.length + browser.length,
@@ -311,6 +358,8 @@ async function executeRefresh(started: number): Promise<DiscoveryRefreshResult> 
       usEntry: api.usEntry + browserUsEntry,
       caEntry: api.caEntry + browserCaEntry,
       errors: api.errors + browserErrors,
+      suspect: api.lifecycle.suspect + untrackedLifecycle.suspect,
+      closed: api.lifecycle.closed + untrackedLifecycle.closed,
     },
   };
 }

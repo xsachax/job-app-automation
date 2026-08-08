@@ -1,7 +1,12 @@
+import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { json } from "@/lib/http";
 import { categorizeCompany, fallbackForSystem, CATEGORY_ORDER } from "@/lib/discovery/categories";
 import { getConnectionSet, lookupConnections } from "@/lib/connections/store";
+import {
+  jobAvailabilityWhere,
+  parseJobAvailabilityView,
+} from "@/lib/jobs/availability";
 
 export const dynamic = "force-dynamic";
 
@@ -9,9 +14,16 @@ export const dynamic = "force-dynamic";
 // values and salary ceiling actually present in the current dataset, so the UI
 // only ever offers filters that can match something. Computed in-memory over the
 // entry-level discovery rows (skills live in a JSON column SQLite can't group).
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const availability = parseJobAvailabilityView(
+    new URL(req.url).searchParams.get("availability"),
+  );
   const jobs = await prisma.job.findMany({
-    where: { isEntryLevel: true, country: { in: ["US", "CA"] } },
+    where: {
+      isEntryLevel: true,
+      ...jobAvailabilityWhere(availability),
+      country: { in: ["US", "CA"] },
+    },
     select: {
       skills: true,
       discoverySystem: true,

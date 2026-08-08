@@ -23,6 +23,9 @@ let applyJudgeScores: AgentModule["applyJudgeScores"];
 let refreshProfile: RefreshModule["refreshProfile"];
 
 async function resetDb() {
+  await prisma.discoveryJobSighting.deleteMany();
+  await prisma.discoverySourceRun.deleteMany();
+  await prisma.discoverySource.deleteMany();
   await prisma.jobSighting.deleteMany();
   await prisma.application.deleteMany();
   await prisma.match.deleteMany();
@@ -53,6 +56,7 @@ async function makeJob(opts: {
   location?: string;
   postedAt?: Date;
   minYoE?: number;
+  availabilityStatus?: "open" | "suspect" | "closed";
 }) {
   return prisma.job.create({
     data: {
@@ -76,6 +80,7 @@ async function makeJob(opts: {
       location: opts.location ?? null,
       postedAt: opts.postedAt ?? null,
       minYoE: opts.minYoE ?? null,
+      availabilityStatus: opts.availabilityStatus ?? "open",
     },
   });
 }
@@ -188,6 +193,11 @@ describe("scoreAllJobs", () => {
       skills: ["TypeScript"],
       isWorkday: true,
     });
+    const closedJob = await makeJob({
+      key: "closed",
+      title: "Closed Software Engineer",
+      availabilityStatus: "closed",
+    });
 
     const progress: ScoreAllJobsProgress[] = [];
     const result = await scoreAllJobs({
@@ -222,6 +232,10 @@ describe("scoreAllJobs", () => {
     const scoredWorkday = await prisma.job.findUniqueOrThrow({ where: { id: workdayJob.id } });
     expect(scoredWorkday.fitProvider).toBe("deterministic");
     expect(scoredWorkday.fitScore ?? 0).toBeGreaterThan(0);
+    expect(
+      (await prisma.job.findUniqueOrThrow({ where: { id: closedJob.id } }))
+        .fitScore,
+    ).toBeNull();
   });
 
   it("does not overwrite agent evidence applied after the scoring snapshot", async () => {
@@ -593,5 +607,32 @@ describe("agent judge batch", () => {
         expect.stringMatching(/^Fit: First seen within 24 hours/),
       ]),
     );
+  });
+
+  it("does not import agent scores for archived jobs", async () => {
+    const closed = await makeJob({
+      key: "closed-agent-score",
+      title: "Software Engineer",
+      availabilityStatus: "closed",
+    });
+
+    const result = await applyJudgeScores([
+      {
+        id: closed.id,
+        score: 95,
+        summary: "Would otherwise be a strong fit",
+      },
+    ]);
+
+    expect(result.updated).toBe(0);
+    expect(result.skipped).toEqual([
+      { id: closed.id, reason: "closed job" },
+    ]);
+    expect(
+      await prisma.job.findUniqueOrThrow({ where: { id: closed.id } }),
+    ).toMatchObject({
+      fitBaseScore: null,
+      fitProvider: null,
+    });
   });
 });

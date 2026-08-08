@@ -18,6 +18,7 @@ import { getProfile, getCriteria } from "../settings";
 import type { Criteria } from "./score";
 import { scoreResumeFit, type ResumeContext } from "./resume";
 import type { ParsedResume } from "../llm/types";
+import { ACTIVE_JOB_WHERE } from "../jobs/availability";
 
 // Statuses whose resume score we still refresh (informational). Progressed rows
 // keep their pipeline status; only the fit score is updated.
@@ -90,7 +91,7 @@ export async function rescoreResumeFit(): Promise<RescoreResult> {
   }
 
   const matches = await prisma.match.findMany({
-    where: { job: { isWorkday: false } },
+    where: { job: { isWorkday: false, ...ACTIVE_JOB_WHERE } },
     include: { job: true },
   });
 
@@ -191,7 +192,11 @@ export async function buildReviewBatch(opts: BuildReviewOptions = {}): Promise<R
   const criteria = await getCriteria();
 
   const matches = await prisma.match.findMany({
-    where: { status: "new", score: { gte: minScore }, job: { isWorkday: false } },
+    where: {
+      status: "new",
+      score: { gte: minScore },
+      job: { isWorkday: false, ...ACTIVE_JOB_WHERE },
+    },
     include: { job: true },
     orderBy: { score: "desc" },
     take: Math.min(Math.max(limit * 3, limit), 300),
@@ -275,9 +280,16 @@ export async function applyAgentScores(scores: AgentScore[]): Promise<ApplyResul
       result.skipped.push({ jobId: s.jobId, reason: "invalid score" });
       continue;
     }
-    const match = await prisma.match.findUnique({ where: { jobId: s.jobId } });
+    const match = await prisma.match.findUnique({
+      where: { jobId: s.jobId },
+      include: { job: { select: { availabilityStatus: true } } },
+    });
     if (!match) {
       result.skipped.push({ jobId: s.jobId, reason: "no match for job" });
+      continue;
+    }
+    if (match.job.availabilityStatus === "closed") {
+      result.skipped.push({ jobId: s.jobId, reason: "closed job" });
       continue;
     }
     const reasons = Array.isArray(s.reasons) ? s.reasons.filter((r) => typeof r === "string") : [];

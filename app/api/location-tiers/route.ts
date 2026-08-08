@@ -8,6 +8,7 @@ import {
   parseTierEditVersion,
   saveLocationTier,
 } from "@/lib/tier-store";
+import { ACTIVE_JOB_WHERE } from "@/lib/jobs/availability";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +28,11 @@ export interface TierLocation {
 export async function GET() {
   const [jobs, tierRows] = await Promise.all([
     prisma.job.findMany({
-      where: { isEntryLevel: true, country: { in: ["US", "CA"] } },
+      where: {
+        isEntryLevel: true,
+        ...ACTIVE_JOB_WHERE,
+        country: { in: ["US", "CA"] },
+      },
       select: { location: true },
     }),
     prisma.locationTier.findMany(),

@@ -4,6 +4,10 @@ import { json } from "@/lib/http";
 import { shapeJob } from "@/lib/jobs/shape";
 import { categorizeCompany, fallbackForSystem } from "@/lib/discovery/categories";
 import { getConnectionSet, lookupConnections } from "@/lib/connections/store";
+import {
+  jobAvailabilityWhere,
+  parseJobAvailabilityView,
+} from "@/lib/jobs/availability";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +23,9 @@ function parseList(v: string | null): string[] {
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const country = searchParams.get("country"); // US | CA
+  const availability = parseJobAvailabilityView(
+    searchParams.get("availability"),
+  );
   const q = searchParams.get("q")?.toLowerCase();
   const sort = searchParams.get("sort") ?? "posted"; // posted | company | fit | salary
   const since = searchParams.get("since") ?? "all"; // 24h | 7d | 30d | all
@@ -67,6 +74,7 @@ export async function GET(req: NextRequest) {
   const jobs = await prisma.job.findMany({
     where: {
       isEntryLevel: true,
+      ...jobAvailabilityWhere(availability),
       ...(country ? { country } : { country: { in: ["US", "CA"] } }),
     },
     include: {

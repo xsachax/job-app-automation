@@ -9,6 +9,9 @@ import { parseConnectionsCsv } from "../lib/connections/parse";
 // reproducible.
 
 async function wipe() {
+  await prisma.discoveryJobSighting.deleteMany();
+  await prisma.discoverySourceRun.deleteMany();
+  await prisma.discoverySource.deleteMany();
   await prisma.jobSighting.deleteMany();
   await prisma.application.deleteMany();
   await prisma.match.deleteMany();
@@ -44,6 +47,10 @@ interface Fixture {
   fitProvider?: string;
   fitSummary?: string;
   fitReasons?: string[];
+  availabilityStatus?: "open" | "suspect" | "closed";
+  applicationStatus?: string;
+  closedAt?: Date;
+  closureReason?: string;
 }
 
 const JOBS: Fixture[] = [
@@ -166,6 +173,22 @@ const JOBS: Fixture[] = [
     skills: ["Java", "Spring"],
     location: "Denver, CO",
   },
+  {
+    key: "archived",
+    title: "E2E Archived Engineer",
+    company: "AcmeE2E",
+    description: "A closed role retained to preserve saved application history.",
+    country: "US",
+    minYoE: 0,
+    system: "greenhouse",
+    ageDays: 45,
+    skills: ["TypeScript"],
+    location: "Austin, TX",
+    availabilityStatus: "closed",
+    applicationStatus: "saved",
+    closedAt: new Date(Date.now() - 2 * 864e5),
+    closureReason: "posting returned HTTP 404",
+  },
 ];
 
 async function main() {
@@ -206,6 +229,10 @@ async function main() {
         fitSummary: f.fitSummary ?? null,
         fitReasons: f.fitScore != null ? JSON.stringify(f.fitReasons ?? []) : null,
         fitScoredAt: f.fitScore != null ? new Date() : null,
+        availabilityStatus: f.availabilityStatus ?? "open",
+        applicationStatus: f.applicationStatus ?? "none",
+        closedAt: f.closedAt ?? null,
+        closureReason: f.closureReason ?? null,
       },
     });
     await prisma.jobSighting.create({ data: { jobId: job.id, sourceId: source.id } });

@@ -3,6 +3,9 @@ import { prisma } from "../lib/db";
 
 // Wipe all data between DB-backed tests (FK-safe order).
 export async function resetDb() {
+  await prisma.discoveryJobSighting.deleteMany();
+  await prisma.discoverySourceRun.deleteMany();
+  await prisma.discoverySource.deleteMany();
   await prisma.jobSighting.deleteMany();
   await prisma.application.deleteMany();
   await prisma.match.deleteMany();

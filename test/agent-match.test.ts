@@ -26,6 +26,7 @@ async function makeJobWithMatch(opts: {
   score: number;
   status?: string;
   isWorkday?: boolean;
+  availabilityStatus?: string;
 }) {
   const job = await prisma.job.create({
     data: {
@@ -37,6 +38,7 @@ async function makeJobWithMatch(opts: {
       applyUrl: `https://boards.greenhouse.io/acme/jobs/${opts.key}`,
       description: opts.description ?? null,
       isWorkday: Boolean(opts.isWorkday),
+      availabilityStatus: opts.availabilityStatus ?? "open",
     },
   });
   await prisma.match.create({
@@ -77,6 +79,18 @@ describe("buildReviewBatch", () => {
     const all = await buildReviewBatch({ includeAgentScored: true });
     expect(all.count).toBe(1);
   });
+
+  it("excludes archived jobs from review batches", async () => {
+    await makeResume(["TypeScript"]);
+    await makeJobWithMatch({
+      key: "closed",
+      title: "Software Engineer",
+      score: 90,
+      availabilityStatus: "closed",
+    });
+
+    expect((await buildReviewBatch()).count).toBe(0);
+  });
 });
 
 describe("applyAgentScores", () => {
@@ -105,6 +119,31 @@ describe("applyAgentScores", () => {
     ]);
     expect(res.updated).toBe(0);
     expect(res.skipped).toHaveLength(2);
+  });
+
+  it("does not import scores for archived jobs", async () => {
+    await makeResume(["TypeScript"]);
+    const job = await makeJobWithMatch({
+      key: "closed",
+      title: "Software Engineer",
+      score: 90,
+      availabilityStatus: "closed",
+    });
+
+    const result = await applyAgentScores([
+      { jobId: job.id, score: 95, reasons: ["strong overlap"] },
+    ]);
+
+    expect(result.updated).toBe(0);
+    expect(result.skipped).toEqual([
+      { jobId: job.id, reason: "closed job" },
+    ]);
+    expect(
+      await prisma.match.findUniqueOrThrow({ where: { jobId: job.id } }),
+    ).toMatchObject({
+      resumeScore: null,
+      matchProvider: null,
+    });
   });
 });
 
@@ -165,5 +204,17 @@ describe("rescoreResumeFit", () => {
     await makeJobWithMatch({ key: "s", title: "Software Engineer", score: 0, status: "skipped" });
     const r = await rescoreResumeFit();
     expect(r.scored).toBe(0);
+  });
+
+  it("does not rescore archived jobs", async () => {
+    await makeResume(["TypeScript"]);
+    await makeJobWithMatch({
+      key: "closed",
+      title: "Software Engineer",
+      score: 80,
+      availabilityStatus: "closed",
+    });
+
+    expect((await rescoreResumeFit()).scored).toBe(0);
   });
 });

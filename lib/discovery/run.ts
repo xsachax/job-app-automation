@@ -7,6 +7,20 @@ import { enrich, type Enrichment } from "./enrich";
 import { getDiscoveryConfig, toEntryLevelOptions, type DiscoveryConfigData } from "./config";
 import { DISCOVERY_SOURCES, type ApiCompany } from "./companies";
 import { detectAts, normalizeUrl } from "../sources/normalize";
+import {
+  JOB_AVAILABILITY,
+  beginDiscoverySourceRun,
+  completeDiscoverySourceRun,
+  describeApiSource,
+  failDiscoverySourceRun,
+  reconcileDiscoverySourceRuns,
+  recordDiscoveryJobObservation,
+  type AvailabilityReconciliationResult,
+  type CompletedDiscoverySourceRun,
+  type DiscoverySourceDescriptor,
+  type DiscoverySourceRunContext,
+  type PostingVerifier,
+} from "./lifecycle";
 
 // The discovery runner: fetch each API company's public endpoint, keep only
 // US / Canada entry-level software roles, and upsert them into the Job table
@@ -22,6 +36,8 @@ export interface CompanyRunResult {
   caEntry: number;
   created: number;
   updated: number;
+  sourceRunId?: string;
+  sourceComplete?: boolean;
   error?: string;
 }
 
@@ -32,6 +48,7 @@ export interface DiscoveryRunResult {
   usEntry: number;
   caEntry: number;
   errors: number;
+  lifecycle: AvailabilityReconciliationResult;
 }
 
 function dedupeKeyFor(p: DiscoveryPosting): string {
@@ -64,10 +81,50 @@ function fingerprintFor(p: DiscoveryPosting): string {
     .digest("hex");
 }
 
+interface ExistingPosting {
+  id: string;
+  kind: "exact" | "cross-source";
+  availabilityStatus: string;
+  applyUrl: string;
+}
+
+async function findExistingPosting(
+  p: DiscoveryPosting,
+  dedupeKey = dedupeKeyFor(p),
+  fingerprint = fingerprintFor(p),
+): Promise<ExistingPosting | null> {
+  const exact = await prisma.job.findUnique({
+    where: { dedupeKey },
+    select: { id: true, availabilityStatus: true, applyUrl: true },
+  });
+  if (exact) return { ...exact, kind: "exact" };
+
+  const isBoard = p.system === "githubboard";
+  const crossSource = await prisma.job.findFirst({
+    where: isBoard
+      ? { fingerprint }
+      : { fingerprint, discoverySystem: { not: p.system } },
+    select: { id: true, availabilityStatus: true, applyUrl: true },
+  });
+  return crossSource ? { ...crossSource, kind: "cross-source" } : null;
+}
+
+function confirmedOpenData(sourceRun?: DiscoverySourceRunContext) {
+  if (sourceRun?.descriptor.positiveEvidence === "secondary") return {};
+  return {
+    availabilityStatus: JOB_AVAILABILITY.OPEN,
+    consecutiveMisses: 0,
+    closedAt: null,
+    closureReason: null,
+  };
+}
+
 async function persist(
   p: DiscoveryPosting,
   minYoE: number | null,
   enrichment: Enrichment,
+  existing: ExistingPosting | null,
+  sourceRun?: DiscoverySourceRunContext,
 ): Promise<"created" | "updated"> {
   const dedupeKey = dedupeKeyFor(p);
   const fingerprint = fingerprintFor(p);
@@ -107,9 +164,20 @@ async function persist(
   };
 
   // 1. Same posting from the same source (stable external id) → update in place.
-  const existing = await prisma.job.findUnique({ where: { dedupeKey }, select: { id: true } });
-  if (existing) {
-    await prisma.job.update({ where: { id: existing.id }, data });
+  if (existing?.kind === "exact") {
+    const verificationCache =
+      existing.applyUrl === applyUrl
+        ? {}
+        : { lastVerifiedAt: null, lastVerificationResult: null };
+    await prisma.job.update({
+      where: { id: existing.id },
+      data: {
+        ...data,
+        ...verificationCache,
+        ...confirmedOpenData(sourceRun),
+      },
+    });
+    recordDiscoveryJobObservation(sourceRun, existing.id);
     return "updated";
   }
 
@@ -119,18 +187,66 @@ async function persist(
   //    fingerprint; native company postings only dedupe across a *different*
   //    system, so an employer's distinct same-title reqs (same system) are kept.
   //    Company sites run before boards, so the richer native card always wins.
-  const isBoard = p.system === "githubboard";
-  const crossSource = await prisma.job.findFirst({
-    where: isBoard ? { fingerprint } : { fingerprint, discoverySystem: { not: p.system } },
-    select: { id: true },
-  });
-  if (crossSource) {
-    await prisma.job.update({ where: { id: crossSource.id }, data: { lastSeenAt: new Date() } });
+  if (existing?.kind === "cross-source") {
+    await prisma.job.update({
+      where: { id: existing.id },
+      data: { lastSeenAt: new Date(), ...confirmedOpenData(sourceRun) },
+    });
+    recordDiscoveryJobObservation(sourceRun, existing.id);
     return "updated";
   }
 
-  await prisma.job.create({ data: { dedupeKey, ...data } });
+  const created = await prisma.job.create({
+    data: {
+      dedupeKey,
+      ...data,
+      availabilityStatus: JOB_AVAILABILITY.OPEN,
+      consecutiveMisses: 0,
+    },
+    select: { id: true },
+  });
+  recordDiscoveryJobObservation(sourceRun, created.id);
   return "created";
+}
+
+async function recordExistingObservation(
+  p: DiscoveryPosting,
+  existing: ExistingPosting | null,
+  sourceRun: DiscoverySourceRunContext | undefined,
+  markNotEntryLevel: boolean,
+) {
+  if (!existing) return;
+  const direct = sourceRun?.descriptor.positiveEvidence !== "secondary";
+  const exactUpdate =
+    direct && existing.kind === "exact" && markNotEntryLevel
+      ? {
+          title: p.title,
+          company: canonicalCompanyName(p.company),
+          location: p.location || null,
+          remote: /remote/i.test(p.location),
+          applyUrl: normalizeUrl(p.applyUrl),
+          description: p.description || null,
+          postedAt: p.postedAt,
+          country: p.country,
+          isEntryLevel: false,
+        }
+      : {};
+  const verificationCache =
+    direct &&
+    existing.kind === "exact" &&
+    existing.applyUrl !== normalizeUrl(p.applyUrl)
+      ? { lastVerifiedAt: null, lastVerificationResult: null }
+      : {};
+  await prisma.job.update({
+    where: { id: existing.id },
+    data: {
+      ...exactUpdate,
+      ...verificationCache,
+      lastSeenAt: new Date(),
+      ...confirmedOpenData(sourceRun),
+    },
+  });
+  recordDiscoveryJobObservation(sourceRun, existing.id);
 }
 
 export interface IngestCounts {
@@ -151,6 +267,8 @@ export interface IngestOptions {
   entryOptions?: EntryLevelOptions;
   /** Countries to keep. Omit to keep the default US + CA. */
   countries?: string[];
+  /** Durable source-run evidence. Omit for legacy callers and isolated tests. */
+  sourceRun?: DiscoverySourceRunContext;
 }
 
 // Classify a batch of postings (any source) and persist the entry-level ones for
@@ -164,16 +282,24 @@ export async function ingestPostings(
 ): Promise<IngestCounts> {
   const countries = opts.countries?.length ? opts.countries : ["US", "CA"];
   for (const p of postings) {
-    if (!countries.includes(p.country)) continue;
     if (!p.title || !p.applyUrl) continue;
-    if (p.country === "US") res.usTotal++;
-    else if (p.country === "CA") res.caTotal++;
+    const inCountry = countries.includes(p.country);
+    if (inCountry && p.country === "US") res.usTotal++;
+    else if (inCountry && p.country === "CA") res.caTotal++;
 
     const verdict = classifyEntryLevel(
       { title: p.title, description: p.description },
       opts.entryOptions,
     );
-    if (onlyEntryLevel && !verdict.isEntryLevel) continue;
+    const existing = await findExistingPosting(p);
+    if (!inCountry) {
+      await recordExistingObservation(p, existing, opts.sourceRun, true);
+      continue;
+    }
+    if (onlyEntryLevel && !verdict.isEntryLevel) {
+      await recordExistingObservation(p, existing, opts.sourceRun, true);
+      continue;
+    }
     if (p.country === "US") res.usEntry++;
     else if (p.country === "CA") res.caEntry++;
 
@@ -187,11 +313,44 @@ export async function ingestPostings(
       isInternship: verdict.isInternship,
     });
 
-    const outcome = await persist(p, verdict.minYearsExperience, enrichment);
+    const outcome = await persist(
+      p,
+      verdict.minYearsExperience,
+      enrichment,
+      existing,
+      opts.sourceRun,
+    );
     if (outcome === "created") res.created++;
     else res.updated++;
   }
   return res;
+}
+
+export async function ingestSourcePostings(
+  descriptor: DiscoverySourceDescriptor,
+  postings: DiscoveryPosting[],
+  onlyEntryLevel: boolean,
+  res: IngestCounts = zeroCounts(),
+  opts: Omit<IngestOptions, "sourceRun"> = {},
+): Promise<{
+  counts: IngestCounts;
+  sourceRun: CompletedDiscoverySourceRun;
+}> {
+  const sourceRun = await beginDiscoverySourceRun(descriptor);
+  try {
+    const counts = await ingestPostings(postings, onlyEntryLevel, res, {
+      ...opts,
+      sourceRun,
+    });
+    const completed = await completeDiscoverySourceRun(
+      sourceRun,
+      postings.filter((posting) => posting.title && posting.applyUrl).length,
+    );
+    return { counts, sourceRun: completed };
+  } catch (error) {
+    await failDiscoverySourceRun(sourceRun, error);
+    throw error;
+  }
 }
 
 async function runCompany(
@@ -201,11 +360,30 @@ async function runCompany(
   ctx: FetchContext,
 ): Promise<CompanyRunResult> {
   const res: CompanyRunResult = { company: c.name, system: c.system, ...zeroCounts() };
+  const sourceRun = await beginDiscoverySourceRun(describeApiSource(c));
   try {
     const postings = await fetchCompanyPostings(c, ctx);
-    await ingestPostings(postings, onlyEntryLevel, res, opts);
+    await ingestPostings(postings, onlyEntryLevel, res, {
+      ...opts,
+      sourceRun,
+    });
+    const completed = await completeDiscoverySourceRun(
+      sourceRun,
+      postings.filter((posting) => posting.title && posting.applyUrl).length,
+    );
+    res.sourceRunId = completed.runId;
+    res.sourceComplete = completed.complete;
   } catch (e) {
     res.error = e instanceof Error ? e.message : String(e);
+    try {
+      await failDiscoverySourceRun(sourceRun, e);
+    } catch (lifecycleError) {
+      res.error += `; could not record source failure: ${
+        lifecycleError instanceof Error
+          ? lifecycleError.message
+          : String(lifecycleError)
+      }`;
+    }
   }
   return res;
 }
@@ -220,7 +398,12 @@ export async function runDiscovery(opts?: {
   concurrency?: number;
   config?: DiscoveryConfigData;
   onProgress?: (r: CompanyRunResult) => void;
+  onLifecycle?: (result: AvailabilityReconciliationResult) => void;
+  verify?: PostingVerifier;
+  /** Defer reconciliation when another source phase must contribute evidence first. */
+  reconcile?: boolean;
 }): Promise<DiscoveryRunResult> {
+  const cycleStartedAt = new Date();
   const onlyEntryLevel = opts?.onlyEntryLevel ?? true;
   const concurrency = opts?.concurrency ?? 5;
   const config = opts?.config ?? (await getDiscoveryConfig());
@@ -268,6 +451,23 @@ export async function runDiscovery(opts?: {
     opts?.onProgress?.(r);
   }
 
+  const lifecycle =
+    opts?.reconcile === false
+      ? {
+          checkedRuns: 0,
+          missing: 0,
+          verified: 0,
+          suspect: 0,
+          closed: 0,
+        }
+      : await reconcileDiscoverySourceRuns(
+          results.flatMap((result) =>
+            result.sourceRunId ? [result.sourceRunId] : [],
+          ),
+          { cycleStartedAt, verify: opts?.verify },
+        );
+  opts?.onLifecycle?.(lifecycle);
+
   return {
     companies: results,
     created: results.reduce((a, r) => a + r.created, 0),
@@ -275,5 +475,6 @@ export async function runDiscovery(opts?: {
     usEntry: results.reduce((a, r) => a + r.usEntry, 0),
     caEntry: results.reduce((a, r) => a + r.caEntry, 0),
     errors: results.filter((r) => r.error).length,
+    lifecycle,
   };
 }

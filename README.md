@@ -23,12 +23,12 @@ The queue targets roles that are **entry-level or ask for ≤ 2 years of experie
 
 ## Discovery pipeline
 
-Postings are pulled directly from each company's careers backend. 76 companies expose a
+Postings are pulled directly from each company's careers backend. 78 companies expose a
 usable public JSON API (Greenhouse, Ashby, Lever, Amazon, Uber, Netflix, Snap, Phenom,
 Spotify, Workday CXS) — including a block of quant / high-frequency trading firms (Jane
 Street, Point72, Optiver, Jump, IMC, Tower Research, Squarepoint, Qube, WorldQuant, AQR,
 DRW, HRT…) — and are fetched server-side; the rest are client-rendered or bot-gated and
-are either scraped with Playwright (Apple) or surfaced via a pinned search URL.
+are either scraped with Playwright (Apple and Shopify) or surfaced via a pinned search URL.
 
 ```bash
 # Fetch fresh US/CA entry-level roles from every API company (deduped upsert)
@@ -40,7 +40,7 @@ npm run discover -- Amazon Stripe OpenAI
 # Keep every software role, skip the ≤2-YoE gate
 npm run discover -- --all-levels
 
-# Playwright-scrape the client-rendered sites (Apple supported; rest reported)
+# Playwright-scrape the supported client-rendered sites
 npm run discover:browser
 
 # Live confirmation table of every company's endpoint + US/CA entry counts
@@ -67,16 +67,38 @@ window/floor/cap/concurrency in **Settings → Y Combinator expansion**.
 npm run discover -- "Y Combinator"
 ```
 
+### Posting availability and safe closure
+
+Discovery never deletes a job. Each catalog source has durable run records and per-job
+sightings. A posting moves through `open → suspect → closed` using conservative evidence:
+
+- failed, disabled, partial, or implausibly truncated source runs never count as misses;
+- a successful full-board Greenhouse, Lever, or Ashby response is authoritative, while
+  search-limited APIs, browser scrapes, YC expansion, and community boards cannot prove
+  closure by disappearance alone;
+- a newly missing posting is marked **Rechecking** and verified through its direct URL with
+  bounded concurrency; HTTP 404/410 or an explicit closed-page message closes it immediately;
+- otherwise, closure requires two complete authoritative misses. Aggregator disappearance
+  alone never closes a role.
+
+The first complete run for each source only seeds evidence for existing rows, so enabling this
+logic cannot hide legacy jobs immediately. Confirmed closures leave the canonical `Job`,
+application status, score, and timestamps intact and appear under **Jobs → Archived closed**.
+If a direct source sees the same requisition again, that row reopens instead of being duplicated.
+
 ---
 
 ## Features
 
-- **Company-site discovery** — 76 public-API companies (incl. quant / HFT firms) + Playwright
-  scraping for Apple, plus community GitHub job boards (SimplifyJobs, vanshb03) for the long
+- **Company-site discovery** — 78 public-API companies (incl. quant / HFT firms) + Playwright
+  scraping for Apple and Shopify, plus community GitHub job boards (SimplifyJobs, vanshb03) for the long
   tail of employers, classified to US/Canada entry-level roles. See [Discovery pipeline](#discovery-pipeline).
 - **Two separate queues** — US and Canada, newest-first, with last-24h / 7d / 30d filters.
 - **Rate-safe dashboard refreshes** — the shared scrape control enforces a durable two-hour
   cooldown and shows a live countdown before the next run can start.
+- **Evidence-based availability** — incomplete runs cannot close jobs; missing postings are
+  rechecked, confirmed closures are archived rather than deleted, and reappearing requisitions
+  reopen with their saved/applied history intact.
 - **Configurable, nothing hardcoded** — countries, max years of experience, degree/
   internship gates, extra role/exclude keywords, scraper query terms and per-source
   enable/disable all live in the **Settings** page (backed by a `DiscoveryConfig` record).
@@ -93,7 +115,8 @@ npm run discover -- "Y Combinator"
   single classifier (`lib/discovery/categories.ts`), so re-tagging or adding a firm needs no
   migration; the Overview shows a per-category roll-up.
 - **Applied tracking** — mark a job `saved` / `applied` / `dismissed` (etc.) right on the
-  card; **new** (< 48h) and **stale** (> 30d) postings are styled distinctly.
+  card; **new** (< 48h), **30d+ old**, **Rechecking**, and **Closed** postings are labeled
+  distinctly.
 - **Optional Chrome autofill assistant** — open a posting from the Jobs page, fill recognized
   fields from a profile stored in Chrome, track progress in both the posting and dashboard,
   and list every unknown or manual field. It has a global off switch and never submits.
@@ -181,7 +204,7 @@ The Chrome extension is optional and needs no build or Web Store publication. Fo
 | Page | What you do there |
 | --- | --- |
 | **Overview** | Discovery stats, US/CA entry-level counts, companies covered, by-category and by-company breakdowns. |
-| **Jobs** | Time-sorted US / CA queues of discovered postings. Filter by category, date, skills, sponsorship, employment type, source, min salary, min fit, remote, warm intro and applied status; sort by newest / company / best fit / salary. Each card links out or launches the optional autofill assistant, tracks its progress, and lets you mark status. |
+| **Jobs** | Time-sorted US / CA queues of active postings plus an Archived closed view that preserves application history. Filter by category, date, skills, sponsorship, employment type, source, min salary, min fit, remote, warm intro and applied status; sort by newest / company / best fit / salary. Each active card links out or launches the optional autofill assistant, tracks its progress, and lets you mark status. |
 | **Companies** | Coverage of every API and browser-scraped source. |
 | **Judge** | Review scoring coverage and signal definitions, set a salary target, monitor exact processed/total progress, and re-score all eligible jobs. |
 | **Company tiers** | Drag employers from S through F. The tier is authoritative: it selects the job's final score band. Unrated companies use E. |
@@ -257,7 +280,9 @@ npm run sources:probe   # probes candidate Greenhouse/Lever/Ashby boards, prints
 ## The queue (Jobs page)
 
 The Jobs page is a **queue ordered by time posted** (`postedAt`, falling back to when we
-first saw the job), split into **United States** and **Canada** tabs. Controls:
+first saw the job), split into **United States** and **Canada** tabs. **Open & rechecking**
+is the default; **Archived closed** exposes confirmed closures without losing saved/applied
+state. Controls:
 
 - **Date posted** — `Last 24 hours`, `Last 7 days`, `Last 30 days`, `All time`.
 - **Sort** — `Newest` (default), `Company`, `Best fit`, or `Salary`.
@@ -266,10 +291,10 @@ first saw the job), split into **United States** and **Canada** tabs. Controls:
   **min salary**, **min fit**, **remote only**, **warm intro** (jobs where you have a LinkedIn
   connection, shown only once connections are imported) and free-text search on title/company.
 - **Card actions** — `Open posting ↗` (normal link or extension-assisted handoff) and status buttons (`Save`,
-  `Mark applied`, `Dismiss`, `Clear`). **New** (< 48h) cards and **stale** (> 30d) cards
-  are styled distinctly.
+  `Mark applied`, `Dismiss`, `Clear`). **New** (< 48h), **30d+ old**, **Rechecking**, and
+  **Closed** badges distinguish age from actual availability evidence.
 
-The API backs this at `GET /api/jobs?view=discovery&country=US|CA&sort=posted|company|fit|salary`
+The API backs this at `GET /api/jobs?view=discovery&country=US|CA&availability=active|closed&sort=posted|company|fit|salary`
 `&since=24h|7d|30d|all&category=…&skills=…&sponsorship=…&status=…&employmentType=…&source=…`
 `&salaryMin=…&fitMin=…&remote=1&connections=1&q=…`. Available filter values (including
 `withConnections`) come from `GET /api/jobs/facets`; `PATCH /api/jobs/:id` records applied
