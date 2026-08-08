@@ -904,9 +904,10 @@
         normalized
       );
     const asksForUnmodeledStatus =
-      /\b(?:obtain|already have|currently have|visa status|immigration status|type of visa|which visa)\b/.test(
+      /\b(?:obtain|already have|currently have|immigration status|type of visa|which visa)\b/.test(
         normalized
-      );
+      ) ||
+      (/\bvisa status\b/.test(normalized) && !mentionsSponsorship);
     const asksIfAuthorizationIsNeeded =
       /\b(?:need|require|requires|required)\b.{0,20}\b(?:work (?:authorization|authorisation|permit)|(?:authorization|authorisation|permission|permit)\b.{0,12}\bto work)\b/.test(
         normalized

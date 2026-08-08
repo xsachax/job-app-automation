@@ -293,6 +293,36 @@ test.describe("unpacked extension non-text runtime", () => {
       await expect(application.locator("#native-source")).toHaveValue("linkedin");
       await expect(application.locator("#preserved-country")).toHaveValue("ca");
 
+      await expect(
+        application
+          .locator("#greenhouse-country")
+          .locator("xpath=ancestor::*[contains(@class, 'select__value-container')]")
+          .locator(".select__single-value"),
+      ).toHaveText("United States");
+      await expect(
+        application
+          .locator("#greenhouse-location")
+          .locator("xpath=ancestor::*[contains(@class, 'select__value-container')]")
+          .locator(".select__single-value"),
+      ).toHaveText("New York, NY");
+      await expect(
+        application
+          .locator("#greenhouse-sponsorship")
+          .locator("xpath=ancestor::*[contains(@class, 'select__value-container')]")
+          .locator(".select__single-value"),
+      ).toHaveText("No");
+      await expect(
+        application
+          .locator("#greenhouse-source")
+          .locator("xpath=ancestor::*[contains(@class, 'select__value-container')]")
+          .locator(".select__single-value"),
+      ).toHaveText("LinkedIn");
+      await expect(application.locator("#greenhouse-country")).toHaveValue("");
+      await expect(application.locator("#greenhouse-country")).toHaveAttribute(
+        "aria-expanded",
+        "false",
+      );
+
       await expect(application.locator("#authorized-yes")).toBeChecked();
       await expect(application.locator("#sponsorship-no")).toBeChecked();
       await expect(application.locator('[name="gender"]:checked')).toHaveCount(0);
@@ -329,6 +359,11 @@ test.describe("unpacked extension non-text runtime", () => {
           .locator("#resume-file")
           .evaluate((input: HTMLInputElement) => input.files?.[0]?.name),
       ).toBe("runtime-resume.pdf");
+      expect(
+        await application
+          .locator("#greenhouse-resume")
+          .evaluate((input: HTMLInputElement) => input.files?.[0]?.name),
+      ).toBe("runtime-resume.pdf");
 
       await expect(application.locator("#optional-native-city")).toHaveValue("");
       await expect(application.locator("#optional-native-source")).toHaveValue("");
@@ -342,9 +377,24 @@ test.describe("unpacked extension non-text runtime", () => {
       await expect(application.locator("#optional-office-new-york")).not.toBeChecked();
       await expect(application.locator("#optional-start-date")).toHaveValue("");
       await expect(application.locator("#optional-school-value")).toHaveValue("");
+      await expect(application.locator("#optional-greenhouse-country")).toHaveValue(
+        "",
+      );
+      await expect(
+        application.locator(
+          "#optional-greenhouse-country",
+        ).locator(
+          "xpath=ancestor::*[contains(@class, 'select__value-container')]",
+        ).locator(".select__single-value"),
+      ).toHaveCount(0);
       expect(
         await application
           .locator("#optional-file")
+          .evaluate((input: HTMLInputElement) => input.files?.length || 0),
+      ).toBe(0);
+      expect(
+        await application
+          .locator("#greenhouse-cover-letter")
           .evaluate((input: HTMLInputElement) => input.files?.length || 0),
       ).toBe(0);
 
@@ -359,6 +409,10 @@ test.describe("unpacked extension non-text runtime", () => {
         "native-school": "uottawa",
         "native-degree": "bachelors",
         "native-source": "linkedin",
+        "greenhouse-country": "us",
+        "greenhouse-location": "new-york",
+        "greenhouse-sponsorship": "no",
+        "greenhouse-source": "linkedin",
         authorization: "yes",
         sponsorship: "no",
         age: "yes",
@@ -373,12 +427,17 @@ test.describe("unpacked extension non-text runtime", () => {
         "ashby-school": "uottawa",
         "workday-region": "NY",
         "resume-file": "runtime-resume.pdf",
+        "greenhouse-resume": "runtime-resume.pdf",
       });
       expect(state.replacements).toMatchObject({
         "native-school": 1,
         "native-source": 1,
         "ashby-school-trigger": 1,
         "workday-region-trigger": 1,
+        "greenhouse-country": 1,
+        "greenhouse-location": 1,
+        "greenhouse-sponsorship": 1,
+        "greenhouse-source": 1,
       });
       expect(state.replacements["native-degree"]).toBeGreaterThanOrEqual(2);
       expect(eventsFor(state, "native-city")).toEqual(
@@ -390,12 +449,33 @@ test.describe("unpacked extension non-text runtime", () => {
       expect(eventsFor(state, "ashby-school-value")).toEqual(
         expect.arrayContaining(["input", "change"]),
       );
+      for (const control of [
+        "greenhouse-country",
+        "greenhouse-location",
+        "greenhouse-sponsorship",
+        "greenhouse-source",
+      ]) {
+        expect(eventsFor(state, control)).toEqual(
+          expect.arrayContaining(["click", "input", "change", "blur"]),
+        );
+      }
+      for (const option of [
+        "react-select-greenhouse-country-option-0",
+        "react-select-greenhouse-location-option-0",
+        "react-select-greenhouse-sponsorship-option-1",
+        "react-select-greenhouse-source-option-0",
+      ]) {
+        expect(eventsFor(state, option)).toContain("click");
+      }
+      expect(eventsFor(state, "greenhouse-resume")).toEqual(
+        expect.arrayContaining(["input", "change", "blur"]),
+      );
       expect(state.unrelatedOptionClicks).toBe(0);
       expect(state.submitClicks).toBe(0);
 
       const backgroundState = await extensionState(popup, applicationUrl);
       expect(backgroundState.session?.progress.filledByExtension).toBeGreaterThanOrEqual(
-        18,
+        23,
       );
       expect(
         backgroundState.session?.progress.unknownFields,

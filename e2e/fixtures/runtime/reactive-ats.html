@@ -54,6 +54,45 @@
         top: 0;
       }
 
+      .select-shell {
+        position: relative;
+      }
+
+      .select__control {
+        align-items: center;
+        display: flex;
+      }
+
+      .select__value-container {
+        align-items: center;
+        display: grid;
+      }
+
+      .select__input-container,
+      .select__placeholder,
+      .select__single-value {
+        grid-area: 1 / 1;
+      }
+
+      .greenhouse-required-input {
+        bottom: 0;
+        left: 0;
+        opacity: 0;
+        pointer-events: none;
+        position: absolute;
+        right: 0;
+        width: 100%;
+      }
+
+      .visually-hidden {
+        clip: rect(0 0 0 0);
+        height: 1px;
+        overflow: hidden;
+        position: absolute;
+        white-space: nowrap;
+        width: 1px;
+      }
+
       #event-log,
       #model-state {
         background: #f5f5f5;
@@ -69,7 +108,7 @@
     <div data-automation-id="progressBar">Application questions</div>
     <p>
       This fixture never submits. It emulates controlled generic, Ashby-like,
-      and Workday-like application controls.
+      Greenhouse-like, and Workday-like application controls.
     </p>
 
     <main id="application" data-automation-id="applicationPage">
@@ -155,6 +194,302 @@
             <option value="linkedin">LinkedIn</option>
           </select>
         </label>
+      </section>
+
+      <section id="greenhouse-controls" data-ats-shape="greenhouse">
+        <h2>Greenhouse React Select controls</h2>
+
+        <div class="field-wrapper">
+          <div class="select">
+            <div class="select__container">
+              <label
+                id="greenhouse-country-label"
+                for="greenhouse-country"
+                class="label select__label"
+              >Country<span aria-hidden="true">*</span></label>
+              <div class="select-shell">
+                <span id="react-select-greenhouse-country-live-region"></span>
+                <span aria-live="polite" role="log"></span>
+                <div class="select__control">
+                  <div class="select__value-container">
+                    <div
+                      id="react-select-greenhouse-country-placeholder"
+                      class="select__placeholder"
+                    >Select...</div>
+                    <div class="select__input-container" data-value="">
+                      <input
+                        id="greenhouse-country"
+                        class="select__input"
+                        type="text"
+                        role="combobox"
+                        aria-autocomplete="list"
+                        aria-expanded="false"
+                        aria-haspopup="true"
+                        aria-labelledby="greenhouse-country-label"
+                        aria-required="true"
+                        aria-describedby="react-select-greenhouse-country-placeholder"
+                        autocomplete="off"
+                        value=""
+                      >
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label="Toggle flyout"
+                    tabindex="-1"
+                    data-greenhouse-toggle="greenhouse-country"
+                  >Open</button>
+                </div>
+                <input
+                  required
+                  tabindex="-1"
+                  aria-hidden="true"
+                  class="greenhouse-required-input"
+                  value=""
+                >
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="field-wrapper">
+          <div class="select">
+            <div class="select__container">
+              <label
+                id="greenhouse-location-label"
+                for="greenhouse-location"
+                class="label select__label"
+              >Location (City)<span aria-hidden="true">*</span></label>
+              <div class="select-shell">
+                <span id="react-select-greenhouse-location-live-region"></span>
+                <span aria-live="polite" role="log"></span>
+                <div class="select__control">
+                  <div class="select__value-container">
+                    <div
+                      id="react-select-greenhouse-location-placeholder"
+                      class="select__placeholder"
+                    >Select...</div>
+                    <div class="select__input-container" data-value="">
+                      <input
+                        id="greenhouse-location"
+                        class="select__input"
+                        type="text"
+                        role="combobox"
+                        aria-autocomplete="list"
+                        aria-expanded="false"
+                        aria-haspopup="true"
+                        aria-labelledby="greenhouse-location-label"
+                        aria-required="true"
+                        aria-describedby="react-select-greenhouse-location-placeholder"
+                        autocomplete="off"
+                        value=""
+                      >
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label="Toggle flyout"
+                    tabindex="-1"
+                    data-greenhouse-toggle="greenhouse-location"
+                  >Open</button>
+                </div>
+                <input
+                  required
+                  tabindex="-1"
+                  aria-hidden="true"
+                  class="greenhouse-required-input"
+                  value=""
+                >
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="field-wrapper">
+          <div class="select">
+            <div class="select__container">
+              <label
+                id="greenhouse-sponsorship-label"
+                for="greenhouse-sponsorship"
+                class="label select__label"
+              >If working in the US, will you now, or in the future, require sponsorship for employment visa status (e.g., H-1B visa) to legally work in the US?<span aria-hidden="true">*</span></label>
+              <div class="select-shell">
+                <span id="react-select-greenhouse-sponsorship-live-region"></span>
+                <span aria-live="polite" role="log"></span>
+                <div class="select__control">
+                  <div class="select__value-container">
+                    <div
+                      id="react-select-greenhouse-sponsorship-placeholder"
+                      class="select__placeholder"
+                    >Select...</div>
+                    <div class="select__input-container" data-value="">
+                      <input
+                        id="greenhouse-sponsorship"
+                        class="select__input"
+                        type="text"
+                        role="combobox"
+                        aria-autocomplete="list"
+                        aria-expanded="false"
+                        aria-haspopup="true"
+                        aria-labelledby="greenhouse-sponsorship-label"
+                        aria-required="true"
+                        aria-describedby="react-select-greenhouse-sponsorship-placeholder"
+                        autocomplete="off"
+                        value=""
+                      >
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label="Toggle flyout"
+                    tabindex="-1"
+                    data-greenhouse-toggle="greenhouse-sponsorship"
+                  >Open</button>
+                </div>
+                <input
+                  required
+                  tabindex="-1"
+                  aria-hidden="true"
+                  class="greenhouse-required-input"
+                  value=""
+                >
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="field-wrapper">
+          <div class="select">
+            <div class="select__container">
+              <label
+                id="greenhouse-source-label"
+                for="greenhouse-source"
+                class="label select__label"
+              >How did you hear about us?<span aria-hidden="true">*</span></label>
+              <div class="select-shell">
+                <span id="react-select-greenhouse-source-live-region"></span>
+                <span aria-live="polite" role="log"></span>
+                <div class="select__control">
+                  <div class="select__value-container">
+                    <div
+                      id="react-select-greenhouse-source-placeholder"
+                      class="select__placeholder"
+                    >Select...</div>
+                    <div class="select__input-container" data-value="">
+                      <input
+                        id="greenhouse-source"
+                        class="select__input"
+                        type="text"
+                        role="combobox"
+                        aria-autocomplete="list"
+                        aria-expanded="false"
+                        aria-haspopup="true"
+                        aria-labelledby="greenhouse-source-label"
+                        aria-required="true"
+                        aria-describedby="react-select-greenhouse-source-placeholder"
+                        autocomplete="off"
+                        value=""
+                      >
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label="Toggle flyout"
+                    tabindex="-1"
+                    data-greenhouse-toggle="greenhouse-source"
+                  >Open</button>
+                </div>
+                <input
+                  required
+                  tabindex="-1"
+                  aria-hidden="true"
+                  class="greenhouse-required-input"
+                  value=""
+                >
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="field-wrapper">
+          <div class="select">
+            <div class="select__container">
+              <label
+                id="optional-greenhouse-country-label"
+                for="optional-greenhouse-country"
+                class="label select__label"
+              >Optional country</label>
+              <div class="select-shell">
+                <div class="select__control">
+                  <div class="select__value-container">
+                    <div
+                      id="react-select-optional-greenhouse-country-placeholder"
+                      class="select__placeholder"
+                    >Select...</div>
+                    <div class="select__input-container" data-value="">
+                      <input
+                        id="optional-greenhouse-country"
+                        class="select__input"
+                        type="text"
+                        role="combobox"
+                        aria-autocomplete="list"
+                        aria-expanded="false"
+                        aria-haspopup="true"
+                        aria-labelledby="optional-greenhouse-country-label"
+                        aria-required="false"
+                        aria-describedby="react-select-optional-greenhouse-country-placeholder"
+                        autocomplete="off"
+                        value=""
+                      >
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="field-wrapper">
+          <div
+            role="group"
+            aria-labelledby="upload-label-greenhouse-resume"
+            aria-required="true"
+            class="file-upload"
+          >
+            <div id="upload-label-greenhouse-resume" class="label upload-label">
+              Resume/CV<span class="required">*</span>
+            </div>
+            <button type="button">Attach</button>
+            <label class="visually-hidden" for="greenhouse-resume">Attach</label>
+            <input
+              id="greenhouse-resume"
+              class="visually-hidden"
+              type="file"
+              accept=".pdf,.doc,.docx,.txt,.rtf"
+            >
+          </div>
+        </div>
+
+        <div class="field-wrapper">
+          <div
+            role="group"
+            aria-labelledby="upload-label-greenhouse-cover-letter"
+            aria-required="false"
+            class="file-upload"
+          >
+            <div id="upload-label-greenhouse-cover-letter" class="label upload-label">
+              Cover Letter
+            </div>
+            <button type="button">Attach</button>
+            <label class="visually-hidden" for="greenhouse-cover-letter">Attach</label>
+            <input
+              id="greenhouse-cover-letter"
+              class="visually-hidden"
+              type="file"
+              accept=".pdf,.doc,.docx,.txt,.rtf"
+            >
+          </div>
+        </div>
       </section>
 
       <section id="native-choice-controls" data-ats-shape="generic">
@@ -493,6 +828,16 @@
             if (target.checked) harness.model[target.name] = target.value;
           } else if (target.type === "checkbox") {
             harness.model[controlName(target)] = target.checked;
+          } else if (target.matches(".select__input[role='combobox']")) {
+            const selectedValue = target
+              .closest(".select__control")
+              .querySelector(".select__single-value");
+            const requiredProxy = target
+              .closest(".select-shell")
+              .querySelector(".greenhouse-required-input");
+            harness.model[controlName(target)] = selectedValue
+              ? requiredProxy?.value || ""
+              : target.value;
           } else if (target.type !== "hidden") {
             harness.model[controlName(target)] = target.value;
           }
@@ -598,6 +943,49 @@
             ]
           }
         };
+        const greenhouseCombos = {
+          "greenhouse-country": {
+            modelKey: "greenhouse-country",
+            delay: 90,
+            options: [
+              ["us", "United States"],
+              ["ca", "Canada"]
+            ]
+          },
+          "greenhouse-location": {
+            modelKey: "greenhouse-location",
+            delay: 110,
+            options: [
+              ["new-york", "New York, NY"],
+              ["toronto", "Toronto, ON"]
+            ]
+          },
+          "greenhouse-sponsorship": {
+            modelKey: "greenhouse-sponsorship",
+            delay: 70,
+            options: [
+              ["yes", "Yes"],
+              ["no", "No"]
+            ]
+          },
+          "greenhouse-source": {
+            modelKey: "greenhouse-source",
+            delay: 100,
+            options: [
+              ["linkedin", "LinkedIn"],
+              ["referral", "Employee referral"],
+              ["other", "Other"]
+            ]
+          },
+          "optional-greenhouse-country": {
+            modelKey: "optional-greenhouse-country",
+            delay: 60,
+            options: [
+              ["us", "United States"],
+              ["ca", "Canada"]
+            ]
+          }
+        };
 
         const loading = new Set();
 
@@ -657,10 +1045,98 @@
           }, config.delay);
         }
 
+        function greenhouseListboxId(trigger) {
+          return `react-select-${trigger.id}-listbox`;
+        }
+
+        function commitGreenhouseCombo(trigger, config, listbox, option) {
+          const valueContainer = trigger.closest(".select__value-container");
+          const placeholder = valueContainer.querySelector(".select__placeholder");
+          let selectedValue = valueContainer.querySelector(".select__single-value");
+          if (!selectedValue) {
+            selectedValue = document.createElement("div");
+            selectedValue.className = "select__single-value";
+            valueContainer.prepend(selectedValue);
+          }
+          selectedValue.textContent = option.textContent;
+          placeholder.hidden = true;
+          trigger.value = "";
+          trigger.parentElement.dataset.value = "";
+          trigger.setAttribute("aria-expanded", "false");
+          trigger.removeAttribute("aria-controls");
+          trigger.removeAttribute("aria-activedescendant");
+          const requiredProxy = trigger
+            .closest(".select-shell")
+            .querySelector(".greenhouse-required-input");
+          if (requiredProxy) requiredProxy.value = option.dataset.value;
+          harness.model[config.modelKey] = option.dataset.value;
+          listbox.remove();
+          renderModel();
+          queueMicrotask(() => {
+            const current = document.getElementById(trigger.id);
+            if (!current) return;
+            const replacement = current.cloneNode(true);
+            current.replaceWith(replacement);
+            harness.replacements[trigger.id] =
+              (harness.replacements[trigger.id] || 0) + 1;
+            renderModel();
+          });
+        }
+
+        function openGreenhouseCombo(trigger, config) {
+          const listboxId = greenhouseListboxId(trigger);
+          trigger.setAttribute("aria-expanded", "true");
+          trigger.setAttribute("aria-controls", listboxId);
+          if (loading.has(trigger.id) || document.getElementById(listboxId)) {
+            return;
+          }
+          loading.add(trigger.id);
+          setTimeout(() => {
+            loading.delete(trigger.id);
+            const current = document.getElementById(trigger.id);
+            if (!current || current.getAttribute("aria-expanded") !== "true") return;
+            const listbox = document.createElement("div");
+            listbox.id = listboxId;
+            listbox.setAttribute("role", "listbox");
+            listbox.dataset.owner = trigger.id;
+            for (const [index, [value, label]] of config.options.entries()) {
+              const option = document.createElement("div");
+              option.id = `react-select-${trigger.id}-option-${index}`;
+              option.className = "select__option";
+              option.setAttribute("role", "option");
+              option.setAttribute("aria-selected", "false");
+              option.dataset.value = value;
+              option.textContent = label;
+              option.addEventListener("click", () =>
+                commitGreenhouseCombo(current, config, listbox, option)
+              );
+              listbox.append(option);
+            }
+            document.body.append(listbox);
+          }, config.delay);
+        }
+
         document.addEventListener("click", (event) => {
+          const greenhouseToggle = event.target.closest("[data-greenhouse-toggle]");
+          const greenhouseTrigger = greenhouseToggle
+            ? document.getElementById(greenhouseToggle.dataset.greenhouseToggle)
+            : event.target.closest(".select__input[role='combobox']");
+          if (greenhouseTrigger && greenhouseTrigger.id in greenhouseCombos) {
+            openGreenhouseCombo(
+              greenhouseTrigger,
+              greenhouseCombos[greenhouseTrigger.id]
+            );
+            return;
+          }
           const trigger = event.target.closest('[role="combobox"]');
           if (!trigger || !(trigger.id in combos)) return;
           openCombo(trigger, combos[trigger.id]);
+        });
+
+        document.addEventListener("input", (event) => {
+          const trigger = event.target.closest(".select__input[role='combobox']");
+          if (!trigger || !(trigger.id in greenhouseCombos)) return;
+          trigger.parentElement.dataset.value = trigger.value;
         });
 
         for (const option of document.querySelectorAll("#unrelated-listbox [role=option]")) {

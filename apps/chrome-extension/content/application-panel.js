@@ -516,7 +516,10 @@
     if (isContentEditable(first)) {
       return Boolean(text(first.textContent));
     }
-    if (controlKind(elements) === "combobox" && !isInput(first)) {
+    if (controlKind(elements) === "combobox" && isInput(first)) {
+      return Boolean(text(interactions.committedControlValue(first)));
+    }
+    if (controlKind(elements) === "combobox") {
       const explicitValue =
         first.getAttribute("data-value") ||
         first.getAttribute("aria-valuetext");

@@ -1109,6 +1109,12 @@ describe("Chrome extension field matching", () => {
       },
       {
         prompt:
+          "If working in the US, will you now, or in the future, require sponsorship for employment visa status (e.g., H-1B visa) to legally work in the US?",
+        key: "requiresSponsorship",
+        answer: "no",
+      },
+      {
+        prompt:
           "Are you legally authorized to work in the United States without sponsorship?",
         key: "workAuthorization",
         answer: "yes",
@@ -1265,6 +1271,7 @@ describe("Chrome extension field matching", () => {
       "Are you not legally authorized to work?",
       "Can you obtain visa sponsorship?",
       "Do you already have visa sponsorship?",
+      "What is your visa sponsorship status?",
       "Do you need work authorization?",
       "What days can you work?",
       "How many hours per week can you work?",

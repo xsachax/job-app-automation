@@ -126,4 +126,26 @@ describe("Chrome extension control interactions", () => {
 
     expect(interactions.committedControlValue(control)).toBe("uottawa");
   });
+
+  it("reads a Greenhouse React Select value after its input is cleared", () => {
+    const selected = { textContent: "United States" };
+    const control = {
+      value: "",
+      textContent: "",
+      getAttribute(name: string) {
+        return name === "role" ? "combobox" : null;
+      },
+      closest(selector: string) {
+        expect(selector).toBe("[class*='__control']");
+        return {
+          querySelectorAll(selectedSelector: string) {
+            expect(selectedSelector).toBe("[class*='__single-value']");
+            return [selected];
+          },
+        };
+      },
+    };
+
+    expect(interactions.committedControlValue(control)).toBe("United States");
+  });
 });

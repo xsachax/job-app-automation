@@ -75,11 +75,25 @@
     );
   }
 
+  function selectedSiblingValue(element) {
+    if (element?.getAttribute?.("role") !== "combobox") {
+      return "";
+    }
+    const control = element.closest?.("[class*='__control']");
+    const selectedValues = Array.from(
+      control?.querySelectorAll?.("[class*='__single-value']") || []
+    )
+      .map((candidate) => text(candidate.textContent))
+      .filter(Boolean);
+    return selectedValues.length === 1 ? selectedValues[0] : "";
+  }
+
   function committedControlValue(element) {
     return (
       text(element?.value) ||
       text(element?.getAttribute?.("data-value")) ||
       text(element?.getAttribute?.("aria-valuetext")) ||
+      selectedSiblingValue(element) ||
       text(element?.textContent)
     );
   }
