@@ -7,6 +7,9 @@
     "workAuthorization",
     "requiresSponsorship"
   ]);
+  const currentLocationFieldKeys = new Set(["city", "location"]);
+  const locationPreferencePattern =
+    /\b(?:desired|prefer(?:red|ence|ences)?|relocat(?:e|ed|ing|ion)|willing)\b/;
   const thirdPartyContext = [
     "reference",
     "references",
@@ -311,6 +314,29 @@
     nunavut: ["nu", "nunavut"],
     yukon: ["yt", "yukon"]
   };
+  const locationRegionKeys = new Set(
+    Object.entries(choiceAliases)
+      .filter(
+        ([canonical, aliases]) =>
+          !degreeChoiceKeys.has(canonical) &&
+          !["united states", "canada"].includes(canonical) &&
+          aliases.some((alias) => /^[a-z]{2}$/.test(alias))
+      )
+      .map(([canonical]) => canonical)
+  );
+  const locationCountries = new Set([
+    "canada",
+    "united states",
+    "united states of america",
+    "usa",
+    "us"
+  ]);
+  const safeFallbackFieldKeys = new Set([
+    "degree",
+    "fieldOfStudy",
+    "heardAboutJob",
+    "school"
+  ]);
 
   function normalizeText(value) {
     return String(value || "")
@@ -812,8 +838,16 @@
     const genericLabel = hasGenericExplicitLabel(context.signals);
     const contextualGeneric =
       genericLabel && genericContextMatches(definition, context.signals);
+    const hasLocationPreferenceIntent =
+      currentLocationFieldKeys.has(definition.key) &&
+      (context.signals || []).some(
+        (signal) =>
+          (signal.weight || 1) >= 0.8 &&
+          locationPreferencePattern.test(normalizeText(signal.text))
+      );
     if (
       isExcluded(definition, context.signals || []) ||
+      hasLocationPreferenceIntent ||
       hasThirdPartyContext(definition, context.signals) ||
       (genericLabel && !contextualGeneric) ||
       !eligibilityDefinitionMatches(definition, context.signals) ||
@@ -944,20 +978,68 @@
     return normalized;
   }
 
+  function normalizeCity(value) {
+    return normalizeText(value)
+      .replace(/^(?:city of|greater) /, "")
+      .replace(
+        / (?:city|office|metro area|metropolitan area|greater area|bay area)$/,
+        ""
+      )
+      .trim();
+  }
+
+  function canonicalRegion(value) {
+    const canonical = canonicalChoice(value, "region");
+    return locationRegionKeys.has(canonical) ? canonical : "";
+  }
+
+  function stripCountrySuffix(value) {
+    let normalized = normalizeText(value);
+    for (const country of [...locationCountries].sort(
+      (left, right) => right.length - left.length
+    )) {
+      if (normalized === country) {
+        return "";
+      }
+      if (normalized.endsWith(` ${country}`)) {
+        normalized = normalized.slice(0, -(country.length + 1)).trim();
+        break;
+      }
+    }
+    return normalized;
+  }
+
   function locationIdentity(value) {
-    const parts = String(value || "")
-      .split(",")
-      .map((part) => part.trim())
+    const rawParts = String(value || "")
+      .split(/[,|/]+/)
+      .map((part) => stripCountrySuffix(part))
       .filter(Boolean);
-    if (!parts.length) {
+    if (!rawParts.length) {
       return { city: "", region: "" };
     }
-    const city = normalizeText(parts[0])
-      .replace(/\b(?:office|metro area)\b/g, "")
-      .replace(/\bcity$/g, "")
-      .trim();
-    const region =
-      parts.length > 1 ? canonicalChoice(parts[1], "region") : "";
+
+    let city = normalizeCity(rawParts[0]);
+    let region = rawParts.length > 1 ? canonicalRegion(rawParts[1]) : "";
+    if (!region && rawParts.length === 1) {
+      const normalized = stripCountrySuffix(rawParts[0]);
+      const regionAliases = Object.entries(choiceAliases)
+        .filter(([canonical]) => locationRegionKeys.has(canonical))
+        .flatMap(([canonical, aliases]) =>
+          aliases.map((alias) => ({ alias: normalizeText(alias), canonical }))
+        )
+        .sort((left, right) => right.alias.length - left.alias.length);
+      const suffix = regionAliases.find(
+        ({ alias }) =>
+          normalized.endsWith(` ${alias}`) &&
+          normalized.length > alias.length + 1
+      );
+      if (suffix) {
+        city = normalizeCity(
+          normalized.slice(0, -(suffix.alias.length + 1))
+        );
+        region = suffix.canonical;
+      }
+    }
     return { city, region };
   }
 
@@ -969,19 +1051,28 @@
     return Math.max(
       ...[optionValue, optionLabel].map((candidate) => {
         const option = locationIdentity(candidate);
-        if (!option.city || option.city !== saved.city) {
+        const cityScore = scoreText(saved.city, option.city);
+        if (
+          !option.city ||
+          (option.city !== saved.city &&
+            (cityScore < 74 ||
+              tokens(option.city).length !== tokens(saved.city).length))
+        ) {
           return 0;
         }
         if (option.region && saved.region) {
-          return option.region === saved.region ? 100 : 0;
+          if (option.region !== saved.region) {
+            return 0;
+          }
+          return option.city === saved.city ? 100 : 90;
         }
-        return 92;
+        return option.city === saved.city ? 94 : 86;
       })
     );
   }
 
   function scoreChoice(savedValue, optionValue, optionLabel, fieldKey) {
-    if (fieldKey === "preferredOfficeLocations") {
+    if (["city", "location", "preferredOfficeLocations"].includes(fieldKey)) {
       return Math.max(
         scoreLocationChoice(savedValue, optionValue, optionLabel),
         Math.min(
@@ -1024,6 +1115,30 @@
     );
   }
 
+  function scoreSafeFallback(fieldKey, optionValue, optionLabel) {
+    if (!safeFallbackFieldKeys.has(fieldKey)) {
+      return 0;
+    }
+    const candidates = [optionValue, optionLabel].map(normalizeText);
+    if (
+      candidates.some((candidate) =>
+        /^(?:not listed|not listed above|not listed here|none of the above)$/.test(
+          candidate
+        )
+      )
+    ) {
+      return 100;
+    }
+    if (
+      candidates.some((candidate) =>
+        /^(?:other|other please specify|other not listed)$/.test(candidate)
+      )
+    ) {
+      return 94;
+    }
+    return 0;
+  }
+
   const api = Object.freeze({
     MINIMUM_SCORE,
     UNCERTAIN_SCORE,
@@ -1036,7 +1151,8 @@
     resolveEligibilityAnswer,
     resolvePreviousEmployerAnswer,
     canonicalChoice,
-    scoreChoice
+    scoreChoice,
+    scoreSafeFallback
   });
 
   root.JobAutofillMatcher = api;

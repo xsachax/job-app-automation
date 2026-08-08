@@ -21,6 +21,7 @@ async function installContentPanel(
     country = "",
     company = "",
     profileAvailability,
+    requiredByDefault = true,
   }: {
     html: string;
     profile: Record<string, string>;
@@ -35,10 +36,25 @@ async function installContentPanel(
     country?: string;
     company?: string;
     profileAvailability?: Record<string, boolean>;
+    requiredByDefault?: boolean;
   },
 ) {
   await page.goto("/jobs");
   await page.setContent(html);
+  if (requiredByDefault) {
+    await page.evaluate(() => {
+      const controls = document.querySelectorAll(
+        "input:not([type='hidden']):not([type='button']):not([type='submit']), textarea, select, [contenteditable='true'], [role='combobox'], [role='radio'], [role='checkbox'], button[aria-haspopup='listbox']",
+      );
+      for (const control of controls) {
+        if (["INPUT", "TEXTAREA", "SELECT"].includes(control.tagName)) {
+          control.setAttribute("required", "");
+        } else {
+          control.setAttribute("aria-required", "true");
+        }
+      }
+    });
+  }
   if (revealPanel) {
     await page.evaluate(() => {
       const attachShadow = Element.prototype.attachShadow;
@@ -168,7 +184,7 @@ async function installContentPanel(
 }
 
 async function invokeAutofill(page: Page) {
-  return page.evaluate(() =>
+  const result = await page.evaluate(() =>
     (
       globalThis as unknown as {
         __panelHarness: {
@@ -177,6 +193,17 @@ async function invokeAutofill(page: Page) {
       }
     ).__panelHarness.invoke({ type: "JOB_AUTOFILL_FILL" }),
   );
+  if (
+    result &&
+    typeof result === "object" &&
+    "ok" in result &&
+    result.ok === false
+  ) {
+    throw new Error(
+      "error" in result ? String(result.error) : "Content autofill failed.",
+    );
+  }
+  return result;
 }
 
 test("section headings prevent applicant data from filling reference fields", async ({
@@ -300,6 +327,53 @@ test("cancelled combobox fill preserves newer user input", async ({ page }) => {
   await expect(page.locator("body")).not.toHaveAttribute(
     "data-option-clicked",
     "true",
+  );
+});
+
+test("preserves answers entered while an earlier control is still filling", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `
+      <label for="school">School *</label>
+      <input id="school" role="combobox" aria-controls="school-options" aria-required="true">
+      <div id="school-options" role="listbox" hidden></div>
+      <label>Email address <input id="applicant-email" required></label>
+      <script>
+        const school = document.getElementById("school");
+        school.addEventListener("click", () => {
+          document.getElementById("school-options").hidden = false;
+        });
+      </script>
+    `,
+    profile: {
+      school: "University of Ottawa",
+      email: "saved@example.com",
+    },
+    requiredByDefault: false,
+  });
+
+  const result = await page.evaluate(async () => {
+    const harness = (
+      globalThis as unknown as {
+        __panelHarness: {
+          invoke(message: unknown): Promise<unknown>;
+        };
+      }
+    ).__panelHarness;
+    const fill = harness.invoke({ type: "JOB_AUTOFILL_FILL" });
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    const email = document.getElementById(
+      "applicant-email",
+    ) as HTMLInputElement;
+    email.value = "user@example.com";
+    email.dispatchEvent(new Event("input", { bubbles: true }));
+    return fill;
+  });
+
+  expect(result).toMatchObject({ ok: true, filled: 0 });
+  await expect(page.locator("#applicant-email")).toHaveValue(
+    "user@example.com",
   );
 });
 
@@ -514,6 +588,284 @@ test("fills split phone and location controls with canonical values", async ({
   await expect(page.locator("#country")).toHaveValue("CA");
 });
 
+test("fills only controls marked mandatory by semantic or ATS signals", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `
+      <fieldset aria-required="true">
+        <legend>Contact information</legend>
+        <label>
+          Email address
+          <span data-testid="required-indicator">Required</span>
+          <input id="required-email" required>
+        </label>
+        <label>Phone number <input id="optional-phone"></label>
+      </fieldset>
+      <label id="city-label" for="required-city">Location (City)</label>
+      <select id="required-city" aria-labelledby="city-label" aria-required="true">
+        <option value="">Select</option>
+        <option value="nyc">New York City, New York, United States</option>
+        <option value="newark">Newark, New Jersey, United States</option>
+      </select>
+      <div class="application-question" data-required="true">
+        <label>School
+          <select id="required-school">
+            <option value="">Select</option>
+            <option value="uottawa">University of Ottawa</option>
+            <option value="stanford">Stanford University</option>
+          </select>
+        </label>
+      </div>
+      <label>How did you hear about us? <span aria-hidden="true">*</span>
+        <select id="required-source">
+          <option value="">Select</option>
+          <option value="agency">Staffing agency</option>
+          <option value="not-listed">Not listed above</option>
+        </select>
+      </label>
+      <fieldset>
+        <legend>Are you legally authorized to work? Required</legend>
+        <label><input type="radio" name="required-authorization" value="yes"> Yes</label>
+        <label><input type="radio" name="required-authorization" value="no"> No</label>
+      </fieldset>
+      <label>Degree (optional)
+        <select id="optional-degree">
+          <option value="">Select</option>
+          <option value="bs">Bachelor of Science</option>
+        </select>
+      </label>
+      <label id="optional-school-label">School (optional)</label>
+      <button
+        id="optional-school"
+        type="button"
+        role="combobox"
+        aria-labelledby="optional-school-label"
+        aria-controls="optional-school-options"
+      >Choose a school</button>
+      <div id="optional-school-options" role="listbox" hidden>
+        <div role="option" data-value="uottawa">University of Ottawa</div>
+      </div>
+      <label>Resume PDF (optional)
+        <input id="optional-resume" type="file">
+      </label>
+    `,
+    profile: {
+      email: "applicant@example.com",
+      phone: "+1 212 555 0100",
+      location: "New York, NY",
+      school: "University of Ottawa",
+      heardAboutJob: "LinkedIn",
+      workAuthorization: "yes",
+      degree: "Bachelor's degree",
+    },
+    resumeFile: {
+      fileName: "applicant-resume.pdf",
+      mimeType: "application/pdf",
+      base64: "JVBERi0xLjQKJUVPRg==",
+    },
+    requiredByDefault: false,
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 5 });
+  await expect(page.locator("#required-email")).toHaveValue(
+    "applicant@example.com",
+  );
+  await expect(page.locator("#required-city")).toHaveValue("nyc");
+  await expect(page.locator("#required-school")).toHaveValue("uottawa");
+  await expect(page.locator("#required-source")).toHaveValue("not-listed");
+  await expect(
+    page.locator('input[name="required-authorization"][value="yes"]'),
+  ).toBeChecked();
+  await expect(page.locator("#optional-phone")).toHaveValue("");
+  await expect(page.locator("#optional-degree")).toHaveValue("");
+  await expect(page.locator("#optional-school")).toHaveText("Choose a school");
+  expect(
+    await page
+      .locator("#optional-resume")
+      .evaluate((input: HTMLInputElement) => input.files?.length || 0),
+  ).toBe(0);
+});
+
+test("matches city variants in native and custom selects and dispatches ATS events", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `
+      <label>Location (City) *
+        <select id="native-city">
+          <option value="">Select</option>
+          <option value="ny">New York City, New York, United States</option>
+          <option value="nj">New York City, New Jersey, United States</option>
+        </select>
+      </label>
+      <div class="application-question">
+        <label id="custom-location-label">Current location</label>
+        <input
+          id="custom-location"
+          role="combobox"
+          aria-labelledby="custom-location-label"
+          aria-required="true"
+          aria-controls="custom-location-options"
+          aria-expanded="false"
+        >
+        <div id="custom-location-options" role="listbox" hidden>
+          <div role="option" data-value="ny">New York City - NY</div>
+          <div role="option" data-value="nj">New York City - NJ</div>
+        </div>
+      </div>
+      <script>
+        const nativeCity = document.getElementById("native-city");
+        const customLocation = document.getElementById("custom-location");
+        const listbox = document.getElementById("custom-location-options");
+        window.nativeCityEvents = [];
+        window.customLocationEvents = [];
+        for (const eventName of ["click", "input", "change", "blur"]) {
+          nativeCity.addEventListener(eventName, () => window.nativeCityEvents.push(eventName));
+          customLocation.addEventListener(eventName, () => window.customLocationEvents.push(eventName));
+        }
+        customLocation.addEventListener("click", () => {
+          customLocation.setAttribute("aria-expanded", "true");
+          listbox.hidden = false;
+        });
+        for (const option of listbox.querySelectorAll("[role=option]")) {
+          option.addEventListener("click", () => {
+            for (const candidate of listbox.querySelectorAll("[role=option]")) {
+              candidate.setAttribute("aria-selected", String(candidate === option));
+            }
+            customLocation.value = option.textContent;
+            customLocation.dataset.value = option.dataset.value;
+            customLocation.setAttribute("aria-valuetext", option.textContent);
+            customLocation.setAttribute("aria-expanded", "false");
+            listbox.hidden = true;
+          });
+        }
+      </script>
+    `,
+    profile: { location: "New York, NY" },
+    requiredByDefault: false,
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 2 });
+  await expect(page.locator("#native-city")).toHaveValue("ny");
+  await expect(page.locator("#custom-location")).toHaveValue(
+    "New York City - NY",
+  );
+  const events = await page.evaluate(() => ({
+    native: (globalThis as unknown as { nativeCityEvents: string[] })
+      .nativeCityEvents,
+    custom: (globalThis as unknown as { customLocationEvents: string[] })
+      .customLocationEvents,
+  }));
+  expect(events.native).toEqual(
+    expect.arrayContaining(["click", "input", "change", "blur"]),
+  );
+  expect(events.custom).toEqual(
+    expect.arrayContaining(["click", "input", "change", "blur"]),
+  );
+});
+
+test("uses benign select fallbacks without guessing consequential answers", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `
+      <label for="source">How did you hear about us?*</label>
+      <input id="source" role="combobox" aria-controls="source-list" aria-expanded="false">
+      <div id="source-list" role="listbox" hidden>
+        <button type="button" role="option" data-value="agency" hidden>Staffing agency</button>
+        <button type="button" role="option" data-value="other" hidden>Other</button>
+      </div>
+      <label>Degree
+        <select id="degree" required>
+          <option value="">Select</option>
+          <option value="high-school">High school diploma</option>
+          <option value="other">Other</option>
+        </select>
+      </label>
+      <label>Citizenship status
+        <select id="citizenship" required>
+          <option value="">Select</option>
+          <option value="temporary">Temporary resident</option>
+          <option value="other">Other</option>
+        </select>
+      </label>
+      <label>Gender identity
+        <select id="gender" required>
+          <option value="">Select</option>
+          <option value="man">Man</option>
+          <option value="other">Other</option>
+        </select>
+      </label>
+      <label>Are you legally authorized to work?
+        <select id="authorization" required>
+          <option value="">Select</option>
+          <option value="unknown">Unknown</option>
+          <option value="other">Other</option>
+        </select>
+      </label>
+      <script>
+        const source = document.querySelector("#source");
+        const sourceList = document.querySelector("#source-list");
+        const sourceOptions = [...sourceList.querySelectorAll("[role=option]")];
+        source.addEventListener("click", () => {
+          sourceList.hidden = false;
+          source.setAttribute("aria-expanded", "true");
+        });
+        source.addEventListener("input", () => {
+          sourceList.hidden = false;
+          source.setAttribute("aria-expanded", "true");
+          const query = source.value.trim().toLowerCase();
+          if (query) {
+            sourceOptions.forEach((option) => {
+              option.hidden = !option.textContent.toLowerCase().includes(query);
+            });
+            return;
+          }
+          setTimeout(() => {
+            sourceOptions.forEach((option) => {
+              option.hidden = false;
+            });
+          }, 250);
+        });
+        sourceOptions.forEach((option) => {
+          option.addEventListener("click", () => {
+            sourceOptions.forEach((candidate) =>
+              candidate.setAttribute(
+                "aria-selected",
+                String(candidate === option),
+              ),
+            );
+            source.value = option.textContent;
+            source.setAttribute("aria-valuetext", option.textContent);
+            source.setAttribute("aria-expanded", "false");
+            sourceList.hidden = true;
+          });
+        });
+      </script>
+    `,
+    profile: {
+      heardAboutJob: "LinkedIn",
+      degree: "Doctorate",
+      citizenshipStatus: "Permanent resident",
+      gender: "Non-binary",
+      workAuthorization: "yes",
+    },
+    requiredByDefault: false,
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 2 });
+  await expect(page.locator("#source")).toHaveValue("Other");
+  await expect(page.locator("#degree")).toHaveValue("other");
+  await expect(page.locator("#citizenship")).toHaveValue("");
+  await expect(page.locator("#gender")).toHaveValue("");
+  await expect(page.locator("#authorization")).toHaveValue("");
+  await expect(page.locator("#citizenship")).toHaveAttribute(
+    "data-job-autofill-review",
+    "failed",
+  );
+});
+
 test("fills structured education and recurring application questions", async ({
   page,
 }) => {
@@ -539,7 +891,7 @@ test("fills structured education and recurring application questions", async ({
         <select id="source">
           <option value="">Select</option>
           <option value="company">Company Website</option>
-          <option value="linkedin">LinkedIn</option>
+          <option value="linkedin">LinkedIn / Social media</option>
         </select>
       </label>
       <label>Active Security Clearance(s)
@@ -715,13 +1067,13 @@ test("fills fields inside open shadow roots and same-origin frames", async ({
     host.id = "shadow-application";
     const shadow = host.attachShadow({ mode: "open" });
     shadow.innerHTML =
-      '<label>Email address <input id="shadow-email" autocomplete="email"></label>';
+      '<label>Email address <input id="shadow-email" autocomplete="email" required></label>';
     document.querySelector("#application")?.append(host);
 
     const frame = document.createElement("iframe");
     frame.id = "application-frame";
     frame.srcdoc =
-      '<label>Email address <input id="frame-email" autocomplete="email"></label>';
+      '<label>Email address <input id="frame-email" autocomplete="email" required></label>';
     document.querySelector("#application")?.append(frame);
     await new Promise<void>((resolve) => {
       frame.addEventListener("load", () => resolve(), { once: true });
@@ -857,6 +1209,7 @@ test("rescans fields added by a hydrated application step", async ({ page }) => 
     const input = document.createElement("input");
     input.id = "hydrated-email";
     input.setAttribute("data-automation-id", "email");
+    input.required = true;
     document.querySelector("#application")?.append(input);
   });
 
@@ -1184,12 +1537,12 @@ test("panel fits a narrow viewport and autofills from its own button", async ({
   expect(countBox!.x + countBox!.width).toBeLessThanOrEqual(labelBox!.x);
 
   await panelHost
-    .getByRole("button", { name: "Autofill ready fields" })
+    .getByRole("button", { name: "Autofill required fields" })
     .click();
   await expect(page.locator("#applicant-email")).toHaveValue(
     "applicant@example.com",
   );
   await expect(
-    panelHost.getByText("Filled 1 field. Review every answer."),
+    panelHost.getByText("Filled 1 required field. Review every answer."),
   ).toBeVisible();
 });

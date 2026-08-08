@@ -14,6 +14,11 @@ interface Matcher {
     optionLabel: string,
     fieldKey?: string,
   ): number;
+  scoreSafeFallback(
+    fieldKey: string,
+    optionValue: string,
+    optionLabel: string,
+  ): number;
   findBestDefinition(
     context: {
       autocomplete?: string;
@@ -89,6 +94,7 @@ describe("Chrome extension profile storage", () => {
       raceEthnicity: "Middle Eastern or North African",
       disabilityStatus: "no",
       veteranStatus: "Not a protected veteran",
+      heardAboutJob: "LinkedIn",
       softwareIndustryExperienceYears: "2.5",
       previousEmployers: `Cisco\n${"x".repeat(5_100)}`,
       compensationExpectation: "$150,000 USD",
@@ -121,6 +127,7 @@ describe("Chrome extension profile storage", () => {
     expect(profile.raceEthnicity).toBe("Middle Eastern or North African");
     expect(profile.disabilityStatus).toBe("no");
     expect(profile.veteranStatus).toBe("Not a protected veteran");
+    expect(profile.heardAboutJob).toBe("LinkedIn");
     expect(profile.softwareIndustryExperienceYears).toBe("2.5");
     expect(profile.previousEmployers).toHaveLength(5_000);
     expect(profile.compensationExpectation).toBe("$150,000 USD");
@@ -306,7 +313,7 @@ describe("Chrome extension field matching", () => {
   it("recognizes the reported education and application fields", () => {
     const reportedFields = [
       ["Country* Required", "select", "country"],
-      ["Location (City)", "text", "city"],
+      ["Location (City)", "select", "city"],
       ["School* Required", "text", "school"],
       ["Degree* Required", "select", "degree"],
       ["How did you hear about this job?", "select", "heardAboutJob"],
@@ -370,6 +377,10 @@ describe("Chrome extension field matching", () => {
     for (const [label, controlKind] of [
       ["Attach", "file"],
       ["Please specify", "text"],
+      ["Preferred office location", "select"],
+      ["Preferred location", "select"],
+      ["Desired location", "select"],
+      ["Which office location do you prefer?", "combobox"],
       ["SpaceX & SpaceXAI Employment History", "select"],
     ]) {
       expect(
@@ -394,6 +405,30 @@ describe("Chrome extension field matching", () => {
         "degree",
       ),
     ).toBe(100);
+    expect(
+      matcher.scoreChoice(
+        "New York, NY",
+        "opaque-city",
+        "New York City, New York, United States",
+        "city",
+      ),
+    ).toBe(100);
+    expect(
+      matcher.scoreChoice(
+        "Toronto, ON",
+        "opaque-city",
+        "Toronto (Ontario), Canada",
+        "location",
+      ),
+    ).toBe(100);
+    expect(
+      matcher.scoreChoice(
+        "Portland, OR",
+        "opaque-city",
+        "Portland, Maine",
+        "city",
+      ),
+    ).toBe(0);
     expect(
       matcher.scoreChoice(
         "New York, NY",
@@ -489,6 +524,34 @@ describe("Chrome extension field matching", () => {
         "disabilityStatus",
       ),
     ).toBe(100);
+  });
+
+  it("allows conservative Other fallbacks only for benign fields", () => {
+    expect(
+      matcher.scoreSafeFallback(
+        "heardAboutJob",
+        "not-listed",
+        "Not listed above",
+      ),
+    ).toBe(100);
+    expect(matcher.scoreSafeFallback("degree", "other", "Other")).toBeGreaterThan(
+      68,
+    );
+
+    for (const fieldKey of [
+      "workAuthorization",
+      "requiresSponsorship",
+      "citizenshipStatus",
+      "gender",
+      "raceEthnicity",
+      "disabilityStatus",
+      "veteranStatus",
+    ]) {
+      expect(
+        matcher.scoreSafeFallback(fieldKey, "other", "Other"),
+        fieldKey,
+      ).toBe(0);
+    }
   });
 
   it("keeps degree abbreviations from colliding with region options", () => {

@@ -121,8 +121,9 @@ If a direct source sees the same requisition again, that row reopens instead of 
   card; **new** (< 48h), **30d+ old**, **Rechecking**, and **Closed** postings are labeled
   distinctly.
 - **Optional Chrome autofill assistant** — open a posting from the Jobs page, fill recognized
-  fields from a profile stored in Chrome, track progress in both the posting and dashboard,
-  and list every unknown or manual field. It has a global off switch and never submits.
+  mandatory fields from a profile stored in Chrome, track progress in both the posting and
+  dashboard, and list every required unknown or manual field. Optional controls are left
+  untouched, it has a global off switch, and it never submits.
 - **Warm-intro tagging** — import your LinkedIn **Connections.csv** on the Profile page and
   every card at a company where you already know someone gets a 🤝 badge. Hover or focus the
   badge to see every matching connection's name and role. A **Warm intro** filter narrows the
@@ -233,14 +234,20 @@ unpacked is enough for local use:
 
 The app profile is the source of truth. A mapped autofill copy and application progress stay
 in that Chrome profile via `chrome.storage.local`.
-The assistant combines labels, accessibility text, nearby prompts, browser autocomplete hints,
-and ATS metadata instead of relying on exact field names. It supports native and custom controls,
-dynamic steps, open shadow roots, and embedded forms from Greenhouse, Lever, Ashby, Workday,
-SmartRecruiters, iCIMS, Oracle/Taleo, and SAP SuccessFactors. Uncertain matches are left blank
-and highlighted for review. The saved PDF is attached only to recognized résumé fields;
-Greenhouse-style school/degree lists and delayed portal dropdowns are matched semantically.
-Multi-location questions select only locations ranked S through C on the location tier board;
-consent checkboxes and other uploads stay manual. The extension never submits an application.
+The assistant combines labels, legends, accessibility text, nearby prompts, browser autocomplete
+hints, and ATS metadata instead of relying on exact field names. It fills only controls marked
+mandatory by native validation, ARIA, required label markers, or supported ATS metadata; optional
+text, choice, and upload controls remain untouched even when the profile has an answer. It supports
+native and custom controls, dynamic steps, open shadow roots, and embedded forms from Greenhouse,
+Lever, Ashby, Workday, SmartRecruiters, iCIMS, Oracle/Taleo, and SAP SuccessFactors. Uncertain
+matches are left blank and highlighted for review. City/location choices tolerate normalized
+city-state variants. The saved **How did you hear about this job?** profile answer maps to
+equivalent source options and can safely fall back to **Other** or **Not listed**; legal,
+sponsorship, demographic, disability, veteran, and identity questions never receive guessed
+fallbacks. The saved PDF is attached only to recognized required résumé fields; Greenhouse-style
+school/degree lists and delayed portal dropdowns are matched semantically. Multi-location questions
+select only locations ranked S through C on the location tier board; consent checkboxes and other
+uploads stay manual. The extension never submits an application.
 Application pages receive only field-availability flags until you explicitly click autofill.
 Turn it off globally from its browser-owned popup. If it is off, disconnected, or not configured,
 dashboard job links behave as normal external links. The unpacked extension has a stable ID, so
