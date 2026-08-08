@@ -11,6 +11,7 @@ import {
   parseTierEditVersion,
   saveCompanyTier,
 } from "@/lib/tier-store";
+import { ACTIVE_JOB_WHERE } from "@/lib/jobs/availability";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +28,11 @@ export async function GET() {
   const [grouped, tierRows] = await Promise.all([
     prisma.job.groupBy({
       by: ["company"],
-      where: { isEntryLevel: true, country: { in: ["US", "CA"] } },
+      where: {
+        isEntryLevel: true,
+        ...ACTIVE_JOB_WHERE,
+        country: { in: ["US", "CA"] },
+      },
       _count: { _all: true },
     }),
     prisma.companyTier.findMany(),

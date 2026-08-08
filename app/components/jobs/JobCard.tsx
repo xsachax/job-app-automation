@@ -283,18 +283,33 @@ export function JobCard({
   const status = job.applicationStatus || "none";
   const resolvedOpenLabel = openLabel ?? (job.isWorkday ? "Open on Workday ↗" : "Open ↗");
   const effectivePostedAt = job.postedAt ?? job.firstSeenAt;
-  const isNew = isWithinHours(effectivePostedAt, 48);
-  const isStale = isOlderThanDays(effectivePostedAt, 30);
+  const isSuspect = job.availabilityStatus === "suspect";
+  const isClosed = job.availabilityStatus === "closed";
+  const isNew =
+    job.availabilityStatus === "open" && isWithinHours(effectivePostedAt, 48);
+  const isOld = isOlderThanDays(effectivePostedAt, 30);
   const sources = uniqueSourceNames(job);
   const sourceLabel = job.discoverySystem ?? job.atsType;
   const metaParts = [job.location, job.remote ? "remote" : null, titleize(sourceLabel)].filter(
     Boolean,
   ) as string[];
   const timingText = `${job.postedAt ? "Posted" : "First seen"} ${timeAgo(effectivePostedAt)} · last seen ${timeAgo(job.lastSeenAt)}${
+    isClosed && job.closedAt ? ` · closed ${timeAgo(job.closedAt)}` : ""
+  }${
     status === "applied" && job.appliedAt ? ` · applied ${timeAgo(job.appliedAt)}` : ""
   }`;
   const seenOn = sources.length > 0 ? `seen on ${sources.join(", ")}` : "";
-  const subtitleFull = [job.company, ...metaParts, timingText, seenOn].filter(Boolean).join(" · ");
+  const availabilityDetail =
+    (isClosed || isSuspect) && job.closureReason ? job.closureReason : "";
+  const subtitleFull = [
+    job.company,
+    ...metaParts,
+    timingText,
+    seenOn,
+    availabilityDetail,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   const tone = fitTone(job.fitScore);
   const yoeText =
     job.minYoE == null ? null : job.minYoE === 0 ? "No exp. req." : `${job.minYoE}+ yrs`;
@@ -321,7 +336,7 @@ export function JobCard({
     <article
       className={`rounded-lg border px-3 py-2.5 shadow-sm transition-colors ${cardTone(status, isNew, tone)} ${
         selected ? "ring-2 ring-indigo-500 dark:ring-indigo-400" : ""
-      } ${isStale && status !== "dismissed" ? "opacity-80" : ""}`}
+      } ${(isOld || isClosed) && status !== "dismissed" ? "opacity-80" : ""}`}
     >
       <div className="flex flex-wrap gap-2.5">
         <JudgeScore score={job.fitScore} provider={job.fitProvider} tone={tone} />
@@ -375,9 +390,27 @@ export function JobCard({
                     NEW
                   </span>
                 )}
-                {isStale && (
+                {isSuspect && (
+                  <span
+                    data-testid="availability-badge"
+                    title="This posting was missing from a source and is being verified. It remains visible until closure is confirmed."
+                    className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-950 dark:text-amber-200"
+                  >
+                    Rechecking
+                  </span>
+                )}
+                {isClosed && (
+                  <span
+                    data-testid="availability-badge"
+                    title={job.closureReason ?? "This posting was confirmed closed."}
+                    className="rounded-full bg-gray-200 px-1.5 py-0.5 text-[10px] font-semibold text-gray-700 dark:bg-gray-700 dark:text-gray-100"
+                  >
+                    Closed
+                  </span>
+                )}
+                {isOld && !isClosed && (
                   <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:bg-gray-800 dark:text-gray-400">
-                    stale
+                    30d+ old
                   </span>
                 )}
                 <AppliedBadge status={status} />

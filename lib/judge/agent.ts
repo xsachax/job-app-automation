@@ -4,6 +4,7 @@ import { prisma } from "../db";
 import { getProfile } from "../settings";
 import { buildResumeContext, scoreAllJobs } from "./judge";
 import { fitAdvice, gapAdvice } from "./advice";
+import { ACTIVE_JOB_WHERE } from "../jobs/availability";
 
 export interface BuildJudgeBatchOptions {
   topN?: number;
@@ -100,6 +101,7 @@ export async function buildJudgeBatch(opts: BuildJudgeBatchOptions = {}): Promis
   const jobs = await prisma.job.findMany({
     where: {
       isEntryLevel: true,
+      ...ACTIVE_JOB_WHERE,
       fitProvider: "deterministic",
       fitScore: { not: null },
       ...(opts.country ? { country: opts.country } : {}),
@@ -161,6 +163,10 @@ export async function applyJudgeScores(scores: JudgeScoreInput[]): Promise<Apply
     const job = await prisma.job.findUnique({ where: { id } });
     if (!job) {
       result.skipped.push({ id, reason: "unknown job" });
+      continue;
+    }
+    if (job.availabilityStatus === "closed") {
+      result.skipped.push({ id, reason: "closed job" });
       continue;
     }
 

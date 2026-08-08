@@ -76,8 +76,13 @@ export async function runSource(sourceId: string, criteria?: Criteria): Promise<
       };
       const c = canonicalize(normalized);
       const isWorkday = c.atsType === "workday";
+      const confirmsOpen = ["greenhouse", "lever", "ashby"].includes(source.kind);
 
       const existing = await prisma.job.findUnique({ where: { dedupeKey: c.dedupeKey } });
+      const verificationCache =
+        existing && existing.applyUrl !== c.applyUrl
+          ? { lastVerifiedAt: null, lastVerificationResult: null }
+          : {};
       const base = {
         atsType: c.atsType,
         externalId: c.externalId,
@@ -91,6 +96,15 @@ export async function runSource(sourceId: string, criteria?: Criteria): Promise<
         isWorkday,
         fingerprint: c.fingerprint,
         lastSeenAt: new Date(),
+        ...verificationCache,
+        ...(confirmsOpen
+          ? {
+              availabilityStatus: "open",
+              consecutiveMisses: 0,
+              closedAt: null,
+              closureReason: null,
+            }
+          : {}),
       };
 
       const job = existing
@@ -112,6 +126,7 @@ export async function runSource(sourceId: string, criteria?: Criteria): Promise<
         result.workday++;
         continue; // Workday: flag only, never create a match / auto-apply.
       }
+      if (job.availabilityStatus === "closed") continue;
 
       const s = scoreJob(
         { title: job.title, description: job.description, location: job.location, remote: job.remote },

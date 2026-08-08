@@ -3,13 +3,19 @@ import { API_COMPANIES, BOARD_SOURCES, BROWSER_COMPANIES, SCRAPABLE_BROWSER_SYST
 import { getDiscoveryConfig } from "@/lib/discovery/config";
 import { cls, PageHeader } from "../components/ui";
 import { CompanyLogo } from "../components/CompanyLogo";
+import { ACTIVE_JOB_WHERE } from "@/lib/jobs/availability";
 
 export const dynamic = "force-dynamic";
 
 export default async function CompaniesPage() {
   const grouped = await prisma.job.groupBy({
     by: ["company", "country"],
-    where: { isWorkday: false, isEntryLevel: true, country: { in: ["US", "CA"] } },
+    where: {
+      isWorkday: false,
+      isEntryLevel: true,
+      ...ACTIVE_JOB_WHERE,
+      country: { in: ["US", "CA"] },
+    },
     _count: { _all: true },
   });
 
@@ -31,6 +37,7 @@ export default async function CompaniesPage() {
       discoverySystem: "githubboard",
       isWorkday: false,
       isEntryLevel: true,
+      ...ACTIVE_JOB_WHERE,
       country: { in: ["US", "CA"] },
     },
     _count: { _all: true },

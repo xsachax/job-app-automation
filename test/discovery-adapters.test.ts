@@ -186,6 +186,59 @@ describe("lever adapter", () => {
   });
 });
 
+describe("authoritative ATS response validation", () => {
+  it.each([
+    {
+      system: "greenhouse" as const,
+      payload: {
+        jobs: [
+          {
+            id: 123,
+            title: "Software Engineer",
+            absolute_url: "",
+          },
+        ],
+      },
+    },
+    {
+      system: "lever" as const,
+      payload: [
+        {
+          id: "lev-1",
+          text: "",
+          hostedUrl: "https://jobs.lever.co/acme/lev-1",
+        },
+      ],
+    },
+    {
+      system: "ashby" as const,
+      payload: {
+        jobs: [
+          {
+            id: "",
+            title: "Software Engineer",
+            jobUrl: "https://jobs.ashbyhq.com/acme/ash-1",
+          },
+        ],
+      },
+    },
+  ])("rejects malformed $system job rows", async ({ system, payload }) => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(payload)));
+    const company: ApiCompany = {
+      name: "Acme",
+      method: "api",
+      system,
+      token: "acme",
+      countryFilter: "post",
+      queryTerms: ["software engineer"],
+    };
+
+    await expect(fetchCompanyPostings(company)).rejects.toThrow(
+      /structurally invalid job row/,
+    );
+  });
+});
+
 describe("Jibe careers adapter", () => {
   it("paginates through every advertised result", async () => {
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
@@ -441,10 +494,16 @@ describe("discovery catalog", () => {
   });
 
   it("gives every discovery source a fetchable system (no missing fetcher)", async () => {
-    // fetchCompanyPostings throws synchronously for an unregistered system.
+    // The empty fixture is intentionally invalid for strict full-board adapters;
+    // this assertion only distinguishes those validation errors from a missing
+    // system registration.
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({})));
     for (const c of DISCOVERY_SOURCES) {
-      await expect(fetchCompanyPostings(c)).resolves.toBeDefined();
+      try {
+        await fetchCompanyPostings(c);
+      } catch (error) {
+        expect(String(error)).not.toContain("no discovery fetcher");
+      }
     }
   });
 });

@@ -9,6 +9,7 @@ import {
 import { cls, PageHeader, CategoryBadge } from "./components/ui";
 import { CompanyLogo } from "./components/CompanyLogo";
 import { ScanButton } from "./components/ScanButton";
+import { ACTIVE_JOB_WHERE } from "@/lib/jobs/availability";
 
 export const dynamic = "force-dynamic";
 
@@ -32,11 +33,11 @@ function timeAgo(d: Date | null): string {
 }
 
 export default async function OverviewPage() {
-  const entryWhere = { isEntryLevel: true } as const;
+  const entryWhere = { isEntryLevel: true, ...ACTIVE_JOB_WHERE } as const;
   const [usEntry, caEntry, workdayJobs, lastJob, byCompany, allByCompany] = await Promise.all([
     prisma.job.count({ where: { ...entryWhere, country: "US" } }),
     prisma.job.count({ where: { ...entryWhere, country: "CA" } }),
-    prisma.job.count({ where: { isWorkday: true } }),
+    prisma.job.count({ where: { isWorkday: true, ...ACTIVE_JOB_WHERE } }),
     prisma.job.findFirst({ where: entryWhere, orderBy: { lastSeenAt: "desc" }, select: { lastSeenAt: true } }),
     prisma.job.groupBy({
       by: ["company"],

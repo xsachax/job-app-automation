@@ -1,6 +1,11 @@
-import { runDiscovery, ingestPostings } from "../lib/discovery/run";
+import { runDiscovery, ingestSourcePostings } from "../lib/discovery/run";
 import { scrapeBrowserCompanies } from "../lib/discovery/browser";
 import { prisma } from "../lib/db";
+import { BROWSER_COMPANIES } from "../lib/discovery/companies";
+import {
+  describeBrowserSource,
+  recordDiscoverySourceFailure,
+} from "../lib/discovery/lifecycle";
 
 // CLI entry point for the discovery pipeline. Fetches fresh entry-level US/CA
 // software roles and persists them (deduped) into the Job table.
@@ -26,7 +31,8 @@ async function runApi(companies: string[], onlyEntryLevel: boolean) {
   });
   console.log(
     `\nDone. ${result.created} new, ${result.updated} updated · ` +
-      `${result.usEntry} US + ${result.caEntry} CA entry-level roles · ${result.errors} errors.`,
+      `${result.usEntry} US + ${result.caEntry} CA entry-level roles · ${result.errors} errors · ` +
+      `${result.lifecycle.closed} closed, ${result.lifecycle.suspect} rechecking.`,
   );
 }
 
@@ -44,19 +50,28 @@ async function runBrowser(companies: string[], onlyEntryLevel: boolean) {
     onResult: () => {},
   });
   for (const r of results) {
+    const company = BROWSER_COMPANIES.find((candidate) => candidate.name === r.company);
+    if (!company) throw new Error(`Unknown browser source result: ${r.company}`);
+    const descriptor = describeBrowserSource(company);
     if (r.error) {
+      await recordDiscoverySourceFailure(descriptor, r.error);
       console.log(`  ✗ ${r.company.padEnd(14)} ${r.error}`);
       continue;
     }
-    const counts = await ingestPostings(r.postings, onlyEntryLevel);
+    const { counts } = await ingestSourcePostings(
+      descriptor,
+      r.postings,
+      onlyEntryLevel,
+    );
     created += counts.created;
     updated += counts.updated;
     usEntry += counts.usEntry;
     caEntry += counts.caEntry;
     console.log(
-      `  ✓ ${r.company.padEnd(14)} scraped US ${r.usFound} / CA ${r.caFound} → ` +
+      `  ${r.warning ? "⚠" : "✓"} ${r.company.padEnd(14)} scraped US ${r.usFound} / CA ${r.caFound} → ` +
         `kept US ${counts.usEntry} · CA ${counts.caEntry}`,
     );
+    if (r.warning) console.log(`    partial: ${r.warning}`);
   }
   console.log(
     `\nDone. ${created} new, ${updated} updated · ${usEntry} US + ${caEntry} CA entry-level roles.`,

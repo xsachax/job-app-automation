@@ -12,6 +12,8 @@ interface ScanTotals {
   usEntry: number;
   caEntry: number;
   errors: number;
+  suspect: number;
+  closed: number;
 }
 
 interface DiscoveryRefresh {
@@ -33,7 +35,15 @@ interface Notice {
 
 interface DiscoveryProgress {
   running: boolean;
-  phase: "idle" | "starting" | "api" | "browser" | "scoring" | "complete" | "failed";
+  phase:
+    | "idle"
+    | "starting"
+    | "api"
+    | "browser"
+    | "reconciling"
+    | "scoring"
+    | "complete"
+    | "failed";
   completedSteps: number;
   totalSteps: number;
   completedSources: number;
@@ -136,6 +146,7 @@ export function ScanButton({ onComplete }: { onComplete?: () => void }) {
         tone: totals.errors ? "warning" : "success",
         text:
           `Scraped ${totals.sources} sources: ${totals.created} new, ${totals.updated} refreshed, ` +
+          `${totals.closed} archived, ${totals.suspect} rechecking, ` +
           `${result.judge.scored} newly scored in ${duration}s` +
           failureSummary,
       });

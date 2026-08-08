@@ -5,7 +5,15 @@ import { api } from "../components/api";
 import { FilterBar } from "../components/jobs/FilterBar";
 import { JobCard } from "../components/jobs/JobCard";
 import { ScanButton } from "../components/ScanButton";
-import type { ApplicationStatus, Country, FilterState, Job, JobFacets, MultiFilterKey } from "../components/jobs/types";
+import type {
+  ApplicationStatus,
+  Country,
+  FilterState,
+  Job,
+  JobAvailabilityView,
+  JobFacets,
+  MultiFilterKey,
+} from "../components/jobs/types";
 import { DEFAULT_FILTERS } from "../components/jobs/types";
 import { PageHeader } from "../components/ui";
 import {
@@ -18,6 +26,14 @@ import type { ProfileData } from "@/lib/settings";
 const COUNTRIES: { value: Country; label: string }[] = [
   { value: "US", label: "United States" },
   { value: "CA", label: "Canada" },
+];
+
+const AVAILABILITY_VIEWS: {
+  value: JobAvailabilityView;
+  label: string;
+}[] = [
+  { value: "active", label: "Open & rechecking" },
+  { value: "closed", label: "Archived closed" },
 ];
 
 // The queue can hold well over a thousand postings; rendering every card up front
@@ -36,10 +52,15 @@ function openExternal(url: string): boolean {
   return true;
 }
 
-function buildJobsUrl(country: Country, filters: FilterState): string {
+function buildJobsUrl(
+  country: Country,
+  availability: JobAvailabilityView,
+  filters: FilterState,
+): string {
   const params = new URLSearchParams({
     view: "discovery",
     country,
+    availability,
     sort: filters.sort,
     since: filters.since,
   });
@@ -109,6 +130,8 @@ export default function JobsPage() {
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [searchDraft, setSearchDraft] = useState(DEFAULT_FILTERS.q);
   const [country, setCountry] = useState<Country>("US");
+  const [availability, setAvailability] =
+    useState<JobAvailabilityView>("active");
   const [loading, setLoading] = useState(true);
   const [facetsLoading, setFacetsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -123,7 +146,11 @@ export default function JobsPage() {
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const committedSearch = useRef(DEFAULT_FILTERS.q);
 
-  const jobsUrl = useMemo(() => buildJobsUrl(country, filters), [country, filters]);
+  const jobsUrl = useMemo(
+    () => buildJobsUrl(country, availability, filters),
+    [availability, country, filters],
+  );
+  const facetsUrl = `/api/jobs/facets?availability=${availability}`;
   const filtered = hasActiveFilters(filters);
 
   useEffect(() => {
@@ -154,7 +181,7 @@ export default function JobsPage() {
     let active = true;
     (async () => {
       try {
-        const data = await api<JobFacets>("/api/jobs/facets");
+        const data = await api<JobFacets>(facetsUrl);
         if (active) {
           setFacets(data);
           setFacetsError(null);
@@ -168,7 +195,7 @@ export default function JobsPage() {
     return () => {
       active = false;
     };
-  }, [refreshVersion]);
+  }, [facetsUrl, refreshVersion]);
 
   useEffect(() => {
     if (!isGoogleChromeBrowser()) return;
@@ -304,6 +331,14 @@ export default function JobsPage() {
     setCountry(nextCountry);
   }
 
+  function handleAvailabilityChange(nextView: JobAvailabilityView) {
+    if (nextView === availability) return;
+    startRefresh();
+    setFacetsLoading(true);
+    setAvailability(nextView);
+    clearSelection();
+  }
+
   function handleFiltersChange(patch: Partial<FilterState>) {
     startRefresh();
     setFilters((current) => ({ ...current, ...patch }));
@@ -386,10 +421,31 @@ export default function JobsPage() {
     <div>
       <PageHeader
         title="Jobs"
-        subtitle="Currently-open entry-level software roles (≤ 2 yrs experience), scraped from company career sites — every platform including Workday. Filter by Platform; Workday roles are badged and always applied to manually. US and Canada tracked separately."
+        subtitle="Currently-open entry-level software roles (≤ 2 yrs experience), with confirmed closures retained in Archived closed so saved and applied history is never lost."
       >
         <ScanButton onComplete={handleScrapeComplete} />
       </PageHeader>
+
+      <div
+        className="mb-3 flex gap-1 rounded-lg border border-gray-200 bg-gray-50 p-1 dark:border-gray-800 dark:bg-gray-900"
+        data-testid="availability-tabs"
+      >
+        {AVAILABILITY_VIEWS.map((view) => (
+          <button
+            key={view.value}
+            type="button"
+            onClick={() => handleAvailabilityChange(view.value)}
+            className={
+              "flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1 dark:focus:ring-indigo-400 dark:focus:ring-offset-gray-900 " +
+              (availability === view.value
+                ? "bg-white text-indigo-700 shadow-sm dark:bg-gray-800 dark:text-indigo-300"
+                : "text-gray-500 hover:bg-white hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200")
+            }
+          >
+            {view.label}
+          </button>
+        ))}
+      </div>
 
       <div className="mb-4 flex gap-1 rounded-lg border border-gray-200 bg-gray-50 p-1 dark:border-gray-800 dark:bg-gray-900">
         {COUNTRIES.map((countryOption) => (
@@ -449,7 +505,8 @@ export default function JobsPage() {
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         {!loading || jobs.length > 0 ? (
           <p className="text-xs text-gray-500 dark:text-gray-400">
-            {jobs.length} posting{jobs.length === 1 ? "" : "s"} in queue
+            {jobs.length} {availability === "closed" ? "archived " : ""}posting
+            {jobs.length === 1 ? "" : "s"} {availability === "closed" ? "" : "in queue"}
             {loading ? " · refreshing…" : ""}
           </p>
         ) : (
@@ -460,7 +517,7 @@ export default function JobsPage() {
         )}
       </div>
 
-      {jobs.length > 0 && (
+      {availability === "active" && jobs.length > 0 && (
         <div className="sticky top-2 z-10 mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-gray-200 bg-white/90 px-3 py-2 shadow-sm backdrop-blur dark:border-gray-800 dark:bg-gray-900/90">
           <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-gray-700 dark:text-gray-200">
             <input
@@ -509,8 +566,14 @@ export default function JobsPage() {
         <LoadingRows />
       ) : jobs.length === 0 ? (
         <div className="rounded-lg border border-gray-200 bg-white px-4 py-5 text-sm text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
-          No {country === "US" ? "US" : "Canadian"} entry-level roles yet. Run{" "}
-          <code className="rounded bg-gray-100 px-1 text-gray-700 dark:bg-gray-800 dark:text-gray-200">npm run discover</code> to fetch fresh postings.
+          No {country === "US" ? "US" : "Canadian"}{" "}
+          {availability === "closed" ? "archived closed" : "entry-level"} roles yet.
+          {availability === "active" && (
+            <>
+              {" "}Run{" "}
+              <code className="rounded bg-gray-100 px-1 text-gray-700 dark:bg-gray-800 dark:text-gray-200">npm run discover</code> to fetch fresh postings.
+            </>
+          )}
           {filtered ? " Clear filters to widen the queue." : ""}
         </div>
       ) : (
@@ -522,8 +585,17 @@ export default function JobsPage() {
               updating={updatingIds.has(job.id)}
               onStatusChange={handleStatusChange}
               selected={selectedIds.has(job.id)}
-              onToggleSelect={toggleSelect}
-              onOpen={extensionConnection === "ready" ? openWithExtension : undefined}
+              onToggleSelect={
+                availability === "active" ? toggleSelect : undefined
+              }
+              openLabel={
+                availability === "closed" ? "View archived link ↗" : undefined
+              }
+              onOpen={
+                availability === "active" && extensionConnection === "ready"
+                  ? openWithExtension
+                  : undefined
+              }
             />
           ))}
           {visibleCount < jobs.length && (

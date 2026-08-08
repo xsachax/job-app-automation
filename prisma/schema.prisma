@@ -28,50 +28,58 @@ model Source {
 
 // A canonical, deduplicated job posting. One row per real-world job across all sources.
 model Job {
-  id          String        @id @default(cuid())
-  dedupeKey   String        @unique // atsType:externalId, or fp:<hash>
-  atsType     String        @default("unknown") // greenhouse | lever | ashby | workday | icims | workable | unknown
-  externalId  String?
-  title       String
-  company     String
-  location    String?
-  remote      Boolean       @default(false)
-  applyUrl    String
-  description String?
-  postedAt    DateTime?
-  isWorkday   Boolean       @default(false) // flagged, never auto-applied
+  id                     String                 @id @default(cuid())
+  dedupeKey              String                 @unique // atsType:externalId, or fp:<hash>
+  atsType                String                 @default("unknown") // greenhouse | lever | ashby | workday | icims | workable | unknown
+  externalId             String?
+  title                  String
+  company                String
+  location               String?
+  remote                 Boolean                @default(false)
+  applyUrl               String
+  description            String?
+  postedAt               DateTime?
+  isWorkday              Boolean                @default(false) // flagged, never auto-applied
   // --- Discovery pivot: entry-level SWE finder (see lib/discovery) ---
-  country         String? // US | CA | OTHER — geography split for the two lists
-  isEntryLevel    Boolean @default(false) // passed the entry-level/degree/YoE filter
-  minYoE          Int? // smallest years-of-experience the posting requires, if any
-  discoverySystem String? // greenhouse | ashby | amazon | uber | ... provenance
-  fingerprint String? // sha1(company|title|country) — cross-source dedup key
+  country                String? // US | CA | OTHER — geography split for the two lists
+  isEntryLevel           Boolean                @default(false) // passed the entry-level/degree/YoE filter
+  minYoE                 Int? // smallest years-of-experience the posting requires, if any
+  discoverySystem        String? // greenhouse | ashby | amazon | uber | ... provenance
+  fingerprint            String? // sha1(company|title|country) — cross-source dedup key
   // --- Enrichment: structured, filterable facets extracted at ingest ---
-  salaryMin      Int? // normalized annual minimum, when the posting states one
-  salaryMax      Int? // normalized annual maximum
-  salaryCurrency String? // USD | CAD
-  salaryRaw      String? // original compensation string as shown
-  sponsorship    String? // offers | none | citizenship | unknown (visa sponsorship)
-  skills         String? // JSON array of normalized tech skills found in the posting
-  employmentType String? // fulltime | intern | contract | unknown
+  salaryMin              Int? // normalized annual minimum, when the posting states one
+  salaryMax              Int? // normalized annual maximum
+  salaryCurrency         String? // USD | CAD
+  salaryRaw              String? // original compensation string as shown
+  sponsorship            String? // offers | none | citizenship | unknown (visa sponsorship)
+  skills                 String? // JSON array of normalized tech skills found in the posting
+  employmentType         String? // fulltime | intern | contract | unknown
   // --- User pipeline tracking (discovery link-out flow) ---
-  applicationStatus String @default("none") // none | saved | applied | interviewing | offer | rejected | dismissed
-  appliedAt         DateTime?
+  applicationStatus      String                 @default("none") // none | saved | applied | interviewing | offer | rejected | dismissed
+  appliedAt              DateTime?
   // --- Post-scrape resume judge (see lib/judge) ---
-  fitScore    Int? // 0..97 tier-first judge score
-  fitBaseScore Int? // raw 0..100 resume fit before company-tier banding
-  fitBaseReasons String? // JSON array of agent-provided resume evidence
-  fitBaseSummary String? // agent-provided resume assessment before tier banding
-  fitReasons  String? // JSON array of short fit reasons
-  fitSummary  String? // one-line fit/gap summary (mainly from the agent tier)
-  fitProvider String? // deterministic | agent
-  fitScoredAt DateTime?
-  firstSeenAt DateTime      @default(now())
-  lastSeenAt  DateTime      @default(now())
-  raw         String? // raw source payload as JSON
-  sightings   JobSighting[]
-  match       Match?
-  application Application?
+  fitScore               Int? // 0..97 tier-first judge score
+  fitBaseScore           Int? // raw 0..100 resume fit before company-tier banding
+  fitBaseReasons         String? // JSON array of agent-provided resume evidence
+  fitBaseSummary         String? // agent-provided resume assessment before tier banding
+  fitReasons             String? // JSON array of short fit reasons
+  fitSummary             String? // one-line fit/gap summary (mainly from the agent tier)
+  fitProvider            String? // deterministic | agent
+  fitScoredAt            DateTime?
+  // --- Posting availability reconciliation (see lib/discovery/lifecycle.ts) ---
+  availabilityStatus     String                 @default("open") // open | suspect | closed
+  consecutiveMisses      Int                    @default(0)
+  lastVerifiedAt         DateTime?
+  lastVerificationResult String? // open | closed | inconclusive
+  closedAt               DateTime?
+  closureReason          String?
+  firstSeenAt            DateTime               @default(now())
+  lastSeenAt             DateTime               @default(now())
+  raw                    String? // raw source payload as JSON
+  sightings              JobSighting[]
+  discoverySightings     DiscoveryJobSighting[]
+  match                  Match?
+  application            Application?
 
   @@index([isWorkday])
   @@index([company])
@@ -80,6 +88,7 @@ model Job {
   @@index([fingerprint])
   @@index([applicationStatus])
   @@index([fitScore])
+  @@index([availabilityStatus])
 }
 
 // Records that a given source saw a given job (one job, many source sightings).
@@ -96,12 +105,12 @@ model JobSighting {
 
 // Fit assessment + pipeline status for a job we might apply to.
 model Match {
-  id        String   @id @default(cuid())
-  jobId     String   @unique
-  score     Int      @default(0) // Tier-1 deterministic rule score vs. criteria
-  reasons   String? // JSON array of human-readable reasons
+  id                  String    @id @default(cuid())
+  jobId               String    @unique
+  score               Int       @default(0) // Tier-1 deterministic rule score vs. criteria
+  reasons             String? // JSON array of human-readable reasons
   // new | drafted | pending_approval | submitted | rejected | skipped | workday_flagged
-  status    String   @default("new")
+  status              String    @default("new")
   // --- Tier-2 resume/skills fit (see lib/matching/resume.ts + agent.ts) ---
   resumeScore         Int? // 0..100 fit of this job against the resume
   resumeReasons       String? // JSON array of fit reasons
@@ -109,9 +118,9 @@ model Match {
   matchProvider       String? // deterministic | agent — who produced resumeScore
   scoredResumeVersion String? // ResumeVersion.id used, for staleness detection
   resumeScoredAt      DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  job                 Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
   @@index([status])
 }
@@ -174,6 +183,67 @@ model DiscoveryRunState {
   id            String    @id @default("default")
   lastStartedAt DateTime?
   updatedAt     DateTime  @updatedAt
+}
+
+// Durable evidence for the curated discovery catalog. This is intentionally
+// separate from Source/JobSighting, which powers the legacy user-configurable
+// source engine.
+model DiscoverySource {
+  key               String                 @id
+  name              String
+  system            String
+  company           String?
+  authoritative     Boolean                @default(false)
+  positiveEvidence  String                 @default("direct") // direct | secondary
+  expectedComplete  Boolean                @default(false)
+  baselineAt        DateTime?
+  lastRunAt         DateTime?
+  lastCompleteRunAt DateTime?
+  lastStatus        String?
+  lastMessage       String?
+  lastObservedCount Int?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  runs              DiscoverySourceRun[]
+  sightings         DiscoveryJobSighting[]
+
+  @@index([system])
+  @@index([company])
+}
+
+model DiscoverySourceRun {
+  id            String          @id @default(cuid())
+  sourceKey     String
+  startedAt     DateTime        @default(now())
+  finishedAt    DateTime?
+  status        String          @default("running") // running | success | error
+  complete      Boolean         @default(false)
+  seeded        Boolean         @default(false)
+  observedCount Int             @default(0)
+  message       String?
+  source        DiscoverySource @relation(fields: [sourceKey], references: [key], onDelete: Cascade)
+
+  @@index([sourceKey, startedAt])
+  @@index([status, complete])
+}
+
+model DiscoveryJobSighting {
+  id                     String          @id @default(cuid())
+  jobId                  String
+  sourceKey              String
+  firstSeenAt            DateTime        @default(now())
+  lastSeenAt             DateTime        @default(now())
+  lastSeenRunId          String
+  consecutiveMisses      Int             @default(0)
+  lastMissingAt          DateTime?
+  lastVerifiedAt         DateTime?
+  lastVerificationStatus String?
+  job                    Job             @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  source                 DiscoverySource @relation(fields: [sourceKey], references: [key], onDelete: Cascade)
+
+  @@unique([jobId, sourceKey])
+  @@index([sourceKey, lastSeenRunId])
+  @@index([jobId, consecutiveMisses])
 }
 
 // Resolved ATS backend for a Y Combinator company, cached so repeat discovery

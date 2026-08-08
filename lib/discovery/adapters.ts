@@ -55,6 +55,36 @@ async function fetchJson(url: string, init?: RequestInit, timeoutMs = 20000): Pr
   }
 }
 
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function isHttpUrl(value: unknown): value is string {
+  if (!isNonEmptyString(value)) return false;
+  try {
+    return ["http:", "https:"].includes(new URL(value).protocol);
+  } catch {
+    return false;
+  }
+}
+
+function requireValidPostingRows<T>(
+  source: string,
+  rows: T[],
+  valid: (row: T) => boolean,
+): T[] {
+  const invalid = rows.reduce(
+    (count, row) => count + (valid(row) ? 0 : 1),
+    0,
+  );
+  if (invalid > 0) {
+    throw new Error(
+      `${source} response contained ${invalid} structurally invalid job row${invalid === 1 ? "" : "s"}`,
+    );
+  }
+  return rows;
+}
+
 // Best-effort HTML fetch used by the YC ATS resolver. Never throws — a missing
 // or blocked page just yields "" so the resolver moves on to the next candidate.
 async function fetchText(url: string, timeoutMs = 8000): Promise<string> {
@@ -157,7 +187,18 @@ async function greenhouse(c: ApiCompany): Promise<DiscoveryPosting[]> {
       offices?: { location?: string; name?: string }[];
     }[];
   };
-  return (data.jobs ?? []).map((j) => {
+  if (!Array.isArray(data.jobs)) {
+    throw new Error("Greenhouse response did not contain a jobs array");
+  }
+  const jobs = requireValidPostingRows(
+    "Greenhouse",
+    data.jobs,
+    (job) =>
+      Number.isFinite(job?.id) &&
+      isNonEmptyString(job?.title) &&
+      isHttpUrl(job?.absolute_url),
+  );
+  return jobs.map((j) => {
     const offices = (j.offices ?? []).map((o) => o.location || o.name).filter(Boolean).join(" | ");
     const location = [j.location?.name, offices].filter(Boolean).join(" | ");
     return mk("greenhouse", c.name, {
@@ -189,7 +230,18 @@ async function ashby(c: ApiCompany): Promise<DiscoveryPosting[]> {
       compensationTierSummary?: string;
     }[];
   };
-  return (data.jobs ?? []).map((j) =>
+  if (!Array.isArray(data.jobs)) {
+    throw new Error("Ashby response did not contain a jobs array");
+  }
+  const jobs = requireValidPostingRows(
+    "Ashby",
+    data.jobs,
+    (job) =>
+      isNonEmptyString(job?.id) &&
+      isNonEmptyString(job?.title) &&
+      (isHttpUrl(job?.applyUrl) || isHttpUrl(job?.jobUrl)),
+  );
+  return jobs.map((j) =>
     mk("ashby", c.name, {
       title: j.title ?? "",
       location: j.location ?? "",
@@ -217,7 +269,18 @@ async function lever(c: ApiCompany): Promise<DiscoveryPosting[]> {
     descriptionPlain?: string;
     description?: string;
   }[];
-  return (Array.isArray(data) ? data : []).map((j) => {
+  if (!Array.isArray(data)) {
+    throw new Error("Lever response was not an array");
+  }
+  const jobs = requireValidPostingRows(
+    "Lever",
+    data,
+    (job) =>
+      isNonEmptyString(job?.id) &&
+      isNonEmptyString(job?.text) &&
+      (isHttpUrl(job?.hostedUrl) || isHttpUrl(job?.applyUrl)),
+  );
+  return jobs.map((j) => {
     const loc =
       j.categories?.location ||
       (j.categories?.allLocations ?? []).filter(Boolean).join(" | ");

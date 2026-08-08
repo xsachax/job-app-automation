@@ -47,6 +47,11 @@ interface SiteRule {
   shouldHydrate?: (card: RawCard) => boolean;
 }
 
+interface ScrapeUrlResult {
+  postings: DiscoveryPosting[];
+  warning?: string;
+}
+
 // Generic DOM harvester: collect anchors whose href matches `pattern`, using the
 // anchor's text as the title and (optionally) a sibling for a posted date.
 function anchorHarvest(pattern: RegExp) {
@@ -155,16 +160,25 @@ async function scrapeUrl(
   url: string,
   country: Country,
   rule: SiteRule,
-): Promise<DiscoveryPosting[]> {
+): Promise<ScrapeUrlResult> {
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
   await page.waitForTimeout(6000);
 
   const all: RawCard[] = [];
+  let warning: string | undefined;
   const maxPages = rule.pages ?? 1;
   for (let n = 1; ; n++) {
     all.push(...(await rule.extract(page)));
     if (n >= maxPages || !rule.next) break;
-    const advanced = await rule.next(page, n).catch(() => false);
+    let advanced: boolean;
+    try {
+      advanced = await rule.next(page, n);
+    } catch (error) {
+      warning = `pagination stopped after page ${n}: ${
+        error instanceof Error ? error.message : String(error)
+      }`;
+      break;
+    }
     if (!advanced) break;
   }
 
@@ -195,7 +209,7 @@ async function scrapeUrl(
       system: company.system,
     });
   }
-  return out;
+  return { postings: out, ...(warning ? { warning } : {}) };
 }
 
 export interface BrowserScrapeResult {
@@ -205,6 +219,8 @@ export interface BrowserScrapeResult {
   caFound: number;
   postings: DiscoveryPosting[];
   supported: boolean;
+  partial?: boolean;
+  warning?: string;
   error?: string;
 }
 
@@ -238,16 +254,50 @@ export async function scrapeBrowserCompany(
       return route.continue();
     });
     if (rule.singlePage) {
-      const postings = await scrapeUrl(page, company, company.searchUrlCA, "CA", rule);
+      const result = await scrapeUrl(
+        page,
+        company,
+        company.searchUrlCA,
+        "CA",
+        rule,
+      );
+      const postings = result.postings;
       res.usFound = postings.filter((posting) => posting.country === "US").length;
       res.caFound = postings.filter((posting) => posting.country === "CA").length;
       res.postings = postings;
+      if (result.warning) {
+        res.partial = true;
+        res.warning = result.warning;
+      }
     } else {
-      const us = await scrapeUrl(page, company, company.searchUrlUS, "US", rule).catch(() => []);
-      const ca = await scrapeUrl(page, company, company.searchUrlCA, "CA", rule).catch(() => []);
-      res.usFound = us.length;
-      res.caFound = ca.length;
-      res.postings = [...us, ...ca];
+      const warnings: string[] = [];
+      let failedCountries = 0;
+      const attempt = async (label: string, url: string, country: Country) => {
+        try {
+          const result = await scrapeUrl(page, company, url, country, rule);
+          if (result.warning) warnings.push(`${label}: ${result.warning}`);
+          return result.postings;
+        } catch (error) {
+          failedCountries++;
+          warnings.push(
+            `${label}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          return [];
+        }
+      };
+      const us = await attempt("US", company.searchUrlUS, "US");
+      const ca = await attempt("CA", company.searchUrlCA, "CA");
+      if (failedCountries === 2) {
+        res.error = warnings.join("; ");
+      } else {
+        res.usFound = us.length;
+        res.caFound = ca.length;
+        res.postings = [...us, ...ca];
+        if (warnings.length > 0) {
+          res.partial = true;
+          res.warning = warnings.join("; ");
+        }
+      }
     }
   } catch (e) {
     res.error = e instanceof Error ? e.message : String(e);

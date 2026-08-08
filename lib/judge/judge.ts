@@ -4,6 +4,7 @@ import { getCriteria, getProfile, type ProfileData } from "../settings";
 import { scoreResumeFit, type ResumeContext } from "../matching/resume";
 import { salaryFit } from "../matching/salary";
 import { normalizeLocation, normalizeLocationKey } from "../locations";
+import { ACTIVE_JOB_WHERE } from "../jobs/availability";
 import {
   isTier,
   latestCompanyTiersByKey,
@@ -332,6 +333,7 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
   const jobs = await prisma.job.findMany({
     where: {
       isEntryLevel: true,
+      ...ACTIVE_JOB_WHERE,
       ...(opts.country ? { country: opts.country } : {}),
       ...(opts.onlyUnscored ? { fitScore: null } : {}),
       ...(opts.jobIds?.length ? { id: { in: opts.jobIds } } : {}),

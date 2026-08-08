@@ -102,6 +102,81 @@ describe("ingest: dedup + workday flagging", () => {
     // Still just 3 canonical jobs total despite two scans of the same feed.
     expect(await prisma.job.count()).toBe(3);
   });
+
+  it("reopens from a direct ATS source but not from a secondary JSON feed", async () => {
+    mockFetchJson(LISTINGS);
+    const jsonSource = await makeJsonSource();
+    await runSource(jsonSource.id);
+    const job = await prisma.job.findUniqueOrThrow({
+      where: { dedupeKey: "greenhouse:1001" },
+    });
+    await prisma.job.update({
+      where: { id: job.id },
+      data: {
+        availabilityStatus: "closed",
+        closedAt: new Date(),
+        closureReason: "posting returned HTTP 404",
+        lastVerifiedAt: new Date(),
+        lastVerificationResult: "open",
+      },
+    });
+    await prisma.match.delete({ where: { jobId: job.id } });
+
+    mockFetchJson([
+      {
+        ...LISTINGS[0],
+        url: "https://job-boards.greenhouse.io/acme/jobs/1001",
+      },
+      ...LISTINGS.slice(1),
+    ]);
+    await runSource(jsonSource.id);
+    expect(
+      await prisma.job.findUniqueOrThrow({ where: { id: job.id } }),
+    ).toMatchObject({
+      availabilityStatus: "closed",
+      closureReason: "posting returned HTTP 404",
+      lastVerifiedAt: null,
+      lastVerificationResult: null,
+    });
+    expect(
+      await prisma.match.findUnique({ where: { jobId: job.id } }),
+    ).toBeNull();
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          jobs: [
+            {
+              id: 1001,
+              title: "Software Engineer",
+              absolute_url: "https://boards.greenhouse.io/acme/jobs/1001",
+              location: { name: "Remote" },
+            },
+          ],
+        }),
+      })),
+    );
+    const directSource = await prisma.source.create({
+      data: {
+        name: "Acme Greenhouse",
+        kind: "greenhouse",
+        config: JSON.stringify({ company: "acme", companyName: "Acme" }),
+      },
+    });
+    await runSource(directSource.id);
+
+    expect(
+      await prisma.job.findUniqueOrThrow({ where: { id: job.id } }),
+    ).toMatchObject({
+      availabilityStatus: "open",
+      consecutiveMisses: 0,
+      closedAt: null,
+      closureReason: null,
+    });
+  });
 });
 
 describe("application human gate + never-apply-twice", () => {
