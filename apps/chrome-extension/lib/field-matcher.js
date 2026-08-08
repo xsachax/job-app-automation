@@ -7,9 +7,187 @@
     "workAuthorization",
     "requiresSponsorship"
   ]);
-  const currentLocationFieldKeys = new Set(["city", "location"]);
+  const currentLocationFieldKeys = new Set([
+    "city",
+    "country",
+    "location",
+    "region"
+  ]);
+  const directChoiceNegationKeys = new Set([
+    "willingToRelocate",
+    "willingToTravel",
+    "isAtLeast18",
+    "citizenshipStatus",
+    "gender",
+    "hispanicLatino",
+    "transgenderStatus",
+    "raceEthnicity",
+    "disabilityStatus",
+    "veteranStatus"
+  ]);
   const locationPreferencePattern =
     /\b(?:desired|prefer(?:red|ence|ences)?|relocat(?:e|ed|ing|ion)|willing)\b/;
+  const instructionTokens = new Set([
+    "a",
+    "an",
+    "and",
+    "answer",
+    "are",
+    "at",
+    "be",
+    "can",
+    "choose",
+    "could",
+    "did",
+    "do",
+    "does",
+    "enter",
+    "for",
+    "from",
+    "has",
+    "have",
+    "how",
+    "in",
+    "input",
+    "is",
+    "mandatory",
+    "may",
+    "of",
+    "on",
+    "optional",
+    "out",
+    "please",
+    "provide",
+    "required",
+    "response",
+    "select",
+    "that",
+    "the",
+    "this",
+    "to",
+    "value",
+    "what",
+    "when",
+    "where",
+    "which",
+    "who",
+    "will",
+    "would",
+    "you",
+    "your"
+  ]);
+  const requirementTokens = new Set(["mandatory", "optional", "required"]);
+  const genericExperienceTokens = new Set([
+    "career",
+    "experience",
+    "full",
+    "length",
+    "many",
+    "number",
+    "or",
+    "overall",
+    "professional",
+    "relevant",
+    "time",
+    "total",
+    "work",
+    "year"
+  ]);
+  const softwareExperienceTokens = new Set([
+    ...genericExperienceTokens,
+    "developer",
+    "development",
+    "engineer",
+    "engineering",
+    "exclude",
+    "excluding",
+    "industry",
+    "internship",
+    "project",
+    "school",
+    "software",
+    "technical",
+    "technology"
+  ]);
+  const semanticTokenAliases = Object.freeze({
+    above: "older",
+    annually: "annual",
+    authorised: "authorization",
+    authorization: "authorization",
+    authorized: "authorization",
+    begin: "start",
+    begins: "start",
+    began: "start",
+    carry: "perform",
+    cities: "city",
+    completed: "graduation",
+    completion: "graduation",
+    compensation: "compensation",
+    countries: "country",
+    currently: "current",
+    desired: "desired",
+    discovered: "discover",
+    discover: "discover",
+    duties: "function",
+    duty: "function",
+    eligible: "authorization",
+    eligibility: "authorization",
+    employed: "work",
+    employee: "work",
+    employment: "work",
+    expectations: "desired",
+    expectation: "desired",
+    expected: "desired",
+    experiences: "experience",
+    find: "discover",
+    found: "discover",
+    formerly: "previous",
+    former: "previous",
+    functions: "function",
+    graduate: "graduation",
+    graduation: "graduation",
+    hear: "discover",
+    heard: "discover",
+    internships: "internship",
+    join: "start",
+    learn: "discover",
+    learned: "discover",
+    located: "location",
+    location: "location",
+    older: "older",
+    opening: "job",
+    opportunities: "job",
+    opportunity: "job",
+    pay: "compensation",
+    percentage: "percent",
+    permitted: "authorization",
+    permission: "authorization",
+    position: "job",
+    previously: "previous",
+    prior: "previous",
+    professionally: "professional",
+    provinces: "region",
+    province: "region",
+    relocating: "relocate",
+    relocation: "relocate",
+    regions: "region",
+    role: "job",
+    salary: "compensation",
+    sponsored: "sponsor",
+    sponsoring: "sponsor",
+    sponsorship: "sponsor",
+    states: "region",
+    state: "region",
+    target: "desired",
+    tenure: "experience",
+    traveling: "travel",
+    travelling: "travel",
+    universities: "university",
+    worked: "work",
+    working: "work",
+    yearly: "annual",
+    years: "year"
+  });
   const thirdPartyContext = [
     "reference",
     "references",
@@ -19,6 +197,9 @@
     "referrers",
     "referred",
     "referred by",
+    "referring",
+    "referring employee",
+    "employee referral",
     "referee",
     "referees",
     "emergency contact",
@@ -356,6 +537,26 @@
     return normalized ? normalized.split(" ") : [];
   }
 
+  function semanticTokens(value, preserveRequirement = false) {
+    const seen = new Set();
+    return tokens(value).flatMap((rawToken) => {
+      const token = semanticTokenAliases[rawToken] || rawToken;
+      if (
+        (instructionTokens.has(rawToken) &&
+          !(preserveRequirement && requirementTokens.has(rawToken))) ||
+        seen.has(token)
+      ) {
+        return [];
+      }
+      seen.add(token);
+      return [token];
+    });
+  }
+
+  function semanticSignature(value, preserveRequirement = false) {
+    return semanticTokens(value, preserveRequirement).join(" ");
+  }
+
   function editDistance(left, right) {
     if (left === right) {
       return 0;
@@ -390,11 +591,8 @@
     return editDistance(left, right) <= 1;
   }
 
-  function normalizeExactSignal(value) {
-    return normalizeText(value)
-      .replace(/^(?:optional|required) /, "")
-      .replace(/ (?:optional|required)$/, "")
-      .trim();
+  function normalizeExactSignal(value, preserveRequirement = false) {
+    return semanticSignature(value, preserveRequirement);
   }
 
   function scoreText(value, alias) {
@@ -409,36 +607,257 @@
       return 100;
     }
 
-    const valueTokens = tokens(normalizedValue);
-    const aliasTokens = tokens(normalizedAlias);
+    const lexicalAliasTokens = tokens(normalizedAlias);
+    const semanticValueTokens = semanticTokens(normalizedValue);
+    const semanticAliasTokens = semanticTokens(normalizedAlias, true);
+    if (
+      semanticValueTokens.length &&
+      semanticAliasTokens.length &&
+      semanticValueTokens.join(" ") === semanticAliasTokens.join(" ")
+    ) {
+      return 100;
+    }
     const paddedValue = ` ${normalizedValue} `;
 
     if (paddedValue.includes(` ${normalizedAlias} `)) {
-      return Math.max(78, 88 - (valueTokens.length - aliasTokens.length) * 2);
+      const unmatchedTokens = semanticValueTokens.filter(
+        (valueToken) =>
+          !semanticAliasTokens.some((aliasToken) =>
+            equivalentToken(aliasToken, valueToken)
+          )
+      ).length;
+      return Math.max(
+        78,
+        Math.min(
+          98,
+          88 + Math.min(semanticAliasTokens.length - 1, 3) * 3 -
+            unmatchedTokens * 5
+        )
+      );
     }
 
-    const matchingAliasTokens = aliasTokens.filter((aliasToken) =>
-      valueTokens.some((valueToken) => equivalentToken(aliasToken, valueToken))
+    const matchingAliasTokens = semanticAliasTokens.filter((aliasToken) =>
+      semanticValueTokens.some((valueToken) =>
+        equivalentToken(aliasToken, valueToken)
+      )
     );
-    if (matchingAliasTokens.length === aliasTokens.length) {
-      return Math.max(64, 74 - (valueTokens.length - aliasTokens.length));
+    if (
+      semanticAliasTokens.length === 1 &&
+      lexicalAliasTokens.length > 1 &&
+      matchingAliasTokens.length === 1
+    ) {
+      return 0;
     }
     if (
-      aliasTokens.length >= 2 &&
-      matchingAliasTokens.length / aliasTokens.length >= 0.67
+      semanticAliasTokens.length &&
+      matchingAliasTokens.length === semanticAliasTokens.length
+    ) {
+      const coverage =
+        semanticAliasTokens.length /
+        Math.max(semanticValueTokens.length, semanticAliasTokens.length);
+      return Math.min(
+        94,
+        72 +
+          Math.min(semanticAliasTokens.length - 1, 4) * 4 +
+          Math.round(coverage * 10)
+      );
+    }
+    if (
+      semanticAliasTokens.length >= 2 &&
+      matchingAliasTokens.length / semanticAliasTokens.length >= 0.67
     ) {
       return Math.max(
         42,
-        Math.round(62 * (matchingAliasTokens.length / aliasTokens.length))
+        Math.round(
+          62 * (matchingAliasTokens.length / semanticAliasTokens.length)
+        )
       );
     }
 
     return 0;
   }
 
+  function literalPhraseMatches(value, alias) {
+    const normalizedValue = normalizeText(value);
+    const normalizedAlias = normalizeText(alias);
+    return Boolean(
+      normalizedValue &&
+        normalizedAlias &&
+        (normalizedValue === normalizedAlias ||
+          ` ${normalizedValue} `.includes(` ${normalizedAlias} `))
+    );
+  }
+
+  function hasUnsupportedChoiceNegation(definition, signals) {
+    if (!directChoiceNegationKeys.has(definition.key)) {
+      return false;
+    }
+    return (signals || [])
+      .filter(
+        (signal) =>
+          !["description", "section"].includes(signal.source)
+      )
+      .some((signal) => {
+        const normalized = normalizeText(signal.text);
+        return (
+          /\b(?:not|never|no longer|unable|unwilling)\b.{0,28}\b(?:willing|open|able|identify|identified|citizen|veteran|disabled|disability|hispanic|latino|transgender|gender)\b/.test(
+            normalized
+          ) ||
+          /\b(?:do not|don t|does not|doesn t|are not|aren t|is not|isn t)\b.{0,28}\b(?:identify|have|consider|willing|able)\b/.test(
+            normalized
+          )
+        );
+      });
+  }
+
+  function controlEvidenceBonus(definition, context) {
+    const options = (context.optionTexts || []).map(normalizeText).filter(Boolean);
+    if (!options.length) {
+      return 0;
+    }
+    const canonicalOptions = new Set(
+      options.flatMap((option) => [
+        canonicalChoice(option, definition.key),
+        tokens(option)[0]
+      ])
+    );
+    if (
+      definition.controls?.includes("choice") &&
+      canonicalOptions.has("yes") &&
+      canonicalOptions.has("no")
+    ) {
+      return 2;
+    }
+    return 1;
+  }
+
+  function previousEmployerDefinitionMatches(definition, signals) {
+    if (definition.key !== "previousEmployers") {
+      return true;
+    }
+    const normalized = (signals || [])
+      .filter((signal) => !machineSignalSources.has(signal.source))
+      .map((signal) => normalizeText(signal.text))
+      .filter(Boolean)
+      .join(" ");
+    if (
+      !normalized ||
+      /\b(?:authorization|authorisation|eligible|legally|sponsor|visa)\b/.test(
+        normalized
+      ) ||
+      /\b(?:how many|how long|years?|months?|duration)\b/.test(normalized) ||
+      /\b(?:not|never|haven t|hadn t|didn t|weren t|wasn t)\b/.test(normalized)
+    ) {
+      return false;
+    }
+    return (
+      /\b(?:have|had) you (?:(?:ever|previously|formerly) )?(?:worked|been employed)\b/.test(
+        normalized
+      ) ||
+      /\bdid you (?:(?:ever|previously|formerly) )?work\b/.test(normalized) ||
+      /\bwere you (?:(?:ever|previously|formerly) )?employed\b/.test(
+        normalized
+      ) ||
+      /\b(?:are|were) you .{0,36}\b(?:former|formerly|previous|prior) .{0,24}\bemployee\b/.test(
+        normalized
+      )
+    );
+  }
+
+  function experienceDefinitionMatches(definition, signals) {
+    const allowedTokens =
+      definition.key === "relevantExperienceYears"
+        ? genericExperienceTokens
+        : definition.key === "softwareIndustryExperienceYears"
+          ? softwareExperienceTokens
+          : null;
+    if (!allowedTokens) {
+      return true;
+    }
+    return (signals || [])
+      .filter((signal) => !["description", "section"].includes(signal.source))
+      .every((signal) => {
+        const signalTokens = semanticTokens(signal.text);
+        if (
+          !signalTokens.some((token) =>
+            ["experience", "work", "year"].includes(token)
+          )
+        ) {
+          return true;
+        }
+        return signalTokens.every((token) => allowedTokens.has(token));
+      });
+  }
+
+  function hasAvailableStartIntent(normalized) {
+    return (
+      /\b(?:available|availability|earliest|soonest)\b.{0,40}\b(?:date|start|begin|join)\b/.test(
+        normalized
+      ) ||
+      /\b(?:when|date)\b.{0,24}\b(?:can|could|able)\b.{0,24}\b(?:start|begin|join)\b/.test(
+        normalized
+      ) ||
+      /\b(?:can|could|able)\b.{0,24}\b(?:start|begin|join)\b/.test(
+        normalized
+      ) ||
+      /\b(?:start|begin|join)\b.{0,24}\b(?:availability|with us|this job|this role|the company)\b/.test(
+        normalized
+      )
+    );
+  }
+
+  function availableStartDateDefinitionMatches(definition, signals) {
+    if (definition.key !== "availableStartDate") {
+      return true;
+    }
+    const normalizedSignals = (signals || [])
+      .map((signal) => ({
+        source: signal.source,
+        text: normalizeText(signal.text)
+      }))
+      .filter((signal) => signal.text);
+    const normalized = normalizedSignals.map((signal) => signal.text).join(" ");
+    const primary = normalizedSignals
+      .filter((signal) => !["description", "section"].includes(signal.source))
+      .map((signal) => signal.text)
+      .join(" ");
+    if (hasAvailableStartIntent(primary)) {
+      return true;
+    }
+    if (
+      !normalized ||
+      /\b(?:work|employment|job|position|professional) (?:history|experience)\b|\b(?:previous|former|prior|past|current) (?:job|role|employment|employer)\b|\b(?:started|began|hired)\b/.test(
+        normalized
+      )
+    ) {
+      return false;
+    }
+    return hasAvailableStartIntent(normalized);
+  }
+
+  function ageDefinitionMatches(definition, signals) {
+    if (definition.key !== "isAtLeast18") {
+      return true;
+    }
+    const normalized = (signals || [])
+      .map((signal) => normalizeText(signal.text))
+      .filter(Boolean)
+      .join(" ");
+    return !(
+      /\b(?:under|below|younger than|less than|not yet|not|fail(?:ing)? to meet)\b.{0,32}\b(?:18|eighteen|minimum age|legal age)\b/.test(
+        normalized
+      ) ||
+      /\b(?:18|eighteen)\b.{0,20}\b(?:or under|or younger|maximum age)\b/.test(
+        normalized
+      )
+    );
+  }
+
   function isExcluded(definition, signals) {
     return (definition.excludeAliases || []).some((excludedAlias) =>
-      signals.some((signal) => scoreText(signal.text, excludedAlias) >= 78)
+      signals.some((signal) =>
+        literalPhraseMatches(signal.text, excludedAlias)
+      )
     );
   }
 
@@ -460,11 +879,14 @@
   }
 
   function eligibilityIntent(signals) {
-    const normalized = (signals || [])
-      .filter((signal) => !machineSignalSources.has(signal.source))
-      .map((signal) => normalizeText(signal.text))
-      .filter(Boolean)
-      .join(" ");
+    const normalized = [
+      ...new Set(
+        (signals || [])
+          .filter((signal) => !machineSignalSources.has(signal.source))
+          .map((signal) => normalizeText(signal.text))
+          .filter(Boolean)
+      )
+    ].join(" ");
     if (!normalized) {
       return null;
     }
@@ -473,7 +895,7 @@
     const mentionsWorkCapability =
       /\b(?:can|able to)\b.{0,20}\bwork\b/.test(normalized);
     const mentionsAuthorization =
-      /\b(?:authorized|authorised|eligible|legally permitted|right|permission)\b.{0,32}\bwork\b|\blegally\b.{0,20}\bwork\b|\bwork (?:authorization|authorisation|permit|eligibility|rights?)\b/.test(
+      /\b(?:authorized|authorised|authorization|authorisation|eligible|legally permitted|right|permission)\b.{0,32}\bwork\b|\blegally\b.{0,20}\bwork\b|\bwork (?:authorization|authorisation|permit|eligibility|rights?)\b/.test(
         normalized
       ) ||
       (mentionsWorkCapability && mentionsSponsorship);
@@ -486,11 +908,14 @@
         normalized
       );
     const asksIfAuthorizationIsNeeded =
-      /\b(?:need|require|requires|required)\b.{0,16}\bwork (?:authorization|authorisation|permit)\b/.test(
+      /\b(?:need|require|requires|required)\b.{0,20}\b(?:work (?:authorization|authorisation|permit)|(?:authorization|authorisation|permission|permit)\b.{0,12}\bto work)\b/.test(
         normalized
       );
     const negatesAuthorization =
-      /\b(?:not|don t|doesn t|isn t|aren t)\b.{0,28}\b(?:authorized|authorised|eligible|permitted|right|permission)\b/.test(
+      /\b(?:not|don t|doesn t|isn t|aren t|lack(?:s|ed|ing)?|without|no)\b.{0,28}\b(?:authorized|authorised|authorization|authorisation|eligible|permitted|permission|right|work)\b/.test(
+        normalized
+      ) ||
+      /\b(?:unauthorized|unauthorised|ineligible|prohibited|barred)\b.{0,20}\b(?:to )?work\b/.test(
         normalized
       );
 
@@ -627,6 +1052,9 @@
     }
     return (
       /\b(?:can you|are you able to|ability to)\b.{0,48}\bperform\b.{0,48}\bessential functions?\b/.test(
+        normalized
+      ) ||
+      /\b(?:can you|are you able to|ability to)\b.{0,48}\b(?:carry out|fulfill)\b.{0,48}\bessential (?:functions?|duties)\b.{0,48}\bwith or without\b.{0,24}\baccommodations?\b/.test(
         normalized
       ) ||
       /\bperform\b.{0,32}\bessential functions?\b.{0,48}\bwith or without\b.{0,24}\baccommodations?\b/.test(
@@ -842,16 +1270,34 @@
       currentLocationFieldKeys.has(definition.key) &&
       (context.signals || []).some(
         (signal) =>
-          (signal.weight || 1) >= 0.8 &&
           locationPreferencePattern.test(normalizeText(signal.text))
       );
+    const hasNonCurrentLocationIntent =
+      currentLocationFieldKeys.has(definition.key) &&
+      (context.signals || []).some((signal) => {
+        const normalized = `${normalizeText(signal.text)} ${semanticSignature(
+          signal.text
+        )}`;
+        return (
+          /\b(?:location|city|state|province|region|country)\b/.test(normalized) &&
+          /\b(?:birth|born|natal|hometown|desired|preferred|target|job|role|position|posting|office|workplace|event)\b/.test(
+            normalized
+          )
+        );
+      });
     if (
       isExcluded(definition, context.signals || []) ||
       hasLocationPreferenceIntent ||
+      hasNonCurrentLocationIntent ||
       hasThirdPartyContext(definition, context.signals) ||
       (genericLabel && !contextualGeneric) ||
       !eligibilityDefinitionMatches(definition, context.signals) ||
-      !canPerformDefinitionMatches(definition, context.signals)
+      !previousEmployerDefinitionMatches(definition, context.signals) ||
+      !experienceDefinitionMatches(definition, context.signals) ||
+      !availableStartDateDefinitionMatches(definition, context.signals) ||
+      !ageDefinitionMatches(definition, context.signals) ||
+      !canPerformDefinitionMatches(definition, context.signals) ||
+      hasUnsupportedChoiceNegation(definition, context.signals)
     ) {
       return 0;
     }
@@ -867,33 +1313,50 @@
         (value) => autocompleteTokens.includes(normalizeText(value))
       )
     ) {
-      return 120;
+      return 132;
     }
 
     let bestScore = contextualGeneric ? 88 : 0;
-    const corroboratingSources = new Set();
+    const corroboratingEvidence = new Set();
     if (contextualGeneric) {
-      corroboratingSources.add("generic-context");
+      corroboratingEvidence.add("generic-context");
     }
     for (const signal of context.signals || []) {
       let signalScore = 0;
       for (const alias of definition.aliases || []) {
-        if (
-          (definition.exactAliases || []).includes(alias) &&
-          normalizeExactSignal(signal.text) !== normalizeText(alias)
-        ) {
+        const isExactAlias = (definition.exactAliases || []).includes(alias);
+        const semanticExact =
+          normalizeExactSignal(signal.text) === normalizeExactSignal(alias, true);
+        if (isExactAlias && !semanticExact) {
           continue;
         }
-        const weightedScore = scoreText(signal.text, alias) * (signal.weight || 1);
+        const machinePhraseScore =
+          machineSignalSources.has(signal.source) &&
+          literalPhraseMatches(signal.text, alias)
+            ? 90
+            : 0;
+        const aliasScore = Math.max(
+          scoreText(signal.text, alias),
+          machinePhraseScore,
+          semanticExact ? (isExactAlias ? 112 : 108) : 0
+        );
+        const weightedScore = aliasScore * (signal.weight || 1);
         signalScore = Math.max(signalScore, weightedScore);
         bestScore = Math.max(bestScore, weightedScore);
       }
       if (signalScore >= UNCERTAIN_SCORE) {
-        corroboratingSources.add(signal.source || signal.text);
+        corroboratingEvidence.add(
+          semanticSignature(signal.text) || normalizeText(signal.text)
+        );
       }
     }
 
-    return Math.min(120, bestScore + Math.max(0, corroboratingSources.size - 1) * 4);
+    return Math.min(
+      140,
+      bestScore +
+      Math.min(12, Math.max(0, corroboratingEvidence.size - 1) * 4) +
+        controlEvidenceBonus(definition, context)
+    );
   }
 
   function rankDefinitions(context, definitions) {
@@ -921,7 +1384,6 @@
     const [best, secondBest] = ranked;
     const ambiguous =
       Boolean(secondBest) &&
-      best.score < 105 &&
       best.score - secondBest.score < MINIMUM_MARGIN;
     if (ambiguous) {
       return {
@@ -1009,6 +1471,14 @@
     return normalized;
   }
 
+  function hasLocationCountry(value) {
+    const normalized = normalizeText(value);
+    return [...locationCountries].some(
+      (country) =>
+        normalized === country || normalized.endsWith(` ${country}`)
+    );
+  }
+
   function locationIdentity(value) {
     const rawParts = String(value || "")
       .split(/[,|/]+/)
@@ -1071,8 +1541,35 @@
     );
   }
 
+  function hasLocationRegionConflict(savedValue, optionValue, optionLabel) {
+    const saved = locationIdentity(savedValue);
+    if (!saved.city || !saved.region) {
+      return false;
+    }
+    const conflicts = (candidate) => {
+      const option = locationIdentity(candidate);
+      const cityScore = scoreText(saved.city, option.city);
+      return (
+        option.city &&
+        option.region &&
+        option.region !== saved.region &&
+        (option.city === saved.city ||
+          (cityScore >= 74 &&
+            tokens(option.city).length === tokens(saved.city).length))
+      );
+    };
+    const label = locationIdentity(optionLabel);
+    if (label.city && (label.region || hasLocationCountry(optionLabel))) {
+      return conflicts(optionLabel);
+    }
+    return conflicts(optionLabel) || conflicts(optionValue);
+  }
+
   function scoreChoice(savedValue, optionValue, optionLabel, fieldKey) {
     if (["city", "location", "preferredOfficeLocations"].includes(fieldKey)) {
+      if (hasLocationRegionConflict(savedValue, optionValue, optionLabel)) {
+        return 0;
+      }
       return Math.max(
         scoreLocationChoice(savedValue, optionValue, optionLabel),
         Math.min(

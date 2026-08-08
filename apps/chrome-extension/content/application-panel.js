@@ -295,21 +295,40 @@
     return "";
   }
 
-  function nearbyPrompt(element) {
-    const container = ats.questionContainer(element, state.adapter);
+  function nearbyPrompts(element, elements) {
+    const container = ats.questionContainer(element, state.adapter, elements);
     if (!container || container === element) {
-      return "";
+      return [];
     }
     const candidates = Array.from(
       container.querySelectorAll(
         ":scope > label, :scope > legend, :scope > p, :scope > span, :scope > h1, :scope > h2, :scope > h3, :scope > h4, :scope > [class*='label'], :scope > [class*='question'], :scope > [data-automation-id*='label']"
       )
     );
-    return (
-      candidates
-        .filter((candidate) => !candidate.contains(element))
-        .map((candidate) => text(candidate.textContent))
-        .find((value) => value.length >= 2 && value.length <= 240) || ""
+    return candidates
+      .filter(
+        (candidate) =>
+          !elements.some((questionElement) =>
+            candidate.contains(questionElement)
+          ) &&
+          !candidate.querySelector(
+            "input, textarea, select, button, [contenteditable='true'], [role='combobox'], [role='radio'], [role='checkbox']"
+          )
+      )
+      .map((candidate) => text(candidate.textContent))
+      .filter((value) => value.length >= 2 && value.length <= 240);
+  }
+
+  function structuralSignalElements(element, elements) {
+    return Array.from(
+      new Set(
+        [
+          element.closest?.(
+            "fieldset, [role='radiogroup'], [role='group']"
+          ),
+          ats.questionContainer(element, state.adapter, elements)
+        ].filter((candidate) => candidate && candidate !== element)
+      )
     );
   }
 
@@ -318,7 +337,12 @@
     const signals = [];
     const add = (value, weight, source) => {
       const clean = text(value);
-      if (clean && !signals.some((signal) => signal.text === clean)) {
+      if (
+        clean &&
+        !signals.some(
+          (signal) => signal.text === clean && signal.source === source
+        )
+      ) {
         signals.push({ text: clean, weight, source });
       }
     };
@@ -340,13 +364,40 @@
       0.74,
       "description"
     );
-    add(nearbyPrompt(first), 0.92, "nearby");
+    for (const prompt of nearbyPrompts(first, elements)) {
+      add(prompt, 0.92, "nearby");
+    }
     add(first.getAttribute("placeholder"), 0.84, "placeholder");
     add(first.getAttribute("name"), 0.76, "name");
     add(first.id, 0.72, "id");
     add(sectionPrompt(first), 0.55, "section");
-    for (const signal of ats.metadataSignals(first)) {
-      add(signal.text, signal.weight, signal.source);
+    for (const signalElement of [
+      first,
+      ...structuralSignalElements(first, elements)
+    ]) {
+      if (signalElement !== first) {
+        add(signalElement.getAttribute?.("aria-label"), 0.96, "aria");
+        add(
+          getTextByIds(
+            signalElement.getAttribute?.("aria-labelledby"),
+            signalElement.ownerDocument
+          ),
+          0.96,
+          "aria"
+        );
+        add(
+          getTextByIds(
+            signalElement.getAttribute?.("aria-describedby"),
+            signalElement.ownerDocument
+          ),
+          0.74,
+          "description"
+        );
+        add(signalElement.id, 0.64, "id");
+      }
+      for (const signal of ats.metadataSignals(signalElement)) {
+        add(signal.text, signal.weight, signal.source);
+      }
     }
     for (const signal of adapterDetails?.signals || []) {
       add(signal.text, signal.weight, signal.source);
@@ -395,7 +446,7 @@
             "true"
       ) ||
       elements.some((element) =>
-        ats.hasRequiredMetadata(element, state.adapter)
+        ats.hasRequiredMetadata(element, state.adapter, elements)
       )
     ) {
       return true;
@@ -883,7 +934,8 @@
         {
           autocomplete: elements[0].getAttribute("autocomplete"),
           signals,
-          controlKind: kind
+          controlKind: kind,
+          optionTexts: questionOptionTexts(elements, kind)
         },
         state.page?.scanOnly ? [] : state.definitions
       );
@@ -1375,12 +1427,40 @@
         text(element.value)
       );
     }
+
     return (
       associatedLabel(element) ||
       text(element.getAttribute("aria-label")) ||
       getTextByIds(element.getAttribute("aria-labelledby"), element.ownerDocument) ||
       text(element.textContent) ||
       text(element.value)
+    );
+  }
+
+  function questionOptionTexts(elements, kind) {
+    let options = [];
+    const first = elements[0];
+    if (isSelect(first)) {
+      options = Array.from(first.options || []);
+    } else if (["choice", "check-many"].includes(kind)) {
+      options = elements;
+    } else if (kind === "combobox") {
+      const controlledIds = [
+        first.getAttribute("aria-controls"),
+        first.getAttribute("aria-owns")
+      ]
+        .filter(Boolean)
+        .flatMap((value) => String(value).split(/\s+/));
+      options = controlledIds.flatMap((id) =>
+        Array.from(
+          first.ownerDocument
+            ?.getElementById(id)
+            ?.querySelectorAll(ats.optionSelectorFor(state.adapter)) || []
+        )
+      );
+    }
+    return Array.from(
+      new Set(options.map((option) => optionText(option)).filter(Boolean))
     );
   }
 

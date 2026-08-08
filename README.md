@@ -237,10 +237,13 @@ unpacked is enough for local use:
 
 The app profile is the source of truth. A mapped autofill copy and application progress stay
 in that Chrome profile via `chrome.storage.local`.
-The assistant combines labels, legends, accessibility text, nearby prompts, browser autocomplete
-hints, and ATS metadata instead of relying on exact field names. It fills only controls marked
-mandatory by native validation, ARIA, required label markers, or supported ATS metadata; optional
-text, choice, and upload controls remain untouched even when the profile has an answer. It supports
+The assistant ranks normalized evidence from labels, legends, help text, ARIA relationships,
+placeholders, section headings, names/IDs, browser autocomplete hints, control types, and ATS
+metadata instead of requiring an exact field name. Composite prompts such as a label followed by
+instructions still resolve to the underlying profile field. It fills only controls marked mandatory
+by native validation, ARIA, required label markers, or supported ATS metadata, including required
+radio groups whose marker is on a member or question container; optional text, choice, and upload
+controls remain untouched even when the profile has an answer. It supports
 native and custom controls, dynamic steps, open shadow roots, and embedded forms from Greenhouse,
 Lever, Ashby, Workday, SmartRecruiters, iCIMS, Oracle/Taleo, and SAP SuccessFactors. Uncertain
 matches are left blank and highlighted for review. City/location choices tolerate normalized

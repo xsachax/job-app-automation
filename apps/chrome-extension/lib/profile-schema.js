@@ -15,7 +15,13 @@
       group: "identity",
       input: "text",
       autocomplete: ["given-name"],
-      aliases: ["first name", "given name", "legal first name", "forename"],
+      aliases: [
+        "first name",
+        "given name",
+        "legal first name",
+        "forename",
+        "given or first name"
+      ],
       controls: ["text"],
       placeholder: "Jane"
     },
@@ -25,7 +31,13 @@
       group: "identity",
       input: "text",
       autocomplete: ["nickname"],
-      aliases: ["preferred name", "chosen name", "nickname"],
+      aliases: [
+        "preferred name",
+        "chosen name",
+        "preferred or chosen name",
+        "nickname",
+        "name you go by"
+      ],
       controls: ["text"],
       placeholder: "Jane"
     },
@@ -91,6 +103,7 @@
         "email",
         "email address",
         "e mail",
+        "electronic mail address",
         "personal email",
         "candidate email",
         "contact email"
@@ -125,6 +138,8 @@
         "mobile",
         "mobile number",
         "telephone",
+        "telephone number",
+        "cell phone",
         "primary phone",
         "contact number",
         "candidate phone"
@@ -268,10 +283,17 @@
         "location",
         "current location",
         "current address",
+        "current city and state",
+        "current city and province",
+        "current city and state province",
         "city state",
         "city province",
         "where are you located",
-        "where do you live"
+        "where do you live",
+        "where do you currently live",
+        "where are you currently living",
+        "where are you based",
+        "where are you currently based"
       ],
       excludeAliases: [
         "preferred office location",
@@ -388,6 +410,9 @@
       exactAliases: ["city", "location city"],
       excludeAliases: [
         "preferred office city",
+        "city and state",
+        "city and province",
+        "city state province",
         "preferred office location",
         "preferred city",
         "preferred location",
@@ -454,6 +479,9 @@
         "linkedin url",
         "linkedin profile",
         "linkedin profile url",
+        "linkedin public profile",
+        "professional networking profile",
+        "professional networking profile url",
         "linkedin website"
       ],
       controls: ["text"],
@@ -470,7 +498,9 @@
         "github profile",
         "github profile url",
         "code repository",
-        "code sample url"
+        "code sample url",
+        "code hosting profile",
+        "source code profile"
       ],
       controls: ["text"],
       placeholder: "https://github.com/jane-doe"
@@ -489,7 +519,9 @@
         "website url",
         "personal site",
         "personal url",
-        "professional website"
+        "professional website",
+        "work portfolio",
+        "work samples url"
       ],
       excludeAliases: ["company website"],
       controls: ["text"],
@@ -592,7 +624,9 @@
       aliases: [
         "education start date",
         "education start month",
-        "school start date"
+        "school start date",
+        "begin school",
+        "school begin date"
       ],
       controls: ["text", "date", "select", "combobox"]
     },
@@ -606,7 +640,8 @@
         "expected graduation date",
         "date of graduation",
         "degree completion date",
-        "graduation month and year"
+        "graduation month and year",
+        "expected completion month and year"
       ],
       controls: ["text", "select", "combobox"]
     },
@@ -638,7 +673,14 @@
         "relevant experience",
         "professional experience",
         "years of professional experience",
-        "total years of experience"
+        "total years of experience",
+        "years worked professionally"
+      ],
+      excludeAliases: [
+        "software engineering experience",
+        "software development experience",
+        "software industry experience",
+        "experience excluding internships"
       ],
       controls: ["text", "select", "combobox"]
     },
@@ -652,6 +694,8 @@
         "software engineering industry experience",
         "software engineer industry experience",
         "software development industry experience",
+        "years of professional software development experience",
+        "professional software development experience",
         "years of software engineering experience excluding internships",
         "software engineering experience excluding internships",
         "industry experience excluding internships"
@@ -749,7 +793,10 @@
         "where did you hear about this job",
         "where did you find this job",
         "job discovery source",
-        "application source"
+        "application source",
+        "how did you learn about this opportunity",
+        "where did you discover this opening",
+        "recruiting source"
       ],
       controls: ["text", "select", "combobox"]
     },
@@ -763,7 +810,8 @@
         "please specify how you heard about us",
         "other application source",
         "other job source",
-        "application source details"
+        "application source details",
+        "other recruiting source details"
       ],
       contextAliases: [
         "how did you hear about this job",
@@ -798,7 +846,8 @@
         "referral email address",
         "who referred you email address",
         "employee referral email",
-        "referring employee email"
+        "referring employee email",
+        "referring employee work email"
       ],
       controls: ["text"]
     },
@@ -831,7 +880,9 @@
         "target total annual compensation expectation",
         "target total compensation expectations",
         "total annual compensation expectations",
-        "expected total annual compensation"
+        "expected total annual compensation",
+        "desired total compensation per year",
+        "annual salary expectations"
       ],
       controls: ["text", "textarea"]
     },
@@ -868,7 +919,12 @@
       aliases: [
         "available start date",
         "date available to start",
-        "earliest start date"
+        "earliest start date",
+        "begin employment",
+        "date you can join",
+        "when can you start",
+        "when could you start",
+        "start availability"
       ],
       controls: ["text", "date"]
     },
@@ -880,7 +936,8 @@
       aliases: [
         "notice period",
         "required notice",
-        "current employer notice period"
+        "current employer notice period",
+        "notice you must give your current employer"
       ],
       controls: ["text", "select", "combobox"]
     },
@@ -916,7 +973,8 @@
       aliases: [
         "maximum travel percentage",
         "max travel percentage",
-        "percentage willing to travel"
+        "percentage willing to travel",
+        "percent travel you can accommodate"
       ],
       controls: ["text", "select", "combobox"]
     },
@@ -932,7 +990,8 @@
         "following office locations",
         "select all office locations",
         "which office locations",
-        "locations are you willing to work from"
+        "locations are you willing to work from",
+        "office where you are able to work"
       ],
       controls: ["check-many"]
     },
@@ -961,6 +1020,8 @@
         "perform all essential functions",
         "perform the essential functions",
         "perform essential job functions",
+        "carry out the essential duties",
+        "fulfill the essential duties",
         "with or without reasonable accommodations",
         "with or without reasonable accommodation"
       ],
@@ -974,7 +1035,8 @@
       aliases: [
         "at least 18 years old",
         "18 years of age or older",
-        "minimum age requirement"
+        "minimum age requirement",
+        "age 18 or above"
       ],
       controls: ["choice", "select", "combobox"]
     },
@@ -1027,6 +1089,7 @@
         "eligible to work",
         "work authorization",
         "work authorisation",
+        "unrestricted authorization to work",
         "right to work",
         "permitted to work",
         "permission to work",
@@ -1076,7 +1139,8 @@
         "pronouns",
         "preferred pronouns",
         "what are your pronouns",
-        "please select your pronouns"
+        "please select your pronouns",
+        "which pronouns should we use for you"
       ],
       exactAliases: ["pronouns", "preferred pronouns"],
       controls: ["text", "choice", "select", "combobox"]
@@ -1211,6 +1275,7 @@
       input: "select",
       aliases: [
         "disability status",
+        "disability self identification status",
         "voluntary self identification of disability",
         "do you have a disability",
         "identify as a person with a disability",

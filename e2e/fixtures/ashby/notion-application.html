@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+  <body>
+    <main class="ashby-job-posting-application-form" data-testid="application-form">
+      <h1>Software Engineer application</h1>
+      <form>
+        <div data-testid="application-form-field" data-required="true">
+          <label for="first-name">First / Given Name</label>
+          <input id="first-name" name="candidate_first_name" required />
+        </div>
+
+        <div data-testid="application-form-field" data-required="true">
+          <label for="last-name">Family / Last Name</label>
+          <input id="last-name" name="candidate_last_name" required />
+        </div>
+
+        <div data-testid="application-form-field" data-required="true">
+          <label for="email">Email address</label>
+          <p id="email-help">Please provide the best email for recruiting updates.</p>
+          <input
+            id="email"
+            name="candidate_email"
+            type="email"
+            autocomplete="email"
+            aria-describedby="email-help"
+            required
+          />
+        </div>
+
+        <div
+          data-testid="application-form-field"
+          data-field-name="candidate_linkedin_profile_url"
+          data-required="true"
+        >
+          <label id="linkedin-label" for="linkedin-url">
+            LinkedIn URL
+            <span id="linkedin-help">Please provide your LinkedIn URL</span>
+          </label>
+          <input
+            id="linkedin-url"
+            name="candidate_linkedin_profile_url"
+            type="url"
+            aria-labelledby="linkedin-label"
+            aria-describedby="linkedin-help"
+          />
+        </div>
+
+        <div data-testid="application-form-field" data-required="true">
+          <label id="location-label" for="current-location">
+            Current city and state / province
+          </label>
+          <button
+            id="current-location"
+            type="button"
+            role="combobox"
+            aria-labelledby="location-label"
+            aria-controls="location-options"
+            aria-expanded="false"
+          >
+            Select a location
+          </button>
+          <ul id="location-options" role="listbox" hidden>
+            <li role="option" data-value="new-york">New York City, New York, United States</li>
+            <li role="option" data-value="newark">Newark, New Jersey, United States</li>
+          </ul>
+        </div>
+
+        <div data-testid="application-form-field" data-required="true">
+          <label for="source">How did you learn about this opportunity?</label>
+          <select id="source" required>
+            <option value="">Select</option>
+            <option value="linkedin">LinkedIn / Social media</option>
+            <option value="referral">Employee referral</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+
+        <div data-testid="application-form-field" data-required="true">
+          <fieldset>
+            <legend>Are you legally eligible to work in the United States?</legend>
+            <label><input type="radio" name="authorization" value="yes" /> Yes</label>
+            <label><input type="radio" name="authorization" value="no" /> No</label>
+          </fieldset>
+        </div>
+
+        <div data-testid="application-form-field" data-required="true">
+          <label for="sponsorship">
+            Will you now or later need employer immigration sponsorship?
+          </label>
+          <select id="sponsorship">
+            <option value="">Select</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+        </div>
+
+        <div data-testid="application-form-field" data-required="true">
+          <label for="gender">How do you self-describe your gender identity?</label>
+          <select id="gender">
+            <option value="">Select</option>
+            <option value="woman">Woman</option>
+            <option value="man">Man</option>
+            <option value="non-binary">Non-binary</option>
+            <option value="decline">Prefer not to answer</option>
+          </select>
+        </div>
+
+        <div
+          class="required"
+          data-testid="application-form-field"
+          aria-required="false"
+        >
+          <label for="optional-phone">Mobile / Cell Number (Optional)</label>
+          <input id="optional-phone" type="tel" />
+        </div>
+
+        <div data-testid="application-form-field">
+          <label for="optional-pronouns">Preferred pronouns (Optional)</label>
+          <select id="optional-pronouns">
+            <option value="">Select</option>
+            <option value="they">They / Them</option>
+          </select>
+        </div>
+
+        <div data-testid="application-form-field" data-required="true">
+          <label for="referrer-linkedin">Referrer's LinkedIn profile URL</label>
+          <input id="referrer-linkedin" type="url" />
+        </div>
+
+        <div data-testid="application-form-field" data-required="true">
+          <label for="export-license">Will you need an export-control license?</label>
+          <select id="export-license">
+            <option value="">Select</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+        </div>
+
+        <button id="submit-application" type="submit">Submit Application</button>
+      </form>
+    </main>
+
+    <script>
+      window.submitClicks = 0;
+      const locationControl = document.querySelector("#current-location");
+      const locationOptions = document.querySelector("#location-options");
+      locationControl.addEventListener("click", () => {
+        locationControl.setAttribute("aria-expanded", "true");
+        locationOptions.hidden = false;
+      });
+      for (const option of locationOptions.querySelectorAll("[role='option']")) {
+        option.addEventListener("click", () => {
+          for (const candidate of locationOptions.querySelectorAll("[role='option']")) {
+            candidate.setAttribute("aria-selected", String(candidate === option));
+          }
+          locationControl.textContent = option.textContent;
+          locationControl.dataset.value = option.dataset.value;
+          locationControl.setAttribute("aria-valuetext", option.textContent);
+          locationControl.setAttribute("aria-expanded", "false");
+          locationOptions.hidden = true;
+        });
+      }
+      for (const radio of document.querySelectorAll('[name="authorization"]')) {
+        radio.addEventListener("click", () => {
+          for (const candidate of document.querySelectorAll('[name="authorization"]')) {
+            candidate.checked = candidate === radio;
+          }
+        });
+      }
+      document.querySelector("form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        window.submitClicks += 1;
+      });
+    </script>
+  </body>
+</html>
