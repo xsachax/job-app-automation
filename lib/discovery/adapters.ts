@@ -39,6 +39,29 @@ export interface DiscoveryPosting {
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36";
 
+class FetchHttpError extends Error {
+  readonly status: number;
+  readonly retryAfterMs: number | null;
+
+  constructor(status: number, retryAfter: string | null) {
+    super(`HTTP ${status}`);
+    this.name = "FetchHttpError";
+    this.status = status;
+    const normalizedRetryAfter = retryAfter?.trim();
+    const seconds = normalizedRetryAfter
+      ? Number(normalizedRetryAfter)
+      : Number.NaN;
+    const dateMs = normalizedRetryAfter
+      ? Date.parse(normalizedRetryAfter)
+      : Number.NaN;
+    this.retryAfterMs = Number.isFinite(seconds)
+      ? Math.max(0, seconds * 1_000)
+      : Number.isFinite(dateMs)
+        ? Math.max(0, dateMs - Date.now())
+        : null;
+  }
+}
+
 async function fetchJson(url: string, init?: RequestInit, timeoutMs = 20000): Promise<unknown> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -48,7 +71,12 @@ async function fetchJson(url: string, init?: RequestInit, timeoutMs = 20000): Pr
       headers: { "User-Agent": UA, Accept: "application/json", ...(init?.headers ?? {}) },
       signal: ctrl.signal,
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      throw new FetchHttpError(
+        res.status,
+        res.headers.get("retry-after"),
+      );
+    }
     return await res.json();
   } finally {
     clearTimeout(t);
@@ -87,7 +115,11 @@ function requireValidPostingRows<T>(
 
 // Best-effort HTML fetch used by the YC ATS resolver. Never throws — a missing
 // or blocked page just yields "" so the resolver moves on to the next candidate.
-async function fetchText(url: string, timeoutMs = 8000): Promise<string> {
+async function fetchText(
+  url: string,
+  timeoutMs = 8000,
+  onWarning?: (message: string) => void,
+): Promise<string> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -96,10 +128,21 @@ async function fetchText(url: string, timeoutMs = 8000): Promise<string> {
       redirect: "follow",
       signal: ctrl.signal,
     });
-    if (!res.ok) return "";
+    if (!res.ok) {
+      if ([404, 410].includes(res.status)) return "";
+      throw new FetchHttpError(
+        res.status,
+        res.headers.get("retry-after"),
+      );
+    }
     return await res.text();
-  } catch {
-    return "";
+  } catch (error) {
+    onWarning?.(
+      `YC ATS probe failed for ${url}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    throw error;
   } finally {
     clearTimeout(t);
   }
@@ -502,7 +545,10 @@ async function phenom(c: ApiCompany): Promise<DiscoveryPosting[]> {
 
 // ----------------------------------- Workday -----------------------------------
 
-async function workday(c: ApiCompany): Promise<DiscoveryPosting[]> {
+async function workday(
+  c: ApiCompany,
+  ctx: FetchContext = {},
+): Promise<DiscoveryPosting[]> {
   const w = c.workday!;
   type WorkdayListRow = {
     title?: string;
@@ -570,15 +616,18 @@ async function workday(c: ApiCompany): Promise<DiscoveryPosting[]> {
       )) as typeof data;
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
-      console.warn(
-        `[discovery] ${c.name} Workday detail unavailable for ${j.externalPath}; using list data (${reason})`,
-      );
+      const warning =
+        `${c.name} Workday detail unavailable for ${j.externalPath}; ` +
+        `using list data (${reason})`;
+      console.warn(`[discovery] ${warning}`);
+      ctx.onWarning?.(warning);
       return listPosting();
     }
     if (!data.jobPostingInfo) {
-      console.warn(
-        `[discovery] ${c.name} Workday detail missing for ${j.externalPath}; using list data`,
-      );
+      const warning =
+        `${c.name} Workday detail missing for ${j.externalPath}; using list data`;
+      console.warn(`[discovery] ${warning}`);
+      ctx.onWarning?.(warning);
       return listPosting();
     }
     const detail = data.jobPostingInfo;
@@ -640,18 +689,42 @@ async function spotify(c: ApiCompany): Promise<DiscoveryPosting[]> {
 // `location` param (verified US/CA-clean), paginates by `start` in steps of 10,
 // and returns a real apply URL + posted timestamp.
 
-async function microsoft(c: ApiCompany): Promise<DiscoveryPosting[]> {
+function wait(milliseconds: number) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function microsoft(
+  c: ApiCompany,
+  ctx: FetchContext = {},
+): Promise<DiscoveryPosting[]> {
   const base = "https://apply.careers.microsoft.com";
   const q = c.queryTerms[0];
   const out: DiscoveryPosting[] = [];
   const seen = new Set<string>();
+  let requests = 0;
+
+  const fetchPage = async (url: string) => {
+    if (requests > 0) await wait(200);
+    requests++;
+    try {
+      return await fetchJson(url);
+    } catch (error) {
+      if (!(error instanceof FetchHttpError) || error.status !== 429) throw error;
+      await wait(
+        Math.min(5_000, Math.max(500, error.retryAfterMs ?? 1_500)),
+      );
+      requests++;
+      return fetchJson(url);
+    }
+  };
+
   for (const location of ["United States", "Canada"] as const) {
     for (let start = 0; start < 400; start += 10) {
       const url =
         `${base}/api/pcsx/search?domain=microsoft.com` +
         `&query=${encodeURIComponent(q)}&location=${encodeURIComponent(location)}` +
         `&start=${start}&sort_by=relevance`;
-      const data = (await fetchJson(url)) as {
+      let data: {
         data?: {
           count?: number;
           positions?: {
@@ -664,7 +737,21 @@ async function microsoft(c: ApiCompany): Promise<DiscoveryPosting[]> {
           }[];
         };
       };
-      const positions = data.data?.positions ?? [];
+      try {
+        data = (await fetchPage(url)) as typeof data;
+        if (!Array.isArray(data.data?.positions)) {
+          throw new Error("Microsoft response did not contain a positions array");
+        }
+      } catch (error) {
+        if (out.length === 0) throw error;
+        ctx.onWarning?.(
+          `Microsoft pagination stopped after ${out.length} postings: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+        return out;
+      }
+      const positions = data.data.positions;
       for (const p of positions) {
         const id = String(p.id ?? p.displayJobId ?? "");
         if (!id || seen.has(id)) continue;
@@ -800,7 +887,10 @@ async function githubBoard(c: ApiCompany): Promise<DiscoveryPosting[]> {
   return out;
 }
 
-const FETCHERS: Record<Exclude<DiscoverySystem, "ycombinator">, (c: ApiCompany) => Promise<DiscoveryPosting[]>> = {
+const FETCHERS: Record<
+  Exclude<DiscoverySystem, "ycombinator">,
+  (c: ApiCompany, ctx?: FetchContext) => Promise<DiscoveryPosting[]>
+> = {
   greenhouse,
   ashby,
   lever,
@@ -821,6 +911,7 @@ const FETCHERS: Record<Exclude<DiscoverySystem, "ycombinator">, (c: ApiCompany) 
 export interface FetchContext {
   yc?: YcConfig;
   countries?: string[];
+  onWarning?: (message: string) => void;
 }
 
 // --------------------------------- Y Combinator ---------------------------------
@@ -849,7 +940,7 @@ async function ycombinator(c: ApiCompany, ctx: FetchContext): Promise<DiscoveryP
 
   const boards = await resolveYcBoards(selected, {
     prisma,
-    fetchText,
+    fetchText: (url) => fetchText(url, 8000, ctx.onWarning),
     concurrency: yc.concurrency,
   });
 
@@ -863,8 +954,13 @@ async function ycombinator(c: ApiCompany, ctx: FetchContext): Promise<DiscoveryP
       queryTerms: c.queryTerms,
     };
     try {
-      return await FETCHERS[b.system](synthetic);
-    } catch {
+      return await FETCHERS[b.system](synthetic, ctx);
+    } catch (error) {
+      ctx.onWarning?.(
+        `YC board ${b.name} (${b.system}) failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
       return [];
     }
   });
@@ -880,5 +976,5 @@ export async function fetchCompanyPostings(
   if (c.system === "ycombinator") return ycombinator(c, ctx);
   const fetcher = FETCHERS[c.system];
   if (!fetcher) throw new Error(`no discovery fetcher for system ${c.system}`);
-  return fetcher(c);
+  return fetcher(c, ctx);
 }

@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { fetchCompanyPostings } from "../lib/discovery/adapters";
 import { API_COMPANIES, BOARD_SOURCES, DISCOVERY_SOURCES, YC_SOURCE, type ApiCompany } from "../lib/discovery/companies";
+import { prisma } from "../lib/db";
 import { jsonResponse } from "./helpers";
 
 afterEach(() => {
@@ -47,6 +48,69 @@ describe("microsoft adapter (pcsx)", () => {
     expect(us.postedAt).toBeInstanceOf(Date);
     expect(ca.country).toBe("CA");
     expect(ca.system).toBe("microsoft");
+  });
+
+  it("keeps partial results and reports repeated rate limiting", async () => {
+    let calls = 0;
+    const fetchMock = vi.fn(async () => {
+      calls++;
+      if (calls === 1) {
+        return jsonResponse({
+          data: {
+            count: 20,
+            positions: Array.from({ length: 10 }, (_, index) => ({
+              id: 1_000 + index,
+              name: `Software Engineer ${index}`,
+              locations: ["United States", "Washington", "Redmond"],
+              positionUrl: `/careers/job/${1_000 + index}`,
+            })),
+          },
+        });
+      }
+      return new Response("", {
+        status: 429,
+        headers: { "Retry-After": "0" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const onWarning = vi.fn();
+    const company = API_COMPANIES.find((candidate) => candidate.name === "Microsoft")!;
+
+    const posts = await fetchCompanyPostings(company, { onWarning });
+
+    expect(posts).toHaveLength(10);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(onWarning).toHaveBeenCalledWith(
+      expect.stringMatching(/pagination stopped after 10 postings: HTTP 429/),
+    );
+  });
+
+  it("uses the fallback delay when Retry-After is missing", async () => {
+    vi.useFakeTimers();
+    try {
+      let calls = 0;
+      const fetchMock = vi.fn(async () => {
+        calls++;
+        if (calls === 1) return new Response("", { status: 429 });
+        return jsonResponse({ data: { count: 0, positions: [] } });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const company = API_COMPANIES.find(
+        (candidate) => candidate.name === "Microsoft",
+      )!;
+
+      const pending = fetchCompanyPostings(company);
+      await vi.advanceTimersByTimeAsync(1_499);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(200);
+
+      await expect(pending).resolves.toEqual([]);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -239,6 +303,53 @@ describe("authoritative ATS response validation", () => {
   });
 });
 
+describe("Y Combinator adapter warnings", () => {
+  it("does not cache transient ATS probe failures as no-board results", async () => {
+    const slug = "adapter-transient-probe";
+    await prisma.ycAtsCache.deleteMany({ where: { slug } });
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input) === YC_SOURCE.yc?.directoryUrl) {
+        return jsonResponse([
+          {
+            name: "Transient Probe",
+            slug,
+            website: "https://transient-probe.example",
+            batch: "Summer 2026",
+            status: "Active",
+            team_size: 50,
+            isHiring: true,
+            regions: ["United States of America"],
+            all_locations: "Remote, United States",
+          },
+        ]);
+      }
+      return new Response("", { status: 503 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const onWarning = vi.fn();
+
+    const postings = await fetchCompanyPostings(YC_SOURCE, {
+      onWarning,
+      countries: ["US", "CA"],
+      yc: {
+        yearsBack: 5,
+        minTeamSize: 1,
+        maxTeamSize: 2_000,
+        maxCompanies: 10,
+        concurrency: 1,
+      },
+    });
+
+    expect(postings).toEqual([]);
+    expect(onWarning).toHaveBeenCalledWith(
+      expect.stringMatching(/YC ATS probe failed .*HTTP 503/),
+    );
+    expect(
+      await prisma.ycAtsCache.findUnique({ where: { slug } }),
+    ).toBeNull();
+  });
+});
+
 describe("Jibe careers adapter", () => {
   it("paginates through every advertised result", async () => {
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
@@ -361,6 +472,7 @@ describe("Workday adapter details", () => {
 
   it("keeps list results when one detail request fails", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const onWarning = vi.fn();
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
       if (url.endsWith("/jobs")) {
@@ -398,25 +510,31 @@ describe("Workday adapter details", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const posts = await fetchCompanyPostings({
-      name: "Acme",
-      method: "api",
-      system: "workday",
-      countryFilter: "post",
-      queryTerms: ["software engineer"],
-      workday: {
-        host: "acme.wd5.myworkdayjobs.com",
-        tenant: "acme",
-        site: "Acme",
-        searchTerms: ["new grad"],
-        fetchDescriptions: true,
+    const posts = await fetchCompanyPostings(
+      {
+        name: "Acme",
+        method: "api",
+        system: "workday",
+        countryFilter: "post",
+        queryTerms: ["software engineer"],
+        workday: {
+          host: "acme.wd5.myworkdayjobs.com",
+          tenant: "acme",
+          site: "Acme",
+          searchTerms: ["new grad"],
+          fetchDescriptions: true,
+        },
       },
-    });
+      { onWarning },
+    );
 
     expect(posts.map((post) => post.externalId)).toEqual(["2001", "2002"]);
     expect(posts.find((post) => post.externalId === "2001")?.description).toBe("Build software.");
     expect(posts.find((post) => post.externalId === "2002")?.description).toBe("");
     expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("Workday detail unavailable for /job/software-engineer-ii"),
+    );
+    expect(onWarning).toHaveBeenCalledWith(
       expect.stringContaining("Workday detail unavailable for /job/software-engineer-ii"),
     );
   });

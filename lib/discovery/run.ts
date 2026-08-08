@@ -38,6 +38,7 @@ export interface CompanyRunResult {
   updated: number;
   sourceRunId?: string;
   sourceComplete?: boolean;
+  warning?: string;
   error?: string;
 }
 
@@ -48,6 +49,7 @@ export interface DiscoveryRunResult {
   usEntry: number;
   caEntry: number;
   errors: number;
+  warnings: number;
   lifecycle: AvailabilityReconciliationResult;
 }
 
@@ -269,6 +271,8 @@ export interface IngestOptions {
   countries?: string[];
   /** Durable source-run evidence. Omit for legacy callers and isolated tests. */
   sourceRun?: DiscoverySourceRunContext;
+  /** Non-fatal source degradation that makes this run unsafe for absence evidence. */
+  sourceWarning?: string;
 }
 
 // Classify a batch of postings (any source) and persist the entry-level ones for
@@ -345,6 +349,8 @@ export async function ingestSourcePostings(
     const completed = await completeDiscoverySourceRun(
       sourceRun,
       postings.filter((posting) => posting.title && posting.applyUrl).length,
+      new Date(),
+      opts.sourceWarning,
     );
     return { counts, sourceRun: completed };
   } catch (error) {
@@ -361,22 +367,43 @@ async function runCompany(
 ): Promise<CompanyRunResult> {
   const res: CompanyRunResult = { company: c.name, system: c.system, ...zeroCounts() };
   const sourceRun = await beginDiscoverySourceRun(describeApiSource(c));
+  let warningCount = 0;
+  const warningSamples: string[] = [];
+  const onWarning = (message: string) => {
+    warningCount++;
+    if (warningSamples.length < 3) {
+      warningSamples.push(message.trim().slice(0, 240));
+    }
+    ctx.onWarning?.(message);
+  };
+  const warningSummary = () =>
+    warningCount > 0
+      ? `${warningCount} non-fatal subrequest warning${warningCount === 1 ? "" : "s"}: ` +
+        `${warningSamples.join("; ")}${warningCount > warningSamples.length ? "; …" : ""}`
+      : undefined;
   try {
-    const postings = await fetchCompanyPostings(c, ctx);
+    const postings = await fetchCompanyPostings(c, { ...ctx, onWarning });
     await ingestPostings(postings, onlyEntryLevel, res, {
       ...opts,
       sourceRun,
     });
+    const sourceWarning = warningSummary();
     const completed = await completeDiscoverySourceRun(
       sourceRun,
       postings.filter((posting) => posting.title && posting.applyUrl).length,
+      new Date(),
+      sourceWarning,
     );
     res.sourceRunId = completed.runId;
     res.sourceComplete = completed.complete;
+    res.warning = completed.complete ? undefined : completed.message;
   } catch (e) {
-    res.error = e instanceof Error ? e.message : String(e);
+    const warning = warningSummary();
+    const error = e instanceof Error ? e.message : String(e);
+    res.warning = undefined;
+    res.error = warning ? `${error}; ${warning}` : error;
     try {
-      await failDiscoverySourceRun(sourceRun, e);
+      await failDiscoverySourceRun(sourceRun, res.error);
     } catch (lifecycleError) {
       res.error += `; could not record source failure: ${
         lifecycleError instanceof Error
@@ -475,6 +502,7 @@ export async function runDiscovery(opts?: {
     usEntry: results.reduce((a, r) => a + r.usEntry, 0),
     caEntry: results.reduce((a, r) => a + r.caEntry, 0),
     errors: results.filter((r) => r.error).length,
+    warnings: results.filter((r) => !r.error && r.sourceComplete === false).length,
     lifecycle,
   };
 }
