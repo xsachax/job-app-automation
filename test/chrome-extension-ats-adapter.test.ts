@@ -20,6 +20,7 @@ interface AtsAdapter {
 }
 
 const require = createRequire(import.meta.url);
+require("../apps/chrome-extension/lib/workday-adapter.js");
 const adapter = require(
   "../apps/chrome-extension/lib/ats-adapter.js",
 ) as AtsAdapter;
@@ -38,11 +39,23 @@ describe("Chrome extension ATS adapter", () => {
     expect(adapter.detectPlatform(url).key).toBe(expected);
   });
 
-  it("uses page markers for white-labeled ATS pages", () => {
+  it("requires multiple independent markers for white-labeled Workday pages", () => {
     expect(
       adapter.detectPlatform("https://careers.example.com/apply", {
         querySelector(selector) {
           return selector === "[data-automation-id]" ? {} : null;
+        },
+      }).key,
+    ).toBe("generic");
+    expect(
+      adapter.detectPlatform("https://careers.example.com/apply", {
+        querySelector(selector) {
+          return [
+            "[data-automation-id='applicationPage']",
+            "[data-automation-id='progressBar']",
+          ].includes(selector)
+            ? {}
+            : null;
         },
       }).key,
     ).toBe("workday");

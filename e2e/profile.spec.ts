@@ -147,8 +147,8 @@ test.describe("profile page", () => {
       page.getByRole("heading", { name: "Application autofill" }),
     ).toBeVisible();
     await expect(page.getByLabel("First name")).toBeVisible();
-    await expect(page.getByLabel("Email")).toBeVisible();
-    await expect(page.getByLabel("Street address")).toHaveCount(0);
+    await expect(page.getByLabel("Email", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Address line 1")).toBeVisible();
     const usSection = page.getByRole("region", {
       name: "Jobs in the United States",
     });
@@ -169,6 +169,13 @@ test.describe("profile page", () => {
     await expect(page.getByLabel("Undergraduate GPA")).toBeVisible();
     await expect(page.getByLabel("SAT score")).toBeVisible();
     await expect(page.getByLabel("Default cover letter")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Workday application details" }),
+    ).toBeVisible();
+    await expect(page.getByLabel("Address line 1")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Add Work experience" }),
+    ).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Voluntary self-identification" }),
     ).toBeVisible();
@@ -334,8 +341,8 @@ test.describe("profile page", () => {
       await page
         .getByLabel("Software engineering industry experience")
         .fill("2");
-      await page.getByLabel("Add certification").fill("Autosave Certificate");
-      await page.getByLabel("Add certification").press("Enter");
+      await page.getByRole("button", { name: "Add Credential" }).click();
+      await page.getByLabel("Credential name 1").fill("Autosave Certificate");
       await page
         .getByLabel("How did you hear about this job?")
         .selectOption("Other");
@@ -379,9 +386,9 @@ test.describe("profile page", () => {
       await expect(
         page.getByLabel("Software engineering industry experience"),
       ).toHaveValue("2");
-      await expect(
-        page.getByRole("button", { name: "Remove Autosave Certificate" }),
-      ).toBeVisible();
+      await expect(page.getByLabel("Credential name 1")).toHaveValue(
+        "Autosave Certificate",
+      );
       await expect(
         page.getByRole("button", { name: "Remove Cisco" }),
       ).toBeVisible();
@@ -419,7 +426,16 @@ test.describe("profile page", () => {
           graduationDate: "2027-06",
           relevantExperienceYears: 1.5,
           softwareIndustryExperienceYears: 2,
-          certifications: ["Autosave Certificate"],
+          certifications: [
+            {
+              name: "Autosave Certificate",
+              issuer: "",
+              credentialId: "",
+              issueDate: "",
+              expirationDate: "",
+              doesNotExpire: null,
+            },
+          ],
           heardAboutJob: "Other",
           heardAboutJobOther: "Community meetup",
           previousEmployers: ["Cisco"],
@@ -430,6 +446,210 @@ test.describe("profile page", () => {
           usCitizenshipStatusOther: "Non-citizen national",
           hispanicLatino: "no",
           transgenderStatus: "Prefer not to answer",
+        });
+    } finally {
+      await page.waitForTimeout(700);
+      await page.evaluate(async (profile) => {
+        sessionStorage.removeItem("job-pipeline-profile-draft-v1");
+        await fetch("/api/profile", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(profile),
+        });
+      }, originalProfile);
+    }
+  });
+
+  test("persists and reloads structured Workday entries atomically", async ({
+    page,
+  }) => {
+    await page.goto("/profile");
+    const originalProfile = await page.evaluate(async () =>
+      fetch("/api/profile").then((response) => response.json()),
+    );
+
+    try {
+      await page.evaluate(async (profile) => {
+        sessionStorage.removeItem("job-pipeline-profile-draft-v1");
+        await fetch("/api/profile", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...profile,
+            middleName: "",
+            homeAddressLine1: "",
+            homeCity: "",
+            homeRegion: "",
+            homePostalCode: "",
+            homeCountry: "",
+            phoneCountryCode: "",
+            phoneType: "",
+            workExperiences: [],
+            additionalEducation: [],
+            certifications: [],
+            languages: [],
+            additionalWebsites: [],
+            availableStartDate: "",
+            noticePeriod: "",
+            willingToRelocate: null,
+            willingToTravel: null,
+            maxTravelPercentage: "",
+            isAtLeast18: null,
+          }),
+        });
+      }, originalProfile);
+      await page.reload();
+
+      await page.getByLabel("Middle name").fill("Quinn");
+      await page.getByLabel("Address line 1").fill("1 Main St");
+      await page.getByLabel("Home city").fill("New York");
+      await page.getByLabel("State / province / region").fill("NY");
+      await page.getByLabel("Postal code").fill("10001");
+      await page.getByLabel("Home country").fill("United States");
+      await page.getByLabel("Phone country code").fill("+1");
+      await page.getByLabel("Phone type").selectOption("Mobile");
+
+      await page.getByRole("button", { name: "Add Work experience" }).click();
+      await page.getByLabel("Company 1").fill("Acme");
+      await page.getByLabel("Job title 1").fill("Software Engineer");
+      await page.getByLabel("Work location 1").fill("New York");
+      await page.getByLabel("Start month 1").fill("2024-01");
+      await page.getByLabel("I currently work here 1").check();
+      await page.getByLabel("Role description 1").fill("Built reliable tools.");
+
+      await page.getByRole("button", { name: "Add Education" }).click();
+      await page.getByLabel("Additional school 1").fill("Stanford University");
+      await page
+        .getByLabel("Additional degree 1")
+        .selectOption("Master's degree");
+      await page
+        .getByLabel("Additional field of study 1")
+        .fill("Computer Science");
+      await page
+        .getByLabel("Additional education start month 1")
+        .fill("2021-09");
+      await page
+        .getByLabel("Additional education end month 1")
+        .fill("2023-05");
+
+      await page.getByRole("button", { name: "Add Credential" }).click();
+      await page.getByLabel("Credential name 1").fill("AWS Developer");
+      await page.getByLabel("Credential issuer 1").fill("Amazon");
+      await page.getByLabel("Credential number 1").fill("ABC-123");
+      await page.getByLabel("Credential issue month 1").fill("2024-01");
+      await page.getByLabel("Credential does not expire 1").check();
+
+      await page.getByRole("button", { name: "Add Language" }).click();
+      await page.getByLabel("Language 1").fill("English");
+      await page.getByLabel("Overall proficiency 1").fill("Native");
+
+      await page.getByRole("button", { name: "Add Website" }).click();
+      await page.getByLabel("Website label 1").fill("Portfolio");
+      await page
+        .getByLabel("Additional website URL 1")
+        .fill("https://jane.example");
+      await page.getByRole("button", { name: "Add Website" }).click();
+      await page.getByLabel("Website label 2").fill("Temporary");
+      await page
+        .getByLabel("Additional website URL 2")
+        .fill("https://temporary.example");
+      await page
+        .getByRole("button", { name: "Remove website 2" })
+        .click();
+
+      await page.getByLabel("Available start date").fill("2026-06-01");
+      await page.getByLabel("Notice period").fill("Two weeks");
+      await page.getByLabel("Willing to relocate?").selectOption("no");
+      await page.getByLabel("Willing to travel?").selectOption("yes");
+      await page.getByLabel("Maximum travel percentage").fill("25");
+      await page
+        .getByLabel("Are you at least 18 years old?")
+        .selectOption("yes");
+
+      await page.getByRole("link", { name: "Jobs", exact: true }).click();
+      await expect(page).toHaveURL(/\/jobs$/);
+      await page.getByRole("link", { name: "Profile", exact: true }).click();
+
+      await expect(page.getByLabel("Company 1")).toHaveValue("Acme");
+      await expect(page.getByLabel("Job title 1")).toHaveValue(
+        "Software Engineer",
+      );
+      await expect(page.getByLabel("I currently work here 1")).toBeChecked();
+      await expect(page.getByLabel("Additional school 1")).toHaveValue(
+        "Stanford University",
+      );
+      await expect(page.getByLabel("Credential name 1")).toHaveValue(
+        "AWS Developer",
+      );
+      await expect(page.getByLabel("Language 1")).toHaveValue("English");
+      await expect(page.getByLabel("Website label 1")).toHaveValue("Portfolio");
+      await expect(page.getByLabel("Website label 2")).toHaveCount(0);
+
+      await expect
+        .poll(() =>
+          page.evaluate(async () =>
+            fetch("/api/profile").then((response) => response.json()),
+          ),
+        )
+        .toMatchObject({
+          middleName: "Quinn",
+          homeAddressLine1: "1 Main St",
+          homeCity: "New York",
+          homeRegion: "NY",
+          homePostalCode: "10001",
+          homeCountry: "United States",
+          phoneCountryCode: "+1",
+          phoneType: "Mobile",
+          workExperiences: [
+            {
+              company: "Acme",
+              title: "Software Engineer",
+              location: "New York",
+              startDate: "2024-01",
+              endDate: "",
+              currentRole: true,
+              description: "Built reliable tools.",
+            },
+          ],
+          additionalEducation: [
+            {
+              school: "Stanford University",
+              degree: "Master's degree",
+              degreeOther: "",
+              fieldOfStudy: "Computer Science",
+              startDate: "2021-09",
+              graduationDate: "2023-05",
+              gpa: "",
+            },
+          ],
+          certifications: [
+            {
+              name: "AWS Developer",
+              issuer: "Amazon",
+              credentialId: "ABC-123",
+              issueDate: "2024-01",
+              expirationDate: "",
+              doesNotExpire: true,
+            },
+          ],
+          languages: [
+            {
+              language: "English",
+              overallProficiency: "Native",
+              speakingProficiency: "",
+              readingProficiency: "",
+              writingProficiency: "",
+            },
+          ],
+          additionalWebsites: [
+            { label: "Portfolio", url: "https://jane.example" },
+          ],
+          availableStartDate: "2026-06-01",
+          noticePeriod: "Two weeks",
+          willingToRelocate: false,
+          willingToTravel: true,
+          maxTravelPercentage: "25",
+          isAtLeast18: true,
         });
     } finally {
       await page.waitForTimeout(700);
@@ -617,7 +837,7 @@ test.describe("profile page", () => {
 
     await page.goto("/profile");
     await page.getByLabel("First name").fill("Jane");
-    await page.getByLabel("Email").fill("jane@example.com");
+    await page.getByLabel("Email", { exact: true }).fill("jane@example.com");
     const usSection = page.getByRole("region", {
       name: "Jobs in the United States",
     });

@@ -1,4 +1,6 @@
 (function registerAtsAdapter(root) {
+  const workday = root.JobAutofillWorkday || null;
+  const registeredAdapters = [workday].filter(Boolean);
   const platformRules = [
     {
       key: "greenhouse",
@@ -25,12 +27,6 @@
       label: "Ashby",
       hosts: ["jobs.ashbyhq.com"],
       markers: ["[class*='ashby']", "[data-testid*='application']"]
-    },
-    {
-      key: "workday",
-      label: "Workday",
-      hostSuffixes: [".myworkdayjobs.com"],
-      markers: ["[data-automation-id]", "[data-uxi-element-id]"]
     },
     {
       key: "smartrecruiters",
@@ -168,12 +164,25 @@
 
   function detectPlatform(url, documentLike) {
     const hostname = hostnameOf(url);
+    const adapter = activeAdapter(url, documentLike);
     const rule =
+      adapter ||
       platformRules.find((candidate) => hostMatches(hostname, candidate)) ||
       platformRules.find((candidate) => markerMatches(documentLike, candidate));
     return rule
-      ? { key: rule.key, label: rule.label }
+      ? {
+          key: rule.key,
+          label: rule.label,
+          page: adapter?.pageInfo?.(documentLike) || null
+        }
       : { key: "generic", label: "Custom application" };
+  }
+
+  function activeAdapter(url, documentLike) {
+    return (
+      registeredAdapters.find((adapter) => adapter.detect(url, documentLike)) ||
+      null
+    );
   }
 
   function metadataSignals(element) {
@@ -262,7 +271,10 @@
     );
   }
 
-  function hasRequiredMetadata(element) {
+  function hasRequiredMetadata(element, adapter = null) {
+    if (adapter?.hasRequiredMetadata?.(element)) {
+      return true;
+    }
     const candidates = [
       element,
       element?.closest?.("fieldset, [role='group'], [role='radiogroup']"),
@@ -293,8 +305,10 @@
     return false;
   }
 
-  function questionContainer(element) {
-    const semanticContainer = element?.closest?.(questionContainerSelector);
+  function questionContainer(element, adapter = null) {
+    const semanticContainer =
+      adapter?.questionContainer?.(element) ||
+      element?.closest?.(questionContainerSelector);
     if (semanticContainer) {
       return semanticContainer;
     }
@@ -311,16 +325,34 @@
 
   function isKnownAtsUrl(value) {
     const hostname = hostnameOf(value);
-    return platformRules.some((rule) => hostMatches(hostname, rule));
+    return (
+      registeredAdapters.some((adapter) => adapter.isKnownHost?.(value)) ||
+      platformRules.some((rule) => hostMatches(hostname, rule))
+    );
+  }
+
+  function selectorFor(baseSelector, adapterSelector) {
+    return [baseSelector, adapterSelector].filter(Boolean).join(",");
+  }
+
+  function candidateSelectorFor(adapter) {
+    return selectorFor(candidateSelector, adapter?.candidateSelector);
+  }
+
+  function optionSelectorFor(adapter) {
+    return selectorFor(optionSelector, adapter?.optionSelector);
   }
 
   const api = Object.freeze({
+    activeAdapter,
     candidateSelector,
+    candidateSelectorFor,
     detectPlatform,
     hasRequiredMetadata,
     isKnownAtsUrl,
     metadataSignals,
     optionSelector,
+    optionSelectorFor,
     questionContainer,
     platformRules
   });

@@ -36,18 +36,72 @@ export async function saveCriteria(data: Criteria): Promise<Criteria> {
   return merged;
 }
 
-// Canonical answers to the questions typically asked on Greenhouse/Lever/Ashby forms.
+export interface ProfileWorkExperience {
+  company: string;
+  title: string;
+  location: string;
+  startDate: string;
+  endDate: string;
+  currentRole: boolean | null;
+  description: string;
+}
+
+export interface ProfileEducationEntry {
+  school: string;
+  degree: string;
+  degreeOther: string;
+  fieldOfStudy: string;
+  startDate: string;
+  graduationDate: string;
+  gpa: string;
+}
+
+export interface ProfileCredential {
+  name: string;
+  issuer: string;
+  credentialId: string;
+  issueDate: string;
+  expirationDate: string;
+  doesNotExpire: boolean | null;
+}
+
+export interface ProfileLanguage {
+  language: string;
+  overallProficiency: string;
+  speakingProficiency: string;
+  readingProficiency: string;
+  writingProficiency: string;
+}
+
+export interface ProfileWebsite {
+  label: string;
+  url: string;
+}
+
+// Canonical answers to the questions typically asked on application forms.
 export interface ProfileData {
   firstName?: string;
   preferredName?: string;
+  middleName?: string;
   lastName?: string;
+  nameSuffix?: string;
   email?: string;
   phone?: string;
+  phoneCountryCode?: string;
+  phoneType?: string;
+  phoneExtension?: string;
+  homeAddressLine1?: string;
+  homeAddressLine2?: string;
+  homeCity?: string;
+  homeRegion?: string;
+  homePostalCode?: string;
+  homeCountry?: string;
   location?: string; // legacy; migrated to usLocation
   linkedin?: string;
   github?: string;
   website?: string;
   portfolio?: string;
+  additionalWebsites?: ProfileWebsite[];
   summary?: string;
   skills?: string[];
   resumeUrl?: string; // public/direct URL to the user's PDF resume
@@ -58,10 +112,14 @@ export interface ProfileData {
   degree?: string;
   degreeOther?: string;
   fieldOfStudy?: string;
+  educationStartDate?: string; // YYYY-MM
   graduationDate?: string; // YYYY-MM
+  additionalEducation?: ProfileEducationEntry[];
+  workExperiences?: ProfileWorkExperience[];
   relevantExperienceYears?: number | null;
   softwareIndustryExperienceYears?: number | null;
-  certifications?: string[];
+  certifications?: ProfileCredential[];
+  languages?: ProfileLanguage[];
   undergraduateGpa?: string;
   graduateGpa?: string;
   doctorateGpa?: string;
@@ -70,8 +128,18 @@ export interface ProfileData {
   greScore?: string;
   heardAboutJob?: string;
   heardAboutJobOther?: string;
+  referrerName?: string;
+  referrerEmail?: string;
   previousEmployers?: string[];
   compensationExpectation?: string;
+  compensationCurrency?: string;
+  compensationFrequency?: string;
+  availableStartDate?: string; // YYYY-MM-DD
+  noticePeriod?: string;
+  willingToRelocate?: boolean | null;
+  willingToTravel?: boolean | null;
+  maxTravelPercentage?: string;
+  isAtLeast18?: boolean | null;
   securityClearances?: string[];
   canPerformEssentialFunctions?: boolean | null;
   usCitizenshipStatus?: string;
@@ -109,13 +177,25 @@ export interface ProfileData {
 export const DEFAULT_PROFILE: ProfileData = {
   firstName: "",
   preferredName: "",
+  middleName: "",
   lastName: "",
+  nameSuffix: "",
   email: "",
   phone: "",
+  phoneCountryCode: "",
+  phoneType: "",
+  phoneExtension: "",
+  homeAddressLine1: "",
+  homeAddressLine2: "",
+  homeCity: "",
+  homeRegion: "",
+  homePostalCode: "",
+  homeCountry: "",
   linkedin: "",
   github: "",
   website: "",
   portfolio: "",
+  additionalWebsites: [],
   summary: "",
   skills: [],
   resumeUrl: "",
@@ -126,10 +206,14 @@ export const DEFAULT_PROFILE: ProfileData = {
   degree: "",
   degreeOther: "",
   fieldOfStudy: "",
+  educationStartDate: "",
   graduationDate: "",
+  additionalEducation: [],
+  workExperiences: [],
   relevantExperienceYears: null,
   softwareIndustryExperienceYears: null,
   certifications: [],
+  languages: [],
   undergraduateGpa: "",
   graduateGpa: "",
   doctorateGpa: "",
@@ -138,8 +222,18 @@ export const DEFAULT_PROFILE: ProfileData = {
   greScore: "",
   heardAboutJob: "",
   heardAboutJobOther: "",
+  referrerName: "",
+  referrerEmail: "",
   previousEmployers: [],
   compensationExpectation: "",
+  compensationCurrency: "",
+  compensationFrequency: "",
+  availableStartDate: "",
+  noticePeriod: "",
+  willingToRelocate: null,
+  willingToTravel: null,
+  maxTravelPercentage: "",
+  isAtLeast18: null,
   securityClearances: [],
   canPerformEssentialFunctions: null,
   usCitizenshipStatus: "",
@@ -181,9 +275,172 @@ const LEGACY_PROFILE_KEYS = [
   "spacexEmploymentHistory",
 ] as const;
 
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function boundedText(value: unknown, maxLength = 1_000): string {
+  return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
+}
+
+function triState(value: unknown): boolean | null {
+  return value === true ? true : value === false ? false : null;
+}
+
+function monthValue(value: unknown): string {
+  const text = boundedText(value, 7);
+  return /^\d{4}-(?:0[1-9]|1[0-2])$/.test(text) ? text : "";
+}
+
+function dateValue(value: unknown): string {
+  const text = boundedText(value, 10);
+  if (!/^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/.test(text)) {
+    return "";
+  }
+  const parsed = new Date(`${text}T00:00:00Z`);
+  return Number.isNaN(parsed.getTime()) ||
+    parsed.toISOString().slice(0, 10) !== text
+    ? ""
+    : text;
+}
+
+function percentageValue(value: unknown): string {
+  const text = boundedText(value, 3);
+  if (!/^\d{1,3}$/.test(text)) return "";
+  const percentage = Number(text);
+  return percentage <= 100 ? String(percentage) : "";
+}
+
+function limitedRecords(
+  value: unknown,
+  limit: number,
+): Record<string, unknown>[] {
+  return Array.isArray(value)
+    ? value.map(record).filter((item): item is Record<string, unknown> => Boolean(item)).slice(0, limit)
+    : [];
+}
+
+function normalizeWorkExperiences(value: unknown): ProfileWorkExperience[] {
+  return limitedRecords(value, 20)
+    .map((item) => {
+      const currentRole = triState(item.currentRole);
+      return {
+        company: boundedText(item.company, 200),
+        title: boundedText(item.title, 200),
+        location: boundedText(item.location, 300),
+        startDate: monthValue(item.startDate),
+        endDate: currentRole === true ? "" : monthValue(item.endDate),
+        currentRole,
+        description: boundedText(item.description, 5_000),
+      };
+    })
+    .filter((item) => item.company || item.title);
+}
+
+function normalizeEducationEntries(value: unknown): ProfileEducationEntry[] {
+  return limitedRecords(value, 10)
+    .map((item) => ({
+      school: boundedText(item.school, 300),
+      degree: boundedText(item.degree, 200),
+      degreeOther: boundedText(item.degreeOther, 200),
+      fieldOfStudy: boundedText(item.fieldOfStudy, 200),
+      startDate: monthValue(item.startDate),
+      graduationDate: monthValue(item.graduationDate),
+      gpa: boundedText(item.gpa, 20),
+    }))
+    .filter((item) => item.school || item.degree || item.fieldOfStudy);
+}
+
+function normalizeCredentials(value: unknown): ProfileCredential[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .slice(0, 20)
+    .map((item) => {
+      if (typeof item === "string") {
+        return {
+          name: boundedText(item, 300),
+          issuer: "",
+          credentialId: "",
+          issueDate: "",
+          expirationDate: "",
+          doesNotExpire: null,
+        };
+      }
+      const entry = record(item);
+      if (!entry) return null;
+      const doesNotExpire = triState(entry.doesNotExpire);
+      return {
+        name: boundedText(entry.name, 300),
+        issuer: boundedText(entry.issuer, 300),
+        credentialId: boundedText(entry.credentialId, 200),
+        issueDate: monthValue(entry.issueDate),
+        expirationDate:
+          doesNotExpire === true ? "" : monthValue(entry.expirationDate),
+        doesNotExpire,
+      };
+    })
+    .filter((item): item is ProfileCredential => Boolean(item?.name));
+}
+
+function normalizeLanguages(value: unknown): ProfileLanguage[] {
+  return limitedRecords(value, 20)
+    .map((item) => ({
+      language: boundedText(item.language, 100),
+      overallProficiency: boundedText(item.overallProficiency, 100),
+      speakingProficiency: boundedText(item.speakingProficiency, 100),
+      readingProficiency: boundedText(item.readingProficiency, 100),
+      writingProficiency: boundedText(item.writingProficiency, 100),
+    }))
+    .filter((item) => item.language);
+}
+
+function normalizeWebsites(value: unknown): ProfileWebsite[] {
+  return limitedRecords(value, 20)
+    .map((item) => ({
+      label: boundedText(item.label, 100),
+      url: boundedText(item.url, 2_000),
+    }))
+    .filter((item) => item.url);
+}
+
 function normalizeProfileData(data: ProfileData): ProfileData {
   const profile = { ...DEFAULT_PROFILE, ...data };
   delete profile[PROFILE_FIELD_VERSIONS_KEY];
+  profile.middleName = boundedText(profile.middleName, 200);
+  profile.nameSuffix = boundedText(profile.nameSuffix, 100);
+  profile.phoneCountryCode = boundedText(profile.phoneCountryCode, 20);
+  profile.phoneType = boundedText(profile.phoneType, 100);
+  profile.phoneExtension = boundedText(profile.phoneExtension, 30);
+  profile.homeAddressLine1 = boundedText(profile.homeAddressLine1, 300);
+  profile.homeAddressLine2 = boundedText(profile.homeAddressLine2, 300);
+  profile.homeCity = boundedText(profile.homeCity, 200);
+  profile.homeRegion = boundedText(profile.homeRegion, 200);
+  profile.homePostalCode = boundedText(profile.homePostalCode, 40);
+  profile.homeCountry = boundedText(profile.homeCountry, 200);
+  profile.additionalWebsites = normalizeWebsites(profile.additionalWebsites);
+  profile.educationStartDate = monthValue(profile.educationStartDate);
+  profile.graduationDate = monthValue(profile.graduationDate);
+  profile.additionalEducation = normalizeEducationEntries(
+    profile.additionalEducation,
+  );
+  profile.workExperiences = normalizeWorkExperiences(profile.workExperiences);
+  profile.certifications = normalizeCredentials(profile.certifications);
+  profile.languages = normalizeLanguages(profile.languages);
+  profile.referrerName = boundedText(profile.referrerName, 300);
+  profile.referrerEmail = boundedText(profile.referrerEmail, 320);
+  profile.compensationCurrency = boundedText(profile.compensationCurrency, 40);
+  profile.compensationFrequency = boundedText(profile.compensationFrequency, 80);
+  profile.availableStartDate = dateValue(profile.availableStartDate);
+  profile.noticePeriod = boundedText(profile.noticePeriod, 200);
+  profile.willingToRelocate = triState(profile.willingToRelocate);
+  profile.willingToTravel = triState(profile.willingToTravel);
+  profile.maxTravelPercentage =
+    profile.willingToTravel === false
+      ? ""
+      : percentageValue(profile.maxTravelPercentage);
+  profile.isAtLeast18 = triState(profile.isAtLeast18);
   const legacyCountry = String(profile.country || "").trim().toLowerCase();
   const legacyIsCanada =
     legacyCountry === "ca" || legacyCountry.includes("canada");

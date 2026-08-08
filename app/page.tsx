@@ -87,7 +87,7 @@ export default async function OverviewPage() {
         <Stat label="CA entry-level" value={caEntry} hint="open roles in queue" />
         <Stat label="Companies covered" value={companiesCovered} hint={`${API_COMPANIES.length} API · ${BROWSER_COMPANIES.length} browser`} />
         <Stat label="Last discovery" value={timeAgo(lastJob?.lastSeenAt ?? null)} hint="most recent scrape" />
-        <Stat label="Workday flagged" value={workdayJobs} hint="in Jobs — manual apply" />
+        <Stat label="Workday jobs" value={workdayJobs} hint="in Jobs — assisted fill available" />
       </div>
 
       {categoryRows.length > 0 && (

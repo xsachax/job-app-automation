@@ -372,7 +372,7 @@ export function JobCard({
                 {job.isWorkday && (
                   <span
                     data-testid="workday-badge"
-                    title="Workday posting — apply manually. The pipeline never auto-applies to these."
+                    title="Workday posting — the extension can assist with recognized mandatory fields, while you control each page and submission."
                     className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-950 dark:text-amber-200"
                   >
                     Workday

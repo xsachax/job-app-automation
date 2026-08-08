@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+  <body>
+    <main data-automation-id="applicationPage">
+      <header data-automation-id="applicationHeader">Acme application</header>
+      <div data-automation-id="progressBar">Experience</div>
+
+      <section
+        id="work-section"
+        data-automation-id="workExperienceSection"
+        data-workday-repeat-section
+        data-required="true"
+      >
+        <h1>Work experience</h1>
+        <div id="work-items">
+          <fieldset data-automation-id="workExperience-1">
+            <legend>Work experience 1</legend>
+            <label>Company
+              <input id="work-company-0" data-automation-id="company" value="User-entered company" required />
+            </label>
+            <label>Job title
+              <input id="work-title-0" data-automation-id="jobTitle" required />
+            </label>
+            <label>Start month
+              <select id="work-start-month-0" data-automation-id="startDateMonth" required>
+                <option value="">Select</option>
+                <option value="January">January</option>
+                <option value="July">July</option>
+              </select>
+            </label>
+            <label>Start year
+              <select id="work-start-year-0" data-automation-id="startDateYear" required>
+                <option value="">Select</option>
+                <option value="2023">2023</option>
+                <option value="2024">2024</option>
+              </select>
+            </label>
+            <label>
+              <input id="work-current-0" type="checkbox" data-automation-id="currentlyWorkHere" required />
+              I currently work here
+            </label>
+            <label>Role description (optional)
+              <textarea id="work-description-0" data-automation-id="description"></textarea>
+            </label>
+          </fieldset>
+        </div>
+        <button type="button" id="add-work" data-automation-id="addWorkExperience">
+          Add another work experience
+        </button>
+      </section>
+
+      <section
+        id="education-section"
+        data-automation-id="educationSection"
+        data-workday-repeat-section
+        data-required="true"
+      >
+        <h2>Education</h2>
+        <div id="education-items">
+          <fieldset data-automation-id="education-1">
+            <legend>Education 1</legend>
+            <label>School
+              <input id="education-school-0" data-automation-id="school" value="User-entered school" required />
+            </label>
+            <label>Degree
+              <select id="education-degree-0" data-automation-id="degree" required>
+                <option value="">Select</option>
+                <option value="bachelors">Bachelor's degree</option>
+                <option value="masters">Master's degree</option>
+              </select>
+            </label>
+            <label>Start date
+              <input id="education-start-0" type="month" data-automation-id="startDate" required />
+            </label>
+            <label>End date
+              <input id="education-end-0" type="month" data-automation-id="endDate" required />
+            </label>
+          </fieldset>
+        </div>
+        <button type="button" id="add-education" data-automation-id="add-another-button">
+          Add another education
+        </button>
+      </section>
+
+      <section data-automation-id="certificationSection" data-required="true">
+        <h2>Certification or license</h2>
+        <fieldset data-automation-id="certification-1">
+          <label>Name
+            <input id="credential-name" data-automation-id="certificationName" required />
+          </label>
+          <label>Issue month
+            <select id="credential-month" data-automation-id="issueDateMonth" required>
+              <option value="">Select</option>
+              <option value="January">January</option>
+              <option value="May">May</option>
+            </select>
+          </label>
+          <label>Issue year
+            <select id="credential-year" data-automation-id="issueDateYear" required>
+              <option value="">Select</option>
+              <option value="2024">2024</option>
+              <option value="2025">2025</option>
+            </select>
+          </label>
+          <label>
+            <input id="credential-no-expiry" type="checkbox" data-automation-id="doesNotExpire" required />
+            This credential does not expire
+          </label>
+        </fieldset>
+      </section>
+
+      <section data-automation-id="languageSection" data-required="true">
+        <h2>Language</h2>
+        <fieldset data-automation-id="language-1">
+          <label>Language
+            <input id="language-name" data-automation-id="language" required />
+          </label>
+          <label>Overall proficiency
+            <select id="language-proficiency" data-automation-id="language-proficiency" required>
+              <option value="">Select</option>
+              <option value="Native">Native</option>
+              <option value="Fluent">Fluent</option>
+            </select>
+          </label>
+        </fieldset>
+      </section>
+
+      <section data-automation-id="websiteSection" data-required="true">
+        <h2>Website</h2>
+        <fieldset data-automation-id="websiteSection-1">
+          <label>Website type (optional)
+            <input id="website-label" data-automation-id="websiteType" />
+          </label>
+          <label>Website URL
+            <input id="website-url" type="url" data-automation-id="websiteURL" required />
+          </label>
+        </fieldset>
+      </section>
+
+      <button id="next" data-automation-id="bottom-navigation-next-button">Next</button>
+    </main>
+    <script>
+      window.addWorkClicks = 0;
+      window.addEducationClicks = 0;
+      window.nextClicks = 0;
+
+      document.querySelector("#add-work").addEventListener("click", () => {
+        window.addWorkClicks += 1;
+        const index = document.querySelectorAll('[data-automation-id^="workExperience-"]').length;
+        const fieldset = document.createElement("fieldset");
+        fieldset.dataset.automationId = `workExperience-${index + 1}`;
+        fieldset.innerHTML = `
+          <legend>Work experience ${index + 1}</legend>
+          <label>Company
+            <input id="work-company-${index}" data-automation-id="company" required />
+          </label>
+          <label>Job title
+            <input id="work-title-${index}" data-automation-id="jobTitle" required />
+          </label>
+          <div data-automation-id="formField-startDate">
+            <label>Start month
+             <input id="work-start-month-${index}" data-automation-id="dateSectionMonth-input" required />
+            </label>
+            <label>Start year
+             <input id="work-start-year-${index}" data-automation-id="dateSectionYear-input" required />
+            </label>
+          </div>
+          <label>Role description (optional)
+            <textarea id="work-description-${index}" data-automation-id="description"></textarea>
+          </label>
+        `;
+        document.querySelector("#work-items").append(fieldset);
+      });
+
+      document.querySelector("#add-education").addEventListener("click", () => {
+        window.addEducationClicks += 1;
+        const index = document.querySelectorAll('[data-automation-id^="education-"]').length;
+        const fieldset = document.createElement("fieldset");
+        fieldset.dataset.automationId = `education-${index + 1}`;
+        fieldset.innerHTML = `
+          <legend>Education ${index + 1}</legend>
+          <label>School
+            <input id="education-school-${index}" data-automation-id="school" required />
+          </label>
+          <label>Degree
+            <select id="education-degree-${index}" data-automation-id="degree" required>
+              <option value="">Select</option>
+              <option value="bachelors">Bachelor's degree</option>
+              <option value="masters">Master's degree</option>
+            </select>
+          </label>
+          <label>Start date
+            <input id="education-start-${index}" type="month" data-automation-id="startDate" required />
+          </label>
+          <label>End date
+            <input id="education-end-${index}" type="month" data-automation-id="endDate" required />
+          </label>
+        `;
+        document.querySelector("#education-items").append(fieldset);
+      });
+
+      document.querySelector("#next").addEventListener("click", () => {
+        window.nextClicks += 1;
+      });
+    </script>
+  </body>
+</html>

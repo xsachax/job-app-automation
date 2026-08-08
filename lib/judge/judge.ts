@@ -145,7 +145,9 @@ export function buildQualificationContext(profile: ProfileData): string {
       ? `Relevant experience: ${profile.relevantExperienceYears} years`
       : null,
     Array.isArray(profile.certifications) && profile.certifications.length
-      ? `Certifications: ${cleanList(profile.certifications).join(", ")}`
+      ? `Certifications: ${cleanList(
+          profile.certifications.map((credential) => credential.name),
+        ).join(", ")}`
       : null,
   );
   return structured || profile.qualifications?.trim() || "";

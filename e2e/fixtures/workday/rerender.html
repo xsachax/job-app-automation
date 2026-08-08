@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <body>
+    <main data-automation-id="applicationPage">
+      <header data-automation-id="applicationHeader">Acme application</header>
+      <div data-automation-id="progressBar">Contact</div>
+      <section id="step" data-automation-id="contactInformationPage">
+        <label>First name
+          <input id="first-name" data-automation-id="legalNameSection_firstName" required />
+        </label>
+        <button id="next" data-automation-id="bottom-navigation-next-button">Next</button>
+      </section>
+    </main>
+    <script>
+      window.nextClicks = 0;
+      document.querySelector("#next").addEventListener("click", () => {
+        window.nextClicks += 1;
+        document.querySelector("#step").outerHTML = `
+          <section id="step" data-automation-id="contactInformationPage">
+            <label>Last name
+              <input id="last-name" data-automation-id="legalNameSection_lastName" required />
+            </label>
+            <button id="submit" data-automation-id="submit">Submit</button>
+          </section>
+        `;
+        window.submitClicks = 0;
+        document.querySelector("#submit").addEventListener("click", () => {
+          window.submitClicks += 1;
+        });
+      });
+    </script>
+  </body>
+</html>

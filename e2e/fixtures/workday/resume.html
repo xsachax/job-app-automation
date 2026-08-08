@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <body>
+    <main data-automation-id="applicationPage">
+      <header data-automation-id="applicationHeader">Acme application</header>
+      <div data-automation-id="progressBar">Resume</div>
+      <section data-automation-id="resumePage">
+        <h1>Resume or CV</h1>
+        <div data-automation-id="resumeUpload" data-required="true">
+          <span id="resume-label">Upload resume</span>
+          <input
+            id="resume"
+            type="file"
+            data-automation-id="file-upload-input-ref"
+            aria-labelledby="resume-label"
+            accept="application/pdf"
+            required
+            hidden
+          />
+        </div>
+        <label>Supporting document (optional)
+          <input id="supporting-document" type="file" />
+        </label>
+        <button id="next" data-automation-id="bottom-navigation-next-button">Next</button>
+      </section>
+    </main>
+    <script>
+      window.nextClicks = 0;
+      document.querySelector("#next").addEventListener("click", () => {
+        window.nextClicks += 1;
+      });
+    </script>
+  </body>
+</html>

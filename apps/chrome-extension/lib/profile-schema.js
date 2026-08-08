@@ -30,6 +30,15 @@
       placeholder: "Jane"
     },
     {
+      key: "middleName",
+      label: "Middle name",
+      group: "identity",
+      input: "text",
+      autocomplete: ["additional-name"],
+      aliases: ["middle name", "legal middle name", "additional name"],
+      controls: ["text"]
+    },
+    {
       key: "lastName",
       label: "Last name",
       group: "identity",
@@ -38,6 +47,15 @@
       aliases: ["last name", "family name", "legal last name", "surname"],
       controls: ["text"],
       placeholder: "Doe"
+    },
+    {
+      key: "nameSuffix",
+      label: "Name suffix",
+      group: "identity",
+      input: "select",
+      autocomplete: ["honorific-suffix"],
+      aliases: ["name suffix", "suffix", "generational suffix"],
+      controls: ["text", "select", "combobox"]
     },
     {
       key: "fullName",
@@ -126,7 +144,6 @@
       key: "phoneCountryCode",
       label: "Phone country code",
       group: "contact",
-      stored: false,
       input: "text",
       aliases: [
         "phone country code",
@@ -136,6 +153,27 @@
         "telephone country code"
       ],
       controls: ["text", "select", "combobox"]
+    },
+    {
+      key: "phoneType",
+      label: "Phone type",
+      group: "contact",
+      input: "select",
+      aliases: [
+        "phone type",
+        "device type",
+        "phone device type",
+        "telephone type"
+      ],
+      controls: ["text", "select", "combobox"]
+    },
+    {
+      key: "phoneExtension",
+      label: "Phone extension",
+      group: "contact",
+      input: "text",
+      aliases: ["phone extension", "telephone extension", "extension"],
+      controls: ["text"]
     },
     {
       key: "phoneNational",
@@ -150,6 +188,76 @@
         "phone number without country code"
       ],
       controls: ["text"]
+    },
+    {
+      key: "homeAddressLine1",
+      label: "Street address",
+      group: "contact",
+      input: "text",
+      autocomplete: ["address-line1", "street-address"],
+      aliases: [
+        "address line 1",
+        "street address",
+        "home address",
+        "primary address"
+      ],
+      controls: ["text"]
+    },
+    {
+      key: "homeAddressLine2",
+      label: "Address line 2",
+      group: "contact",
+      input: "text",
+      autocomplete: ["address-line2"],
+      aliases: [
+        "address line 2",
+        "apartment suite",
+        "apartment or suite",
+        "unit number"
+      ],
+      controls: ["text"]
+    },
+    {
+      key: "homeCity",
+      label: "Home city",
+      group: "contact",
+      input: "text",
+      aliases: ["home city", "address city", "city town", "municipality"],
+      controls: ["text", "combobox"]
+    },
+    {
+      key: "homeRegion",
+      label: "Home state or province",
+      group: "contact",
+      input: "text",
+      aliases: [
+        "home state",
+        "home province",
+        "address state",
+        "address province",
+        "address region"
+      ],
+      controls: ["text", "select", "combobox"]
+    },
+    {
+      key: "homePostalCode",
+      label: "Postal code",
+      group: "contact",
+      input: "text",
+      autocomplete: ["postal-code"],
+      aliases: ["postal code", "zip code", "zip postal code", "postcode"],
+      controls: ["text"]
+    },
+    {
+      key: "homeCountry",
+      label: "Home country",
+      group: "contact",
+      input: "select",
+      aliases: [
+        "home country",
+        "address country"
+      ],
+      controls: ["text", "select", "combobox"]
     },
     {
       key: "location",
@@ -477,6 +585,18 @@
       controls: ["text", "select", "combobox"]
     },
     {
+      key: "educationStartDate",
+      label: "Education start month",
+      group: "education",
+      input: "month",
+      aliases: [
+        "education start date",
+        "education start month",
+        "school start date"
+      ],
+      controls: ["text", "date", "select", "combobox"]
+    },
+    {
       key: "graduationDate",
       label: "Graduation date",
       group: "education",
@@ -655,6 +775,34 @@
       controls: ["text", "textarea"]
     },
     {
+      key: "referrerName",
+      label: "Referrer name",
+      group: "eligibility",
+      input: "text",
+      aliases: [
+        "referrer name",
+        "referrer full name",
+        "employee referral name",
+        "referring employee name"
+      ],
+      controls: ["text"]
+    },
+    {
+      key: "referrerEmail",
+      label: "Referrer email",
+      group: "eligibility",
+      input: "email",
+      aliases: [
+        "referrer email",
+        "referrer email address",
+        "referral email address",
+        "who referred you email address",
+        "employee referral email",
+        "referring employee email"
+      ],
+      controls: ["text"]
+    },
+    {
       key: "previousEmployers",
       label: "Previous employers",
       group: "eligibility",
@@ -686,6 +834,91 @@
         "expected total annual compensation"
       ],
       controls: ["text", "textarea"]
+    },
+    {
+      key: "compensationCurrency",
+      label: "Compensation currency",
+      group: "eligibility",
+      input: "select",
+      aliases: [
+        "compensation currency",
+        "salary currency",
+        "desired pay currency"
+      ],
+      controls: ["text", "select", "combobox"]
+    },
+    {
+      key: "compensationFrequency",
+      label: "Compensation frequency",
+      group: "eligibility",
+      input: "select",
+      aliases: [
+        "compensation frequency",
+        "pay frequency",
+        "salary frequency",
+        "desired pay frequency"
+      ],
+      controls: ["text", "select", "combobox"]
+    },
+    {
+      key: "availableStartDate",
+      label: "Available start date",
+      group: "eligibility",
+      input: "date",
+      aliases: [
+        "available start date",
+        "date available to start",
+        "earliest start date"
+      ],
+      controls: ["text", "date"]
+    },
+    {
+      key: "noticePeriod",
+      label: "Notice period",
+      group: "eligibility",
+      input: "text",
+      aliases: [
+        "notice period",
+        "required notice",
+        "current employer notice period"
+      ],
+      controls: ["text", "select", "combobox"]
+    },
+    {
+      key: "willingToRelocate",
+      label: "Willing to relocate",
+      group: "eligibility",
+      input: "select",
+      aliases: [
+        "willing to relocate",
+        "open to relocation",
+        "relocation willingness"
+      ],
+      controls: ["choice", "select", "combobox"]
+    },
+    {
+      key: "willingToTravel",
+      label: "Willing to travel",
+      group: "eligibility",
+      input: "select",
+      aliases: [
+        "willing to travel",
+        "open to travel",
+        "travel willingness"
+      ],
+      controls: ["choice", "select", "combobox"]
+    },
+    {
+      key: "maxTravelPercentage",
+      label: "Maximum travel percentage",
+      group: "eligibility",
+      input: "select",
+      aliases: [
+        "maximum travel percentage",
+        "max travel percentage",
+        "percentage willing to travel"
+      ],
+      controls: ["text", "select", "combobox"]
     },
     {
       key: "preferredOfficeLocations",
@@ -730,6 +963,18 @@
         "perform essential job functions",
         "with or without reasonable accommodations",
         "with or without reasonable accommodation"
+      ],
+      controls: ["choice", "select", "combobox"]
+    },
+    {
+      key: "isAtLeast18",
+      label: "At least 18 years old",
+      group: "eligibility",
+      input: "select",
+      aliases: [
+        "at least 18 years old",
+        "18 years of age or older",
+        "minimum age requirement"
       ],
       controls: ["choice", "select", "combobox"]
     },
@@ -1176,7 +1421,9 @@
       preferredName: String(profile.preferredName || firstName).trim(),
       fullName: [firstName, lastName].filter(Boolean).join(" "),
       emailConfirmation: String(profile.email || "").trim(),
-      phoneCountryCode: phoneValues.countryCode,
+      phoneCountryCode: String(
+        profile.phoneCountryCode || phoneValues.countryCode
+      ).trim(),
       phoneNational: phoneValues.national,
       location,
       city: locationValues.city,
@@ -1214,6 +1461,127 @@
       : rawValue.replace(/\s+/g, " ");
   }
 
+  const structuredProfileSpecs = Object.freeze({
+    workExperiences: {
+      maxItems: 20,
+      fields: {
+        company: 300,
+        title: 300,
+        location: 300,
+        startDate: 7,
+        endDate: 7,
+        currentRole: 3,
+        description: 10_000
+      }
+    },
+    educationEntries: {
+      maxItems: 10,
+      fields: {
+        school: 300,
+        degree: 300,
+        degreeOther: 300,
+        fieldOfStudy: 300,
+        startDate: 7,
+        graduationDate: 7,
+        gpa: 20
+      }
+    },
+    credentialEntries: {
+      maxItems: 20,
+      legacyStringField: "name",
+      fields: {
+        name: 300,
+        issuer: 300,
+        credentialId: 300,
+        issueDate: 7,
+        expirationDate: 7,
+        doesNotExpire: 3
+      }
+    },
+    languages: {
+      maxItems: 20,
+      fields: {
+        language: 200,
+        overallProficiency: 200,
+        speakingProficiency: 200,
+        readingProficiency: 200,
+        writingProficiency: 200
+      }
+    },
+    additionalWebsites: {
+      maxItems: 20,
+      fields: { label: 200, url: 2_000 }
+    }
+  });
+
+  function sanitizeStructuredEntries(rawEntries, spec) {
+    if (!Array.isArray(rawEntries)) return [];
+    return rawEntries
+      .slice(0, spec.maxItems)
+      .map((rawEntry) => {
+        const entry =
+          typeof rawEntry === "string" && spec.legacyStringField
+            ? { [spec.legacyStringField]: rawEntry }
+            : rawEntry;
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+          return null;
+        }
+        const sanitized = {};
+        for (const [key, maxLength] of Object.entries(spec.fields)) {
+          let value =
+            typeof entry[key] === "string"
+              ? entry[key].trim().slice(0, maxLength)
+              : "";
+          if (
+            [
+              "startDate",
+              "endDate",
+              "graduationDate",
+              "issueDate",
+              "expirationDate"
+            ].includes(key) &&
+            value &&
+            !/^\d{4}-(?:0[1-9]|1[0-2])$/.test(value)
+          ) {
+            value = "";
+          }
+          if (
+            ["currentRole", "doesNotExpire"].includes(key) &&
+            !["", "yes", "no"].includes(value)
+          ) {
+            value = "";
+          }
+          sanitized[key] = value;
+        }
+        if (sanitized.currentRole === "yes") {
+          sanitized.endDate = "";
+        }
+        if (sanitized.doesNotExpire === "yes") {
+          sanitized.expirationDate = "";
+        }
+        for (const key of spec.booleans || []) {
+          sanitized[key] = entry[key] === true;
+        }
+        return Object.values(sanitized).some(
+          (value) => typeof value === "string" && value
+        )
+          ? sanitized
+          : null;
+      })
+      .filter(Boolean);
+  }
+
+  function profileAvailability(profile = {}, context = {}) {
+    const effective = buildEffectiveProfile(profile, context);
+    const availability = Object.fromEntries(
+      fields.map((field) => [field.key, Boolean(effective[field.key])])
+    );
+    for (const key of Object.keys(structuredProfileSpecs)) {
+      availability[key] = Array.isArray(effective[key]) && effective[key].length > 0;
+    }
+    return availability;
+  }
+
   function sanitizeStoredProfile(rawProfile) {
     if (!rawProfile || typeof rawProfile !== "object" || Array.isArray(rawProfile)) {
       throw new Error("The autofill profile is invalid.");
@@ -1233,6 +1601,9 @@
           "workAuthorization",
           "requiresSponsorship",
           "canPerformEssentialFunctions",
+          "willingToRelocate",
+          "willingToTravel",
+          "isAtLeast18",
           "usWorkAuthorization",
           "usRequiresSponsorship",
           "caWorkAuthorization",
@@ -1273,9 +1644,23 @@
         value = "";
       }
       if (
-        field.key === "graduationDate" &&
+        ["graduationDate", "educationStartDate"].includes(field.key) &&
         value &&
         !/^\d{4}-(?:0[1-9]|1[0-2])$/.test(value)
+      ) {
+        value = "";
+      }
+      if (
+        field.key === "availableStartDate" &&
+        value &&
+        !/^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/.test(value)
+      ) {
+        value = "";
+      }
+      if (
+        field.key === "maxTravelPercentage" &&
+        value &&
+        (!/^\d{1,3}$/.test(value) || Number(value) > 100)
       ) {
         value = "";
       }
@@ -1292,6 +1677,12 @@
       }
       profile[field.key] = value;
     }
+    if (profile.willingToTravel === "no") {
+      profile.maxTravelPercentage = "";
+    }
+    for (const [key, spec] of Object.entries(structuredProfileSpecs)) {
+      profile[key] = sanitizeStructuredEntries(rawProfile[key], spec);
+    }
     return profile;
   }
 
@@ -1300,7 +1691,10 @@
     fields,
     buildEffectiveProfile,
     formatControlValue,
-    sanitizeStoredProfile
+    profileAvailability,
+    sanitizeStoredProfile,
+    sanitizeStructuredEntries,
+    structuredProfileSpecs
   });
   root.JobAutofillProfile = api;
 
