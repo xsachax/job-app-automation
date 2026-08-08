@@ -1,5 +1,6 @@
 import type { ScoreAllJobsResult } from "../judge/judge";
 import { runJudgeScoring } from "../judge/run";
+import { prisma } from "../db";
 import {
   BROWSER_COMPANIES,
   DISCOVERY_SOURCES,
@@ -70,6 +71,19 @@ export interface DiscoveryRefreshProgress {
   finishedAt: string | null;
 }
 
+export interface DiscoveryRefreshAvailability {
+  canRun: boolean;
+  cooldownMs: number;
+  cooldownRemainingMs: number;
+  lastStartedAt: string | null;
+  nextAllowedAt: string | null;
+}
+
+export type DiscoveryRefreshStatus =
+  DiscoveryRefreshProgress & DiscoveryRefreshAvailability;
+
+export const DISCOVERY_REFRESH_COOLDOWN_MS = 2 * 60 * 60 * 1_000;
+
 export class DiscoveryRefreshInProgressError extends Error {
   constructor() {
     super("A discovery scrape is already running.");
@@ -77,7 +91,20 @@ export class DiscoveryRefreshInProgressError extends Error {
   }
 }
 
+export class DiscoveryRefreshCooldownError extends Error {
+  readonly nextAllowedAt: string;
+  readonly retryAfterMs: number;
+
+  constructor(availability: DiscoveryRefreshAvailability) {
+    super("Scrapes can run once every 2 hours.");
+    this.name = "DiscoveryRefreshCooldownError";
+    this.nextAllowedAt = availability.nextAllowedAt ?? "";
+    this.retryAfterMs = availability.cooldownRemainingMs;
+  }
+}
+
 let activeRefresh: Promise<DiscoveryRefreshResult> | null = null;
+let refreshStartPending = false;
 let refreshProgress: DiscoveryRefreshProgress = {
   running: false,
   phase: "idle",
@@ -92,8 +119,62 @@ let refreshProgress: DiscoveryRefreshProgress = {
   finishedAt: null,
 };
 
-export function getDiscoveryRefreshProgress(): DiscoveryRefreshProgress {
-  return { ...refreshProgress };
+export function calculateDiscoveryRefreshAvailability(
+  lastStartedAt: Date | null,
+  now = Date.now(),
+): DiscoveryRefreshAvailability {
+  const lastStartedMs = lastStartedAt?.getTime();
+  if (lastStartedMs === undefined || !Number.isFinite(lastStartedMs)) {
+    return {
+      canRun: true,
+      cooldownMs: DISCOVERY_REFRESH_COOLDOWN_MS,
+      cooldownRemainingMs: 0,
+      lastStartedAt: null,
+      nextAllowedAt: null,
+    };
+  }
+
+  const nextAllowedMs = lastStartedMs + DISCOVERY_REFRESH_COOLDOWN_MS;
+  const cooldownRemainingMs = Math.max(0, nextAllowedMs - now);
+  return {
+    canRun: cooldownRemainingMs === 0,
+    cooldownMs: DISCOVERY_REFRESH_COOLDOWN_MS,
+    cooldownRemainingMs,
+    lastStartedAt: new Date(lastStartedMs).toISOString(),
+    nextAllowedAt: new Date(nextAllowedMs).toISOString(),
+  };
+}
+
+export async function getDiscoveryRefreshAvailability(
+  now = Date.now(),
+): Promise<DiscoveryRefreshAvailability> {
+  const state = await prisma.discoveryRunState.findUnique({
+    where: { id: "default" },
+    select: { lastStartedAt: true },
+  });
+  return calculateDiscoveryRefreshAvailability(state?.lastStartedAt ?? null, now);
+}
+
+export async function reserveDiscoveryRefreshStart(
+  startedAt = new Date(),
+): Promise<DiscoveryRefreshAvailability> {
+  const availability = await getDiscoveryRefreshAvailability(startedAt.getTime());
+  if (!availability.canRun) {
+    throw new DiscoveryRefreshCooldownError(availability);
+  }
+  await prisma.discoveryRunState.upsert({
+    where: { id: "default" },
+    create: { id: "default", lastStartedAt: startedAt },
+    update: { lastStartedAt: startedAt },
+  });
+  return calculateDiscoveryRefreshAvailability(startedAt, startedAt.getTime());
+}
+
+export async function getDiscoveryRefreshProgress(): Promise<DiscoveryRefreshStatus> {
+  return {
+    ...refreshProgress,
+    ...(await getDiscoveryRefreshAvailability()),
+  };
 }
 
 function updateProgress(patch: Partial<DiscoveryRefreshProgress>) {
@@ -235,24 +316,33 @@ async function executeRefresh(started: number): Promise<DiscoveryRefreshResult> 
 }
 
 export async function runDiscoveryRefresh(): Promise<DiscoveryRefreshResult> {
-  if (activeRefresh) throw new DiscoveryRefreshInProgressError();
-
+  if (activeRefresh || refreshStartPending) {
+    throw new DiscoveryRefreshInProgressError();
+  }
+  refreshStartPending = true;
   const started = Date.now();
-  refreshProgress = {
-    running: true,
-    phase: "starting",
-    completedSteps: 0,
-    totalSteps: 0,
-    completedSources: 0,
-    totalSources: 0,
-    currentSource: null,
-    message: "Preparing discovery sources…",
-    errors: 0,
-    startedAt: new Date(started).toISOString(),
-    finishedAt: null,
-  };
-  const refresh = executeRefresh(started);
-  activeRefresh = refresh;
+  let refresh: Promise<DiscoveryRefreshResult>;
+  try {
+    await reserveDiscoveryRefreshStart(new Date(started));
+    refreshProgress = {
+      running: true,
+      phase: "starting",
+      completedSteps: 0,
+      totalSteps: 0,
+      completedSources: 0,
+      totalSources: 0,
+      currentSource: null,
+      message: "Preparing discovery sources…",
+      errors: 0,
+      startedAt: new Date(started).toISOString(),
+      finishedAt: null,
+    };
+    refresh = executeRefresh(started);
+    activeRefresh = refresh;
+  } finally {
+    refreshStartPending = false;
+  }
+
   try {
     const result = await refresh;
     updateProgress({
