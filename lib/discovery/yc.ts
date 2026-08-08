@@ -166,11 +166,19 @@ export async function resolveCompanyAts(
   fetchText: FetchText,
 ): Promise<{ system: ResolvedSystem; token: string } | null> {
   if (!company.website) return null;
+  let probeError: unknown;
   for (const url of careerUrlCandidates(company.website)) {
-    const html = await fetchText(url);
+    let html: string;
+    try {
+      html = await fetchText(url);
+    } catch (error) {
+      probeError = error;
+      continue;
+    }
     const hit = detectAtsFromHtml(html);
     if (hit) return hit;
   }
+  if (probeError) throw probeError;
   return null;
 }
 
@@ -222,7 +230,14 @@ export async function resolveYcBoards(
   });
 
   await mapPool(toResolve, deps.concurrency, async (c) => {
-    const hit = await resolveCompanyAts(c, deps.fetchText);
+    let hit: { system: ResolvedSystem; token: string } | null;
+    try {
+      hit = await resolveCompanyAts(c, deps.fetchText);
+    } catch {
+      // A transient probe failure is not evidence that this company has no ATS.
+      // Leave any stale cache row untouched so the next run retries it.
+      return;
+    }
     const data = {
       name: c.name,
       website: c.website ?? null,

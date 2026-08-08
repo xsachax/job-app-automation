@@ -23,6 +23,7 @@ test("scrape control counts down and unlocks without a refresh", async ({
         currentSource: null,
         message: "Scrape complete.",
         errors: 0,
+        warnings: 0,
         startedAt: "2026-08-08T01:00:00.000Z",
         finishedAt: "2026-08-08T01:03:00.000Z",
         nextAllowedAt,
@@ -39,4 +40,81 @@ test("scrape control counts down and unlocks without a refresh", async ({
   await expect(button).toHaveText("Run scrape", { timeout: 7_000 });
   await expect(button).toBeEnabled();
   expect(postRequests).toBe(0);
+});
+
+test("scrape summary distinguishes failed and partial sources", async ({
+  page,
+}) => {
+  await page.route("**/api/discovery/run", async (route) => {
+    if (route.request().method() === "POST") {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          durationMs: 2_000,
+          totals: {
+            sources: 3,
+            created: 2,
+            updated: 8,
+            usEntry: 1,
+            caEntry: 1,
+            errors: 1,
+            warnings: 2,
+            suspect: 0,
+            closed: 1,
+          },
+          api: {
+            companies: [
+              { company: "Microsoft", error: "HTTP 429" },
+              {
+                company: "Y Combinator",
+                sourceComplete: false,
+                warning: "one board subrequest failed",
+              },
+            ],
+          },
+          browser: [
+            {
+              company: "Apple",
+              sourceComplete: false,
+              warning: "CA pagination stopped after page 2",
+            },
+          ],
+          judge: { scored: 2 },
+        }),
+      });
+      return;
+    }
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        running: false,
+        phase: "complete",
+        completedSteps: 5,
+        totalSteps: 5,
+        completedSources: 3,
+        totalSources: 3,
+        currentSource: null,
+        message: "Scrape complete.",
+        errors: 1,
+        warnings: 2,
+        startedAt: "2026-08-08T01:00:00.000Z",
+        finishedAt: "2026-08-08T01:00:02.000Z",
+        nextAllowedAt: null,
+      }),
+    });
+  });
+
+  await page.goto("/jobs");
+  await page.getByRole("button", { name: "Run scrape" }).click();
+
+  await expect(
+    page.getByText(
+      /failed: Microsoft · partial: Y Combinator, Apple/,
+    ),
+  ).toBeVisible();
+  await page.getByText("Source issue details").click();
+  await expect(page.getByText("Microsoft: HTTP 429")).toBeVisible();
+  await expect(
+    page.getByText("Y Combinator (partial): one board subrequest failed"),
+  ).toBeVisible();
 });

@@ -12,6 +12,7 @@ interface ScanTotals {
   usEntry: number;
   caEntry: number;
   errors: number;
+  warnings: number;
   suspect: number;
   closed: number;
 }
@@ -20,9 +21,19 @@ interface DiscoveryRefresh {
   totals: ScanTotals;
   durationMs: number;
   api: {
-    companies: Array<{ company: string; error?: string }>;
+    companies: Array<{
+      company: string;
+      sourceComplete?: boolean;
+      warning?: string;
+      error?: string;
+    }>;
   };
-  browser: Array<{ company: string; error?: string }>;
+  browser: Array<{
+    company: string;
+    sourceComplete?: boolean;
+    warning?: string;
+    error?: string;
+  }>;
   judge: {
     scored: number;
   };
@@ -31,6 +42,7 @@ interface DiscoveryRefresh {
 interface Notice {
   tone: "success" | "warning" | "error";
   text: string;
+  details?: string[];
 }
 
 interface DiscoveryProgress {
@@ -51,6 +63,7 @@ interface DiscoveryProgress {
   currentSource: string | null;
   message: string;
   errors: number;
+  warnings: number;
   nextAllowedAt: string | null;
 }
 
@@ -125,6 +138,7 @@ export function ScanButton({ onComplete }: { onComplete?: () => void }) {
       currentSource: null,
       message: "Preparing discovery sources…",
       errors: 0,
+      warnings: 0,
       nextAllowedAt: progress?.nextAllowedAt ?? null,
     });
     const request = api<DiscoveryRefresh>("/api/discovery/run", {
@@ -136,19 +150,40 @@ export function ScanButton({ onComplete }: { onComplete?: () => void }) {
       await pollProgress();
       const totals = result.totals;
       const duration = Math.round(result.durationMs / 1000);
-      const failedSources = [...result.api.companies, ...result.browser]
-        .filter((source) => source.error)
-        .map((source) => source.company);
+      const sources = [...result.api.companies, ...result.browser];
+      const failedSources = sources.filter((source) => source.error);
       const failureSummary = failedSources.length
-        ? ` · failed: ${failedSources.join(", ")}`
+        ? ` · failed: ${failedSources.map((source) => source.company).join(", ")}`
         : "";
+      const partialSources = sources.filter(
+        (source) =>
+          !source.error &&
+          (source.warning || source.sourceComplete === false),
+      );
+      const partialSummary = partialSources.length
+        ? ` · partial: ${partialSources.map((source) => source.company).join(", ")}`
+        : "";
+      const details = [
+        ...failedSources.map(
+          (source) => `${source.company}: ${source.error}`,
+        ),
+        ...partialSources.map(
+          (source) =>
+            `${source.company} (partial): ${
+              source.warning ??
+              "Source is search-limited or partial; absence is not authoritative."
+            }`,
+        ),
+      ];
       setNotice({
-        tone: totals.errors ? "warning" : "success",
+        tone: totals.errors || totals.warnings ? "warning" : "success",
         text:
           `Scraped ${totals.sources} sources: ${totals.created} new, ${totals.updated} refreshed, ` +
           `${totals.closed} archived, ${totals.suspect} rechecking, ` +
           `${result.judge.scored} newly scored in ${duration}s` +
-          failureSummary,
+          failureSummary +
+          partialSummary,
+        ...(details.length ? { details } : {}),
       });
       router.refresh();
       onComplete?.();
@@ -207,7 +242,11 @@ export function ScanButton({ onComplete }: { onComplete?: () => void }) {
       {isRunning && progress && (
         <div className="w-full min-w-64 sm:w-[32rem]">
           <div className="mb-1 flex items-center justify-between gap-3 text-xs text-gray-500 dark:text-gray-400">
-            <span className="truncate">{progress.message}</span>
+            <span className="truncate">
+              {progress.message}
+              {progress.errors > 0 ? ` · ${progress.errors} failed` : ""}
+              {progress.warnings > 0 ? ` · ${progress.warnings} partial` : ""}
+            </span>
             <span className="shrink-0 tabular-nums">
               {progress.totalSteps
                 ? `${Math.round((progress.completedSteps / progress.totalSteps) * 100)}%`
@@ -242,9 +281,21 @@ export function ScanButton({ onComplete }: { onComplete?: () => void }) {
         </p>
       )}
       {notice && (
-        <p className={`text-right text-sm ${noticeClass}`} role="status" aria-live="polite">
-          {notice.text}
-        </p>
+        <div className={`text-right text-sm ${noticeClass}`}>
+          <p role="status" aria-live="polite">
+            {notice.text}
+          </p>
+          {notice.details && (
+            <details className="mt-1 text-xs">
+              <summary className="cursor-pointer">Source issue details</summary>
+              <ul className="mt-1 space-y-1">
+                {notice.details.map((detail) => (
+                  <li key={detail}>{detail}</li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
       )}
     </div>
   );

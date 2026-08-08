@@ -25,13 +25,19 @@ async function runApi(companies: string[], onlyEntryLevel: boolean) {
     companies: companies.length ? companies : undefined,
     onlyEntryLevel,
     onProgress: (r) => {
-      const flag = r.error ? `✗ ${r.error}` : `US ${r.usEntry}/${r.usTotal} · CA ${r.caEntry}/${r.caTotal}`;
-      console.log(`  ${r.error ? "✗" : "✓"} ${r.company.padEnd(18)} ${flag}`);
+      const flag = r.error
+        ? `✗ ${r.error}`
+        : `${r.warning ? `⚠ ${r.warning} · ` : ""}` +
+          `US ${r.usEntry}/${r.usTotal} · CA ${r.caEntry}/${r.caTotal}`;
+      console.log(
+        `  ${r.error ? "✗" : r.warning ? "⚠" : "✓"} ${r.company.padEnd(18)} ${flag}`,
+      );
     },
   });
   console.log(
     `\nDone. ${result.created} new, ${result.updated} updated · ` +
-      `${result.usEntry} US + ${result.caEntry} CA entry-level roles · ${result.errors} errors · ` +
+      `${result.usEntry} US + ${result.caEntry} CA entry-level roles · ` +
+      `${result.errors} errors, ${result.warnings} partial · ` +
       `${result.lifecycle.closed} closed, ${result.lifecycle.suspect} rechecking.`,
   );
 }
@@ -58,20 +64,23 @@ async function runBrowser(companies: string[], onlyEntryLevel: boolean) {
       console.log(`  ✗ ${r.company.padEnd(14)} ${r.error}`);
       continue;
     }
-    const { counts } = await ingestSourcePostings(
+    const { counts, sourceRun } = await ingestSourcePostings(
       descriptor,
       r.postings,
       onlyEntryLevel,
+      undefined,
+      { sourceWarning: r.warning },
     );
     created += counts.created;
     updated += counts.updated;
     usEntry += counts.usEntry;
     caEntry += counts.caEntry;
+    const warning = sourceRun.complete ? undefined : sourceRun.message;
     console.log(
-      `  ${r.warning ? "⚠" : "✓"} ${r.company.padEnd(14)} scraped US ${r.usFound} / CA ${r.caFound} → ` +
+      `  ${warning ? "⚠" : "✓"} ${r.company.padEnd(14)} scraped US ${r.usFound} / CA ${r.caFound} → ` +
         `kept US ${counts.usEntry} · CA ${counts.caEntry}`,
     );
-    if (r.warning) console.log(`    partial: ${r.warning}`);
+    if (warning) console.log(`    partial: ${warning}`);
   }
   console.log(
     `\nDone. ${created} new, ${updated} updated · ${usEntry} US + ${caEntry} CA entry-level roles.`,

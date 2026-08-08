@@ -1,10 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { prisma } from "../lib/db";
 import {
   careerUrlCandidates,
   companyMatchesCountries,
   detectAtsFromHtml,
   parseBatchYear,
   resolveCompanyAts,
+  resolveYcBoards,
   selectYcCompanies,
   type YcDirectoryCompany,
 } from "../lib/discovery/yc";
@@ -162,5 +164,40 @@ describe("resolveCompanyAts", () => {
   it("returns null when the company has no website", async () => {
     const hit = await resolveCompanyAts(company({ website: null }), async () => "boom");
     expect(hit).toBeNull();
+  });
+
+  it("continues after one failed probe when another page exposes the board", async () => {
+    const hit = await resolveCompanyAts(company({}), async (url) => {
+      if (url === "https://acme.com") throw new Error("HTTP 429");
+      if (url === "https://acme.com/careers") {
+        return `<a href="https://jobs.ashbyhq.com/acme">Jobs</a>`;
+      }
+      return "";
+    });
+
+    expect(hit).toEqual({ system: "ashby", token: "acme" });
+  });
+
+  it("does not cache a negative result when ATS probes fail", async () => {
+    const slug = "transient-probe-failure";
+    await prisma.ycAtsCache.deleteMany({ where: { slug } });
+    const upsert = vi.spyOn(prisma.ycAtsCache, "upsert");
+
+    const boards = await resolveYcBoards(
+      [company({ slug })],
+      {
+        prisma,
+        fetchText: async () => {
+          throw new Error("HTTP 503");
+        },
+        concurrency: 1,
+      },
+    );
+
+    expect(boards).toEqual([]);
+    expect(upsert).not.toHaveBeenCalled();
+    expect(
+      await prisma.ycAtsCache.findUnique({ where: { slug } }),
+    ).toBeNull();
   });
 });

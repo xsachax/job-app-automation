@@ -204,7 +204,7 @@ function completenessDecision(
   descriptor: DiscoverySourceDescriptor,
   observedCount: number,
   previousCount: number | null,
-  previousAttempt: { observedCount: number; complete: boolean } | null,
+  previousLowResultAttempt: { observedCount: number } | null,
 ): { complete: boolean; reason: string } {
   if (!descriptor.expectedComplete) {
     return {
@@ -221,9 +221,8 @@ function completenessDecision(
     observedCount < Math.ceil(previousCount * 0.25);
   if (emptyAfterResults || implausibleDrop) {
     if (
-      previousAttempt &&
-      !previousAttempt.complete &&
-      previousAttempt.observedCount === observedCount
+      previousLowResultAttempt &&
+      previousLowResultAttempt.observedCount === observedCount
     ) {
       return {
         complete: true,
@@ -238,6 +237,17 @@ function completenessDecision(
     };
   }
   return { complete: true, reason: "complete source response" };
+}
+
+function isLowResultAttempt(message: string | null): boolean {
+  if (!message) return false;
+  const separator = message.indexOf("; ");
+  if (separator < 0) return false;
+  const reason = message.slice(separator + 2);
+  return (
+    reason.startsWith("empty result after previously observing ") ||
+    reason.startsWith("implausible result drop (")
+  );
 }
 
 async function seedLegacySightings(
@@ -282,6 +292,7 @@ export async function completeDiscoverySourceRun(
   context: DiscoverySourceRunContext,
   observedCount: number,
   finishedAt = new Date(),
+  warning?: string,
 ): Promise<CompletedDiscoverySourceRun> {
   const source = await prisma.discoverySource.findUniqueOrThrow({
     where: { key: context.descriptor.key },
@@ -294,16 +305,28 @@ export async function completeDiscoverySourceRun(
       id: { not: context.runId },
     },
     orderBy: { startedAt: "desc" },
-    select: { observedCount: true, complete: true },
+    select: { observedCount: true, complete: true, message: true },
   });
+  const previousLowResultAttempt =
+    previousAttempt &&
+    !previousAttempt.complete &&
+    isLowResultAttempt(previousAttempt.message)
+      ? { observedCount: previousAttempt.observedCount }
+      : null;
   await saveObservedSightings(context, finishedAt);
 
-  const decision = completenessDecision(
-    context.descriptor,
-    observedCount,
-    source.lastObservedCount,
-    previousAttempt,
-  );
+  const trimmedWarning = warning?.trim().slice(0, 1_500);
+  const decision = trimmedWarning
+    ? {
+        complete: false,
+        reason: `partial source response: ${trimmedWarning}`,
+      }
+    : completenessDecision(
+        context.descriptor,
+        observedCount,
+        source.lastObservedCount,
+        previousLowResultAttempt,
+      );
   const seeded = decision.complete && source.baselineAt == null;
   if (seeded) await seedLegacySightings(context);
 

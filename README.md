@@ -73,6 +73,9 @@ Discovery never deletes a job. Each catalog source has durable run records and p
 sightings. A posting moves through `open → suspect → closed` using conservative evidence:
 
 - failed, disabled, partial, or implausibly truncated source runs never count as misses;
+- hard source failures and every non-authoritative **partial** run are reported separately
+  with expandable reasons; non-fatal pagination, detail-fetch, browser, and aggregator
+  subrequest failures are retained as partial runs instead of being hidden;
 - a successful full-board Greenhouse, Lever, or Ashby response is authoritative, while
   search-limited APIs, browser scrapes, YC expansion, and community boards cannot prove
   closure by disappearance alone;

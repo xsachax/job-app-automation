@@ -13,7 +13,11 @@ import {
   type DiscoverySourceDescriptor,
   type PostingVerifier,
 } from "../lib/discovery/lifecycle";
-import { ingestPostings } from "../lib/discovery/run";
+import {
+  ingestPostings,
+  ingestSourcePostings,
+  runDiscovery,
+} from "../lib/discovery/run";
 import { resetDb } from "./helpers";
 
 const DIRECT_SOURCE: DiscoverySourceDescriptor = {
@@ -226,6 +230,101 @@ describe("discovery posting lifecycle", () => {
       availabilityStatus: JOB_AVAILABILITY.OPEN,
       consecutiveMisses: 0,
     });
+  });
+
+  it("confirms a repeated low result only after a clean low-result attempt", async () => {
+    await successfulRun(DIRECT_SOURCE, [posting()], 0, 100);
+
+    const warnedContext = await beginDiscoverySourceRun(DIRECT_SOURCE, at(1));
+    const warned = await completeDiscoverySourceRun(
+      warnedContext,
+      10,
+      at(1, 5),
+      "one detail subrequest returned HTTP 429",
+    );
+    expect(warned.complete).toBe(false);
+
+    const firstCleanLowResult = await successfulRun(
+      DIRECT_SOURCE,
+      [],
+      2,
+      10,
+    );
+    expect(firstCleanLowResult.completed).toMatchObject({
+      complete: false,
+    });
+    expect(firstCleanLowResult.completed.message).toContain(
+      "implausible result drop",
+    );
+
+    const repeatedCleanLowResult = await successfulRun(
+      DIRECT_SOURCE,
+      [],
+      3,
+      10,
+    );
+    expect(repeatedCleanLowResult.completed).toMatchObject({
+      complete: true,
+    });
+    expect(repeatedCleanLowResult.completed.message).toContain(
+      "repeated low result confirmed",
+    );
+  });
+
+  it("persists non-fatal source warnings and quarantines the run", async () => {
+    const result = await ingestSourcePostings(
+      DIRECT_SOURCE,
+      [posting()],
+      true,
+      undefined,
+      { sourceWarning: "one board subrequest returned HTTP 429" },
+    );
+
+    expect(result.sourceRun).toMatchObject({
+      complete: false,
+      seeded: false,
+    });
+    expect(result.sourceRun.message).toContain("partial source response");
+    expect(result.sourceRun.message).toContain("HTTP 429");
+    expect(
+      await prisma.discoverySource.findUniqueOrThrow({
+        where: { key: DIRECT_SOURCE.key },
+      }),
+    ).toMatchObject({
+      baselineAt: null,
+      lastCompleteRunAt: null,
+    });
+  });
+
+  it("reports configured search-limited sources as partial", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ jobs: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await runDiscovery({
+      companies: ["Amazon"],
+      concurrency: 1,
+      reconcile: false,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({
+      errors: 0,
+      warnings: 1,
+      companies: [
+        {
+          company: "Amazon",
+          sourceComplete: false,
+        },
+      ],
+    });
+    expect(result.companies[0]?.warning).toContain(
+      "source is search-limited or partial",
+    );
   });
 
   it("records a still-present role before classification removes it from the queue", async () => {
