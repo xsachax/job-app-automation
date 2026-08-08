@@ -83,7 +83,7 @@ test("the unpacked extension fills a known cross-origin ATS frame", async () => 
     if (hostname === "jobs.lever.co") {
       response.end(`
         <form class="application-form">
-          <label>First name <input id="first-name" name="first_name"></label>
+          <label>First name <input id="first-name" name="first_name" required></label>
           <label>Email address <input id="email" name="email"></label>
           <button type="button">Continue</button>
         </form>
@@ -177,7 +177,7 @@ test("the unpacked extension fills a known cross-origin ATS frame", async () => 
       .toMatchObject({
         session: {
           progress: {
-            readyToFill: 2,
+            readyToFill: 1,
             needsAttention: 0,
           },
         },
@@ -198,15 +198,13 @@ test("the unpacked extension fills a known cross-origin ATS frame", async () => 
       },
       { tabId: applicationTab!.id, url: applicationTab!.url },
     );
-    expect(result).toMatchObject({ ok: true, filled: 2 });
+    expect(result).toMatchObject({ ok: true, filled: 1 });
 
     const leverFrame = applicationPage
       .locator("#lever-frame")
       .contentFrame();
     await expect(leverFrame.locator("#first-name")).toHaveValue("Sacha");
-    await expect(leverFrame.locator("#email")).toHaveValue(
-      "sacha@example.com",
-    );
+    await expect(leverFrame.locator("#email")).toHaveValue("");
   } finally {
     await context?.close();
     if (server.listening) {

@@ -44,6 +44,12 @@
     "image",
     "password"
   ]);
+  const requiredSignalSources = new Set([
+    "aria",
+    "description",
+    "label",
+    "prompt"
+  ]);
 
   function sendMessage(message) {
     return chrome.runtime.sendMessage(message);
@@ -345,6 +351,57 @@
     return signals;
   }
 
+  function hasOptionalMarker(value) {
+    return /\boptional\b|\bnot required\b|\bnot mandatory\b|\bif applicable\b/i.test(
+      String(value || "")
+    );
+  }
+
+  function hasRequiredMarker(value) {
+    const candidate = String(value || "");
+    return (
+      /(?:^|\s|\()required(?:\s|\)|:|$)/i.test(candidate) ||
+      /(?:^|\s|\()mandatory(?:\s|\)|:|$)/i.test(candidate) ||
+      /[*∗✱]/.test(candidate)
+    );
+  }
+
+  function isRequiredQuestion(elements, signals) {
+    const elementSet = new Set(elements);
+    const groups = elements
+      .map((element) =>
+        element.closest?.("fieldset, [role='group'], [role='radiogroup']")
+      )
+      .filter(
+        (group) =>
+          group &&
+          Array.from(group.querySelectorAll(ats.candidateSelector))
+            .filter(isCandidateControl)
+            .every((control) => elementSet.has(control))
+      );
+    const structuralCandidates = [...elements, ...groups];
+    if (
+      structuralCandidates.some(
+        (element) =>
+          Boolean(element.required) ||
+          element.hasAttribute?.("required") ||
+          String(element.getAttribute?.("aria-required") || "").toLowerCase() ===
+            "true"
+      ) ||
+      elements.some((element) => ats.hasRequiredMetadata(element))
+    ) {
+      return true;
+    }
+
+    const requirementSignals = (signals || []).filter((signal) =>
+      requiredSignalSources.has(signal.source)
+    );
+    if (requirementSignals.some((signal) => hasOptionalMarker(signal.text))) {
+      return false;
+    }
+    return requirementSignals.some((signal) => hasRequiredMarker(signal.text));
+  }
+
   function controlKind(elements) {
     const first = elements[0];
     if (isSelect(first)) {
@@ -425,6 +482,49 @@
         !/^(?:choose|select|pick|please select|none)(?:\b|$)/i.test(displayed);
     }
     return Boolean(text(first.value));
+  }
+
+  function inputSnapshot(elements) {
+    return elements.map((element) =>
+      JSON.stringify({
+        ariaChecked: element.getAttribute("aria-checked"),
+        ariaSelected: element.getAttribute("aria-selected"),
+        ariaValueText: element.getAttribute("aria-valuetext"),
+        checked: Boolean(element.checked),
+        dataValue: element.getAttribute("data-value"),
+        files: Array.from(element.files || []).map((file) => file.name),
+        text:
+          isContentEditable(element) ||
+          (!isInput(element) && !isSelect(element) && !isTextarea(element))
+            ? text(element.textContent)
+            : "",
+        value: "value" in element ? String(element.value || "") : ""
+      })
+    );
+  }
+
+  function questionRemainsReady(question) {
+    if (
+      question.elements.some(
+        (element) => !element.isConnected || !isCandidateControl(element)
+      ) ||
+      question.inputSnapshot.some(
+        (snapshot, index) =>
+          snapshot !== inputSnapshot([question.elements[index]])[0]
+      ) ||
+      isAnswered(question.elements)
+    ) {
+      return false;
+    }
+
+    const grouped =
+      question.elements.length > 1 ||
+      inputType(question.elements[0]) === "radio" ||
+      elementRole(question.elements[0]) === "radio";
+    return isRequiredQuestion(
+      question.elements,
+      signalsForQuestion(question.elements, grouped)
+    );
   }
 
   function wasFilledByExtension(elements) {
@@ -650,6 +750,21 @@
       };
     }
     if (
+      match.definition.key === "city" &&
+      ["select", "combobox"].includes(kind)
+    ) {
+      return {
+        value: profileSchema.formatControlValue(
+          effectiveProfile.location || effectiveProfile.city,
+          kind
+        ),
+        safe: true,
+        available:
+          state.profileAvailability.has("location") ||
+          state.profileAvailability.has("city")
+      };
+    }
+    if (
       match.definition.key === "phone" &&
       effectiveProfile.phoneNational &&
       pageControls().some((control) => {
@@ -760,10 +875,7 @@
               match?.definition?.key
             )
           : isAnswered(elements);
-      const required = elements.some(
-        (element) =>
-          element.required || element.getAttribute("aria-required") === "true"
-      );
+      const required = isRequiredQuestion(elements, signals);
       const filledByExtension = answered && wasFilledByExtension(elements);
 
       let status = "unknown";
@@ -772,6 +884,9 @@
       if (answered) {
         status = "answered";
         reason = "";
+      } else if (!required) {
+        status = "optional";
+        reason = "Optional fields are left unchanged.";
       } else if (
         (inputType(elements[0]) === "checkbox" ||
           elementRole(elements[0]) === "checkbox") &&
@@ -821,6 +936,7 @@
         matchedValue,
         answered,
         required,
+        inputSnapshot: inputSnapshot(elements),
         filledByExtension,
         status,
         reason
@@ -831,7 +947,8 @@
   }
 
   function summarize(questions) {
-    const unknownFields = questions
+    const requiredQuestions = questions.filter((question) => question.required);
+    const unknownFields = requiredQuestions
       .filter((question) =>
         [
           "manual",
@@ -854,16 +971,17 @@
       }));
 
     return {
-      total: questions.length,
-      answered: questions.filter((question) => question.answered).length,
-      filledByExtension: questions.filter(
+      total: requiredQuestions.length,
+      answered: requiredQuestions.filter((question) => question.answered).length,
+      filledByExtension: requiredQuestions.filter(
         (question) => question.filledByExtension
       ).length,
-      readyToFill: questions.filter((question) => question.status === "ready")
-        .length,
+      readyToFill: requiredQuestions.filter(
+        (question) => question.status === "ready"
+      ).length,
       recognized: questions.filter((question) => Boolean(question.match)).length,
       needsAttention: unknownFields.length,
-      uncertain: questions.filter(
+      uncertain: requiredQuestions.filter(
         (question) => question.status === "uncertain"
       ).length,
       platform: state.platform.label,
@@ -941,9 +1059,10 @@
     clearReviewMarkers();
     for (const question of questions) {
       if (
-        question.status !== "uncertain" &&
-        question.status !== "failed" &&
-        !(question.required && question.status === "unknown")
+        !question.required ||
+        (question.status !== "uncertain" &&
+          question.status !== "failed" &&
+          question.status !== "unknown")
       ) {
         continue;
       }
@@ -1177,6 +1296,27 @@
     const EventConstructor = element.ownerDocument?.defaultView?.Event || Event;
     element.dispatchEvent(new EventConstructor("input", { bubbles: true }));
     element.dispatchEvent(new EventConstructor("change", { bubbles: true }));
+    if (element.ownerDocument?.activeElement === element && element.blur) {
+      element.blur();
+    } else {
+      const FocusEventConstructor =
+        element.ownerDocument?.defaultView?.FocusEvent || FocusEvent;
+      element.dispatchEvent(
+        new FocusEventConstructor("blur", { bubbles: true })
+      );
+    }
+  }
+
+  function dispatchClickEvent(element) {
+    const MouseEventConstructor =
+      element.ownerDocument?.defaultView?.MouseEvent || MouseEvent;
+    element.dispatchEvent(
+      new MouseEventConstructor("click", {
+        bubbles: true,
+        cancelable: true,
+        view: element.ownerDocument?.defaultView
+      })
+    );
   }
 
   function optionText(element) {
@@ -1196,6 +1336,14 @@
     );
   }
 
+  function selectedControlText(element) {
+    return (
+      text(element.getAttribute("aria-valuetext")) ||
+      (isInput(element) ? text(element.value) : text(element.textContent)) ||
+      optionText(element)
+    );
+  }
+
   function rankOptions(options, value, fieldKey) {
     return options
       .filter(
@@ -1212,6 +1360,33 @@
         )
       }))
       .sort((left, right) => right.score - left.score);
+  }
+
+  function rankFallbackOptions(options, value, fieldKey) {
+    if (!text(value)) {
+      return [];
+    }
+    return options
+      .filter(
+        (option) =>
+          !option.disabled && option.getAttribute?.("aria-disabled") !== "true"
+      )
+      .map((option) => ({
+        option,
+        score: matcher.scoreSafeFallback(
+          fieldKey,
+          option.value || option.getAttribute?.("data-value") || option.id,
+          optionText(option)
+        )
+      }))
+      .sort((left, right) => right.score - left.score);
+  }
+
+  function supportsSafeFallback(fieldKey) {
+    return (
+      matcher.scoreSafeFallback(fieldKey, "other", "Other") >=
+      matcher.MINIMUM_SCORE
+    );
   }
 
   function listValues(value) {
@@ -1330,6 +1505,34 @@
     return ranked;
   }
 
+  async function waitForComboboxFallbackOptions(
+    element,
+    value,
+    fieldKey,
+    assertActive,
+    ownsValue
+  ) {
+    const deadline = Date.now() + 1_500;
+    let ranked = [];
+    do {
+      assertActive();
+      if (!ownsValue()) {
+        return null;
+      }
+      ranked = rankFallbackOptions(
+        visibleComboOptions(element),
+        value,
+        fieldKey
+      );
+      if (hasUniqueChoice(ranked)) {
+        return ranked;
+      }
+      await wait(75);
+      assertActive();
+    } while (Date.now() < deadline);
+    return ranked;
+  }
+
   async function fillCombobox(question, value, assertActive) {
     const element = question.elements[0];
     const originalValue = isInput(element) ? element.value : "";
@@ -1342,8 +1545,14 @@
       assertActive();
 
       const fieldKey = question.match?.definition.key;
-      let ranked = rankOptions(visibleComboOptions(element), value, fieldKey);
+      const initialOptions = visibleComboOptions(element);
+      let options = initialOptions;
+      let ranked = rankOptions(options, value, fieldKey);
+      let usedFallback = false;
       if (!hasUniqueChoice(ranked) && isInput(element) && !element.readOnly) {
+        if (element.value !== originalValue) {
+          return false;
+        }
         assertActive();
         setNativeProperty(element, "value", value);
         const EventConstructor =
@@ -1365,6 +1574,58 @@
         );
       }
 
+      options = visibleComboOptions(element);
+      if (
+        isInput(element) &&
+        ownedValue !== null &&
+        element.value !== ownedValue
+      ) {
+        return false;
+      }
+      if (!hasUniqueChoice(ranked) && supportsSafeFallback(fieldKey)) {
+        let fallbackRanked = [];
+        if (
+          isInput(element) &&
+          ownedValue !== null &&
+          element.value === ownedValue &&
+          element.value !== originalValue
+        ) {
+          assertActive();
+          setNativeProperty(element, "value", originalValue);
+          const EventConstructor =
+            element.ownerDocument?.defaultView?.Event || Event;
+          element.dispatchEvent(
+            new EventConstructor("input", { bubbles: true })
+          );
+          ownedValue = String(element.value);
+          fallbackRanked = await waitForComboboxFallbackOptions(
+            element,
+            value,
+            fieldKey,
+            assertActive,
+            () => element.value === ownedValue
+          );
+          if (fallbackRanked === null) {
+            return false;
+          }
+        } else {
+          fallbackRanked = rankFallbackOptions(
+            visibleComboOptions(element),
+            value,
+            fieldKey
+          );
+        }
+        options = visibleComboOptions(element);
+        if (!hasUniqueChoice(fallbackRanked) && !options.length) {
+          options = initialOptions.filter((option) => option.isConnected);
+          fallbackRanked = rankFallbackOptions(options, value, fieldKey);
+        }
+        if (hasUniqueChoice(fallbackRanked)) {
+          ranked = fallbackRanked;
+          usedFallback = true;
+        }
+      }
+
       if (!hasUniqueChoice(ranked)) {
         if (
           isInput(element) &&
@@ -1380,20 +1641,34 @@
       }
 
       assertActive();
+      if (
+        isInput(element) &&
+        ownedValue !== null &&
+        element.value !== ownedValue
+      ) {
+        return false;
+      }
       ranked[0].option.click();
       if (isInput(element)) {
         ownedValue = String(element.value);
       }
       await wait(60);
       assertActive();
+      dispatchValueEvents(element);
       const selected =
         ranked[0].option.getAttribute("aria-selected") === "true" ||
         matcher.scoreChoice(
           value,
           element.value || element.getAttribute("data-value"),
-          element.getAttribute("aria-valuetext") || optionText(element),
+          selectedControlText(element),
           fieldKey
-        ) >= matcher.MINIMUM_SCORE;
+        ) >= matcher.MINIMUM_SCORE ||
+        (usedFallback &&
+          matcher.scoreSafeFallback(
+            fieldKey,
+            element.value || element.getAttribute("data-value"),
+            selectedControlText(element)
+          ) >= matcher.MINIMUM_SCORE);
       if (selected) {
         state.extensionValues.set(
           element,
@@ -1456,16 +1731,22 @@
     }
 
     if (isSelect(first)) {
-      const ranked = rankOptions(
-        Array.from(first.options),
-        value,
-        question.match?.definition.key
-      );
+      const options = Array.from(first.options);
+      const fieldKey = question.match?.definition.key;
+      let ranked = rankOptions(options, value, fieldKey);
+      if (!hasUniqueChoice(ranked)) {
+        const fallbackRanked = rankFallbackOptions(options, value, fieldKey);
+        if (hasUniqueChoice(fallbackRanked)) {
+          ranked = fallbackRanked;
+        }
+      }
       if (!hasUniqueChoice(ranked)) {
         return false;
       }
       assertActive();
+      first.focus?.();
       setNativeProperty(first, "value", ranked[0].option.value);
+      dispatchClickEvent(first);
       dispatchValueEvents(first);
       const selected = String(first.value) === String(ranked[0].option.value);
       if (selected) {
@@ -1502,6 +1783,7 @@
           String(selectedElement.value || optionText(selectedElement))
         );
       }
+      selectedElement.blur?.();
       return selected;
     }
 
@@ -1525,6 +1807,7 @@
       state.extensionValues.set(element, String(element.textContent));
       return text(element.textContent) === text(value);
     }
+    element.focus?.();
     setNativeProperty(element, "value", value);
     dispatchValueEvents(element);
     state.extensionValues.set(element, String(element.value));
@@ -1556,6 +1839,7 @@
       });
       const transfer = new frameWindow.DataTransfer();
       transfer.items.add(file);
+      element.focus?.();
       setNativeProperty(element, "files", transfer.files);
       dispatchValueEvents(element);
       state.extensionValues.set(element, file.name);
@@ -1617,7 +1901,11 @@
 
     for (const question of questions) {
       assertActive();
-      if (question.status !== "ready") {
+      if (
+        !question.required ||
+        question.status !== "ready" ||
+        !questionRemainsReady(question)
+      ) {
         continue;
       }
 
@@ -1646,7 +1934,7 @@
     const status = state.shadow?.querySelector("[data-status]");
     if (status) {
       status.textContent = filled
-        ? `Filled ${filled} field${filled === 1 ? "" : "s"}. Review every answer.`
+        ? `Filled ${filled} required field${filled === 1 ? "" : "s"}. Review every answer.`
         : "No additional known fields could be filled.";
     }
 
@@ -1673,7 +1961,7 @@
       const status = state.shadow?.querySelector("[data-status]");
       if (status && embedded?.ok) {
         status.textContent = total
-          ? `Filled ${total} field${total === 1 ? "" : "s"}. Review every answer.`
+          ? `Filled ${total} required field${total === 1 ? "" : "s"}. Review every answer.`
           : "No additional known fields could be filled.";
       }
     } catch (error) {
@@ -1685,7 +1973,7 @@
     } finally {
       if (state.shadow && button.isConnected) {
         button.disabled = false;
-        button.textContent = "Autofill ready fields";
+        button.textContent = "Autofill required fields";
       }
     }
   }
@@ -1887,8 +2175,8 @@
           </div>
           <div class="autofill-guidance">
             <strong>Ready to autofill?</strong>
-            <p>Fill recognized fields, then review every answer before submitting.</p>
-            <button class="autofill-button" data-autofill type="button">Autofill ready fields</button>
+            <p>Fill recognized required fields, then review every answer before submitting.</p>
+            <button class="autofill-button" data-autofill type="button">Autofill required fields</button>
           </div>
           <p class="status" data-status>Nothing is submitted automatically.</p>
           <h2>Needs your answer</h2>

@@ -11,6 +11,12 @@ interface AtsAdapter {
   metadataSignals(element: {
     getAttribute(name: string): string | null;
   }): { text: string; weight: number; source: string }[];
+  hasRequiredMetadata(element: {
+    getAttribute(name: string): string | null;
+    hasAttribute(name: string): boolean;
+    closest(selector: string): unknown;
+    querySelector(selector: string): unknown;
+  }): boolean;
 }
 
 const require = createRequire(import.meta.url);
@@ -69,5 +75,47 @@ describe("Chrome extension ATS adapter", () => {
     );
     expect(adapter.candidateSelector).toContain("[role='combobox']");
     expect(adapter.optionSelector).toContain("[role='option']");
+  });
+
+  it("recognizes explicit ATS required-field metadata", () => {
+    const requiredAttributes: Record<string, string> = {
+      "data-mandatory": "true",
+    };
+    expect(
+      adapter.hasRequiredMetadata({
+        getAttribute(name) {
+          return requiredAttributes[name] ?? null;
+        },
+        hasAttribute(name) {
+          return name in requiredAttributes;
+        },
+        closest() {
+          return null;
+        },
+        querySelector() {
+          return null;
+        },
+      }),
+    ).toBe(true);
+
+    const optionalAttributes: Record<string, string> = {
+      "data-required": "false",
+    };
+    expect(
+      adapter.hasRequiredMetadata({
+        getAttribute(name) {
+          return optionalAttributes[name] ?? null;
+        },
+        hasAttribute(name) {
+          return name in optionalAttributes;
+        },
+        closest() {
+          return null;
+        },
+        querySelector() {
+          return null;
+        },
+      }),
+    ).toBe(false);
   });
 });

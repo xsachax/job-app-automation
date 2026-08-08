@@ -165,7 +165,15 @@
         "where are you located",
         "where do you live"
       ],
-      controls: ["text", "combobox"],
+      excludeAliases: [
+        "preferred office location",
+        "preferred location",
+        "preferred work location",
+        "location preference",
+        "office location",
+        "willing to relocate"
+      ],
+      controls: ["text", "select", "combobox"],
       placeholder: "Toronto, ON"
     },
     {
@@ -270,7 +278,16 @@
         "municipality"
       ],
       exactAliases: ["city", "location city"],
-      controls: ["text", "combobox"]
+      excludeAliases: [
+        "preferred office city",
+        "preferred office location",
+        "preferred city",
+        "preferred location",
+        "preferred work location",
+        "location preference",
+        "office location"
+      ],
+      controls: ["text", "select", "combobox"]
     },
     {
       key: "region",

@@ -75,6 +75,33 @@
     ["data-name", 0.8]
   ];
 
+  const requiredMetadataAttributes = [
+    "data-required",
+    "data-is-required",
+    "data-mandatory",
+    "data-field-required",
+    "data-required-field"
+  ];
+
+  const requiredMarkerSelector = [
+    "[data-automation-id='required' i]",
+    "[data-automation-id='requiredIndicator' i]",
+    "[data-uxi-element-id='required' i]",
+    "[data-testid='required' i]",
+    "[data-testid*='required-indicator' i]",
+    "[data-test='required' i]",
+    "[data-test*='required-indicator' i]",
+    "[data-qa='required' i]",
+    "[data-qa*='required-indicator' i]",
+    "[aria-label='required' i]",
+    "[title='required' i]",
+    "[data-required='true' i]",
+    "[data-is-required='true' i]",
+    "[data-mandatory='true' i]",
+    "[data-field-required='true' i]",
+    "[data-required-field='true' i]"
+  ].join(",");
+
   const candidateSelector = [
     "input",
     "textarea",
@@ -176,6 +203,96 @@
     return signals;
   }
 
+  function requiredMetadataValue(element, attribute) {
+    const value = element?.getAttribute?.(attribute);
+    const present =
+      element?.hasAttribute?.(attribute) ??
+      (value !== null && value !== undefined);
+    if (!present) {
+      return false;
+    }
+    return ["", "1", "true", "yes", "required", "mandatory"].includes(
+      String(value || "").trim().toLowerCase()
+    );
+  }
+
+  function isSingleQuestionContainer(container) {
+    const controls = Array.from(
+      container?.querySelectorAll?.(candidateSelector) || []
+    ).filter(
+      (control) =>
+        !["hidden", "button", "submit"].includes(
+          String(control.getAttribute?.("type") || "").toLowerCase()
+        )
+    );
+    if (controls.length <= 1) {
+      return true;
+    }
+
+    const choiceKinds = controls.map((control) => {
+      const type = String(control.getAttribute?.("type") || "").toLowerCase();
+      const role = String(control.getAttribute?.("role") || "").toLowerCase();
+      return ["radio", "checkbox"].includes(type)
+        ? type
+        : ["radio", "checkbox"].includes(role)
+          ? role
+          : "";
+    });
+    if (!choiceKinds[0] || choiceKinds.some((kind) => kind !== choiceKinds[0])) {
+      return false;
+    }
+    const names = new Set(
+      controls
+        .map((control) => String(control.getAttribute?.("name") || ""))
+        .filter(Boolean)
+    );
+    if (names.size === 1) {
+      return true;
+    }
+    const containerRole = String(
+      container.getAttribute?.("role") || ""
+    ).toLowerCase();
+    return (
+      ["group", "radiogroup"].includes(containerRole) &&
+      controls.every(
+        (control) =>
+          String(control.getAttribute?.("role") || "").toLowerCase() ===
+          choiceKinds[0]
+      )
+    );
+  }
+
+  function hasRequiredMetadata(element) {
+    const candidates = [
+      element,
+      element?.closest?.("fieldset, [role='group'], [role='radiogroup']"),
+      questionContainer(element)
+    ].filter(Boolean);
+    for (const candidate of new Set(candidates)) {
+      const hasQuestionScope =
+        candidate === element || isSingleQuestionContainer(candidate);
+      if (
+        hasQuestionScope &&
+        requiredMetadataAttributes.some((attribute) =>
+          requiredMetadataValue(candidate, attribute)
+        )
+      ) {
+        return true;
+      }
+      try {
+        if (
+          hasQuestionScope &&
+          candidate.querySelector?.(requiredMarkerSelector)
+        ) {
+          return true;
+        }
+      } catch {
+        // Ignore malformed third-party markup and continue with semantic signals.
+      }
+    }
+    return false;
+  }
+
   function questionContainer(element) {
     const semanticContainer = element?.closest?.(questionContainerSelector);
     if (semanticContainer) {
@@ -200,6 +317,7 @@
   const api = Object.freeze({
     candidateSelector,
     detectPlatform,
+    hasRequiredMetadata,
     isKnownAtsUrl,
     metadataSignals,
     optionSelector,
