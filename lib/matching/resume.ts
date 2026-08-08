@@ -8,7 +8,12 @@
 // A richer, judgement-based score is produced separately by the Copilot agent
 // (see lib/matching/agent.ts) and overrides this baseline when available.
 
-import { SKILL_VOCAB, skillVariants } from "../discovery/enrich";
+import {
+  SKILL_VOCAB,
+  canonicalSkill,
+  extractSkills,
+  textHasSkill,
+} from "../discovery/enrich";
 
 export interface ResumeContext {
   skills?: string[]; // parsed skills from the resume
@@ -84,7 +89,7 @@ const SIGNAL_NOISE = new Set([
 ]);
 
 const TRUSTED_SKILL_SIGNALS = new Set(
-  SKILL_VOCAB.map((skill) => normalizePhrase(skill)),
+  SKILL_VOCAB.map(canonicalSkill),
 );
 
 function tokenize(s: string | null | undefined): string[] {
@@ -94,21 +99,86 @@ function tokenize(s: string | null | undefined): string[] {
   );
 }
 
-// A skill phrase can be multi-word ("machine learning"); match it as a substring
-// against normalized text, and also token-match single words.
 function normalizePhrase(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9+#.\s]/g, " ").replace(/\s+/g, " ").trim();
 }
 
 function phraseAppears(text: string, phrase: string): boolean {
-  const tokens = new Set(tokenize(text));
-  return skillVariants(phrase).some((variant) => {
-    const normalized = normalizePhrase(variant);
-    if (!normalized) return false;
-    return normalized.includes(" ")
-      ? text.includes(normalized)
-      : tokens.has(normalized);
-  });
+  return textHasSkill(text, phrase);
+}
+
+interface SkillEvidence {
+  label: string;
+  preferredLabel: boolean;
+}
+
+function addSkillEvidence(
+  evidence: Map<string, SkillEvidence>,
+  canonical: string,
+  label: string,
+  preferredLabel: boolean,
+): void {
+  if (!canonical) return;
+  const existing = evidence.get(canonical);
+  if (!existing || (preferredLabel && !existing.preferredLabel)) {
+    evidence.set(canonical, { label, preferredLabel });
+  }
+}
+
+function addStructuredSkill(
+  evidence: Map<string, SkillEvidence>,
+  rawSkill: string,
+): void {
+  const skill = rawSkill.trim();
+  if (!skill) return;
+  const direct = canonicalSkill(skill);
+  if (TRUSTED_SKILL_SIGNALS.has(direct)) {
+    addSkillEvidence(evidence, direct, skill, true);
+    return;
+  }
+  const extracted = extractSkills({ title: "", description: skill });
+  if (extracted.length === 0) {
+    addSkillEvidence(evidence, direct, skill, true);
+    return;
+  }
+  for (const canonical of extracted) {
+    const directMatch = canonical === direct;
+    addSkillEvidence(
+      evidence,
+      canonical,
+      directMatch ? skill : canonical,
+      directMatch,
+    );
+  }
+}
+
+function resumeSkillEvidence(
+  resume: ResumeContext,
+  structuredSkills: string[],
+): Map<string, SkillEvidence> {
+  const evidence = new Map<string, SkillEvidence>();
+  for (const skill of structuredSkills) addStructuredSkill(evidence, skill);
+  for (const canonical of extractSkills({
+    title: "",
+    description: `${resume.summary ?? ""}\n${resume.text ?? ""}`,
+  })) {
+    addSkillEvidence(evidence, canonical, canonical, false);
+  }
+  return evidence;
+}
+
+function postingSkillEvidence(
+  job: ResumeJobInput,
+): Map<string, SkillEvidence> {
+  const evidence = new Map<string, SkillEvidence>();
+  for (const skill of job.skills ?? []) addStructuredSkill(evidence, skill);
+  for (const canonical of extractSkills({
+    title: job.title,
+    description: job.description,
+  })) {
+    addSkillEvidence(evidence, canonical, canonical, false);
+  }
+  return evidence;
 }
 
 function humanList(values: string[]): string {
@@ -118,7 +188,7 @@ function humanList(values: string[]): string {
 }
 
 function usefulSignal(value: string): boolean {
-  if (!TRUSTED_SKILL_SIGNALS.has(normalizePhrase(value))) return false;
+  if (!TRUSTED_SKILL_SIGNALS.has(canonicalSkill(value))) return false;
   const tokens = tokenize(value);
   return tokens.some(
     (token) =>
@@ -132,6 +202,7 @@ function addMissingSignal(signals: string[], value: string): void {
   const normalized = normalizePhrase(value);
   if (!normalized) return;
   const relatedIndex = signals.findIndex((signal) => {
+    if (canonicalSkill(signal) === canonicalSkill(value)) return true;
     const existing = normalizePhrase(signal);
     return existing.includes(normalized) || normalized.includes(existing);
   });
@@ -152,8 +223,8 @@ function clamp(n: number): number {
  * Score how well a job matches the candidate's resume.
  *
  * Weighting (before clamp):
- *  - Skill coverage (up to 55): fraction of resume skills the posting mentions,
- *    plus a floor bonus for any overlap so a few precise hits still register.
+ *  - Skill coverage (up to 55): fraction of posting skills supported by saved
+ *    résumé skills/text, plus a floor bonus for precise hits.
  *  - Title/role alignment (up to 25): overlap between the job title and roles the
  *    candidate has held.
  *  - Summary/keyword resonance (up to 20): resume summary/text terms echoed in the
@@ -162,26 +233,56 @@ function clamp(n: number): number {
 export function scoreResumeFit(job: ResumeJobInput, resume: ResumeContext): ResumeScoreResult {
   const reasons: string[] = [];
   const skills = (resume.skills ?? []).map((s) => s.trim()).filter(Boolean);
-  const postingText = normalizePhrase(`${job.title} ${job.description ?? ""}`);
-  const postingTokens = new Set(tokenize(postingText));
+  const postingText = `${job.title}\n${job.description ?? ""}`;
+  const normalizedPostingText = normalizePhrase(postingText);
+  const postingTokens = new Set(tokenize(normalizedPostingText));
+  const savedResumeText = `${skills.join("\n")}\n${resume.summary ?? ""}\n${resume.text ?? ""}`;
+  const resumeEvidence = resumeSkillEvidence(resume, skills);
+  const postingEvidence = postingSkillEvidence(job);
 
   // --- Skill coverage ---
-  const matchedSkills: string[] = [];
-  for (const skill of skills) {
-    if (phraseAppears(postingText, skill)) matchedSkills.push(skill);
+  const matches = new Map<string, string>();
+  for (const [canonical, evidence] of resumeEvidence) {
+    const posting = postingEvidence.get(canonical);
+    if (!posting && !phraseAppears(postingText, canonical)) continue;
+    if (!posting) {
+      addSkillEvidence(postingEvidence, canonical, evidence.label, false);
+    }
+    matches.set(
+      canonical,
+      evidence.preferredLabel
+        ? evidence.label
+        : (posting?.label ?? evidence.label),
+    );
   }
+  for (const [canonical, posting] of postingEvidence) {
+    if (
+      matches.has(canonical) ||
+      (!resumeEvidence.has(canonical) &&
+        !phraseAppears(savedResumeText, canonical))
+    ) {
+      continue;
+    }
+    const evidence = resumeEvidence.get(canonical);
+    matches.set(
+      canonical,
+      evidence?.preferredLabel ? evidence.label : posting.label,
+    );
+  }
+  const matchedSkills = [...matches.values()];
   let skillScore = 0;
-  if (skills.length > 0 && matchedSkills.length > 0) {
-    const coverage = matchedSkills.length / skills.length; // 0..1
+  if (matchedSkills.length > 0) {
+    const coverage =
+      matchedSkills.length / Math.max(postingEvidence.size, matchedSkills.length);
     // Reward both breadth (coverage) and a floor for absolute hits.
     skillScore = Math.min(55, coverage * 45 + Math.min(matchedSkills.length, 5) * 4);
     reasons.push(
-      `Matches ${matchedSkills.length} résumé ${
+      `Matches ${matchedSkills.length} saved résumé ${
         matchedSkills.length === 1 ? "skill" : "skills"
       }: ${humanList(matchedSkills.slice(0, 5))}` +
         (matchedSkills.length > 5 ? `, plus ${matchedSkills.length - 5} more` : ""),
     );
-  } else if (skills.length === 0) {
+  } else if (resumeEvidence.size === 0) {
     reasons.push("No résumé skills are on file, so the score relies on role and experience text");
   }
 
@@ -228,22 +329,18 @@ export function scoreResumeFit(job: ResumeJobInput, resume: ResumeContext): Resu
 
   // --- Missing signals: structured posting skills and prominent repeated terms ---
   const missingSignals: string[] = [];
-  if (skills.length > 0) {
-    const resumeText = normalizePhrase(
-      `${skills.join(" ")} ${resume.summary ?? ""} ${resume.text ?? ""}`,
-    );
-    const companyText = normalizePhrase(job.company ?? "");
+  if (resumeEvidence.size > 0 || savedResumeText.trim()) {
+    const companyText = job.company ?? "";
     for (const skill of (job.skills ?? []).filter(usefulSignal)) {
       if (missingSignals.length >= 6) break;
-      const normalizedSkill = normalizePhrase(skill);
       if (
-        !phraseAppears(resumeText, skill) &&
-        (!companyText || !companyText.includes(normalizedSkill))
+        !resumeEvidence.has(canonicalSkill(skill)) &&
+        !phraseAppears(savedResumeText, skill) &&
+        (!companyText || !phraseAppears(companyText, skill))
       ) {
         addMissingSignal(missingSignals, skill);
       }
     }
-
   }
 
   const score = clamp(skillScore + titleScore + resonance);

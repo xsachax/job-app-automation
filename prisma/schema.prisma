@@ -116,7 +116,7 @@ model Match {
   resumeReasons       String? // JSON array of fit reasons
   resumeSummary       String? // short prose fit/gap summary (mainly from the agent)
   matchProvider       String? // deterministic | agent — who produced resumeScore
-  scoredResumeVersion String? // ResumeVersion.id used, for staleness detection
+  scoredResumeVersion String? // fingerprinted resume/profile context used for staleness detection
   resumeScoredAt      DateTime?
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt

@@ -34,6 +34,103 @@ describe("extractSkills", () => {
     expect(skills).toContain("machine learning");
     expect(skills).toContain("computer vision");
   });
+
+  it("canonicalizes punctuation and common technology aliases", () => {
+    const skills = extractSkills({
+      title: "Full-stack Engineer",
+      description:
+        "Build React.JS and Node JS services on Amazon Web Services with C Sharp, CI-CD, and Postgre SQL.",
+    });
+
+    expect(skills).toEqual(
+      expect.arrayContaining([
+        "react",
+        "node.js",
+        "aws",
+        "c#",
+        "ci/cd",
+        "postgres",
+      ]),
+    );
+  });
+
+  it("does not treat lowercase prose as ambiguous short skill aliases", () => {
+    const prose = extractSkills({
+      title: "Engineer",
+      description: "You will go to the next planning session and rest after.",
+    });
+    const technologies = extractSkills({
+      title: "Engineer",
+      description: "Experience with Go, Next, and REST APIs.",
+    });
+
+    expect(prose).not.toEqual(
+      expect.arrayContaining(["go", "next.js", "rest"]),
+    );
+    expect(technologies).toEqual(
+      expect.arrayContaining(["go", "next.js", "rest"]),
+    );
+  });
+
+  it("matches lowercase abbreviations only as whole tokens", () => {
+    const abbreviations = extractSkills({
+      title: "Engineer",
+      description: "Built services with ts, js, and ml tooling.",
+    });
+    const html = extractSkills({
+      title: "Frontend Engineer",
+      description: "Build accessible HTML and CSS.",
+    });
+    const compoundNames = extractSkills({
+      title: "Frontend Engineer",
+      description: "Build with Node.js, Node JS, and React.JS.",
+    });
+
+    expect(abbreviations).toEqual(
+      expect.arrayContaining(["typescript", "javascript", "machine learning"]),
+    );
+    expect(html).not.toContain("machine learning");
+    expect(compoundNames).not.toContain("javascript");
+  });
+
+  it("normalizes separators without turning ordinary prose into skills", () => {
+    const variants = extractSkills({
+      title: "Platform Engineer",
+      description:
+        "Machine-learning with Objective C, scikit_learn, CI–CD, Amazon-Web-Services, and dot net.",
+    });
+    const prose = extractSkills({
+      title: "Generalist",
+      description:
+        "Next steps: candidates react quickly, express interest, and graduate in Spring 2026 with TS/SCI clearance.",
+    });
+    const explicit = extractSkills({
+      title: "Engineer",
+      description: "Experience with go, rust, react, and angular.",
+    });
+
+    expect(variants).toEqual(
+      expect.arrayContaining([
+        "machine learning",
+        "objective-c",
+        "scikit-learn",
+        "ci/cd",
+        "aws",
+        ".net",
+      ]),
+    );
+    expect(prose).not.toEqual(
+      expect.arrayContaining([
+        "react",
+        "express",
+        "spring",
+        "typescript",
+      ]),
+    );
+    expect(explicit).toEqual(
+      expect.arrayContaining(["go", "rust", "react", "angular"]),
+    );
+  });
 });
 
 describe("extractSalary", () => {

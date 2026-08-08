@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { prisma } from "../lib/db";
 import {
@@ -50,13 +50,49 @@ async function doExport() {
   if (batch.count === 0) {
     console.log("  Nothing to review. Run a scan, lower --min, or pass --all to re-review.");
   } else {
-    console.log("\nNext: score each item, then run `npm run match:apply -- --in <scores.json>`.");
+    const reviewFlag =
+      out === resolve(".match/review.json")
+        ? ""
+        : ` --review "${out}"`;
+    console.log(
+      `\nNext: score each item, then run \`npm run match:apply -- --in <scores.json>${reviewFlag}\`.`,
+    );
     console.log(`Instructions: ${batch.instructions}`);
   }
 }
 
 interface ScoresFile {
   scores?: AgentScore[];
+  resumeVersionId?: string | null;
+}
+
+function reviewContext(): {
+  resumeVersionId: string | null;
+  generatedAt: number;
+} {
+  const reviewPath = resolve(flag("review") ?? ".match/review.json");
+  const review = JSON.parse(readFileSync(reviewPath, "utf8")) as {
+    resumeVersionId?: unknown;
+    generatedAt?: unknown;
+  };
+  if (
+    review.resumeVersionId !== null &&
+    typeof review.resumeVersionId !== "string"
+  ) {
+    throw new Error(
+      `Review batch ${reviewPath} has no valid resumeVersionId; run match:export again.`,
+    );
+  }
+  const generatedAt =
+    typeof review.generatedAt === "string"
+      ? Date.parse(review.generatedAt)
+      : Number.NaN;
+  if (!Number.isFinite(generatedAt)) {
+    throw new Error(
+      `Review batch ${reviewPath} has no valid generatedAt; run match:export again.`,
+    );
+  }
+  return { resumeVersionId: review.resumeVersionId, generatedAt };
 }
 
 async function doApply() {
@@ -65,14 +101,30 @@ async function doApply() {
     console.error("apply requires --in <file> containing {\"scores\":[...]} or a bare array.");
     process.exit(1);
   }
-  const raw = readFileSync(resolve(inPath), "utf8");
+  const resolvedInput = resolve(inPath);
+  const raw = readFileSync(resolvedInput, "utf8");
   const parsed = JSON.parse(raw) as ScoresFile | AgentScore[];
   const scores = Array.isArray(parsed) ? parsed : (parsed.scores ?? []);
   if (!Array.isArray(scores) || scores.length === 0) {
     console.error("No scores found in file.");
     process.exit(1);
   }
-  const result = await applyAgentScores(scores);
+  const embeddedContext =
+    !Array.isArray(parsed) &&
+    Object.prototype.hasOwnProperty.call(parsed, "resumeVersionId")
+      ? parsed.resumeVersionId
+      : undefined;
+  let reviewedResumeVersionId = embeddedContext;
+  if (reviewedResumeVersionId === undefined) {
+    const review = reviewContext();
+    if (statSync(resolvedInput).mtimeMs < review.generatedAt) {
+      throw new Error(
+        "Scores predate the current review batch; re-score that batch or include its resumeVersionId.",
+      );
+    }
+    reviewedResumeVersionId = review.resumeVersionId;
+  }
+  const result = await applyAgentScores(scores, reviewedResumeVersionId ?? null);
   console.log(`Applied ${result.updated} agent score(s) (resume version ${result.resumeVersionId ?? "none"}).`);
   if (result.skipped.length) {
     console.log(`Skipped ${result.skipped.length}:`);

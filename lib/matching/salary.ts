@@ -53,7 +53,7 @@ export function salaryFit(
   const min = numeric(job.salaryMin);
   const max = numeric(job.salaryMax);
   if (min == null && max == null) {
-    return { delta: 0, known: false, reason: "salary not listed" };
+    return { delta: 0, known: false, reason: null };
   }
 
   let value = min != null && max != null ? (min + max) / 2 : (max ?? min)!;

@@ -60,66 +60,207 @@ export const SKILL_VOCAB: string[] = [
   "agile", "scrum", "tdd", "unit testing", "playwright", "selenium", "git",
 ];
 
-// Split vocab: multi-word entries are matched as substrings, single tokens with
-// a word-ish boundary that still allows the +, #, ., /, - inside skill names.
-const MULTI = SKILL_VOCAB.filter((s) => /\s/.test(s));
-const SINGLE = SKILL_VOCAB.filter((s) => !/\s/.test(s));
-
 function normalize(s: string): string {
-  return s.toLowerCase().trim();
+  return s
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[‐‑‒–—]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-const SKILL_CANONICAL_BY_ALIAS: Readonly<Record<string, string>> = {
-  "amazon web services": "aws",
-  cpp: "c++",
-  csharp: "c#",
-  "google cloud": "gcp",
-  "google cloud platform": "gcp",
-  golang: "go",
-  js: "javascript",
-  k8s: "kubernetes",
-  "large language model": "llm",
-  "large language models": "llm",
-  ml: "machine learning",
-  next: "next.js",
-  nextjs: "next.js",
-  nodejs: "node.js",
-  postgresql: "postgres",
-  sklearn: "scikit-learn",
-  torch: "pytorch",
-  ts: "typescript",
+const SKILL_ALIASES: Readonly<Record<string, readonly string[]>> = {
+  ".net": ["dotnet", "dot net"],
+  aws: ["amazon web services"],
+  azure: ["microsoft azure"],
+  "c++": ["cpp", "c plus plus"],
+  "c#": ["csharp", "c sharp"],
+  "ci/cd": ["cicd", "ci cd", "ci-cd"],
+  express: ["express.js", "expressjs"],
+  gcp: ["google cloud", "google cloud platform"],
+  go: ["golang"],
+  javascript: ["js"],
+  kubernetes: ["k8s"],
+  llm: ["large language model", "large language models"],
+  "machine learning": ["ml"],
+  "next.js": ["next", "nextjs", "next js", "next-js"],
+  "node.js": ["nodejs", "node js", "node-js"],
+  postgres: ["postgresql", "postgre sql", "postgres sql"],
+  pytorch: ["torch"],
+  react: ["react.js", "reactjs"],
+  "scikit-learn": ["sklearn", "scikit learn"],
+  typescript: ["ts"],
+  vue: ["vue.js", "vuejs"],
 };
+
+function skillKey(skill: string): string {
+  return normalize(skill)
+    .replace(/\bc\s*\+\s*\+/g, "cplusplus")
+    .replace(/\bc\s*#/g, "csharp")
+    .replace(/(^|[^a-z0-9])\.\s*net\b/g, "$1 dotnet")
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+const SKILL_CANONICAL_BY_KEY = new Map<string, string>();
+for (const skill of SKILL_VOCAB) {
+  SKILL_CANONICAL_BY_KEY.set(skillKey(skill), normalize(skill));
+}
+for (const [canonical, aliases] of Object.entries(SKILL_ALIASES)) {
+  for (const variant of [canonical, ...aliases]) {
+    SKILL_CANONICAL_BY_KEY.set(skillKey(variant), canonical);
+  }
+}
 
 export function canonicalSkill(skill: string): string {
   const normalized = normalize(skill);
-  return SKILL_CANONICAL_BY_ALIAS[normalized] ?? normalized;
+  return SKILL_CANONICAL_BY_KEY.get(skillKey(normalized)) ?? normalized;
+}
+
+const SKILL_VARIANTS_BY_CANONICAL = new Map<string, Set<string>>();
+function addSkillVariant(canonical: string, variant: string): void {
+  const variants =
+    SKILL_VARIANTS_BY_CANONICAL.get(canonical) ?? new Set<string>();
+  variants.add(normalize(variant));
+  SKILL_VARIANTS_BY_CANONICAL.set(canonical, variants);
+}
+for (const candidate of SKILL_VOCAB) {
+  addSkillVariant(canonicalSkill(candidate), candidate);
+}
+for (const [canonical, aliases] of Object.entries(SKILL_ALIASES)) {
+  addSkillVariant(canonical, canonical);
+  for (const alias of aliases) addSkillVariant(canonical, alias);
 }
 
 export function skillVariants(skill: string): string[] {
   const canonical = canonicalSkill(skill);
-  const variants = new Set([canonical]);
-  for (const [alias, target] of Object.entries(SKILL_CANONICAL_BY_ALIAS)) {
-    if (target === canonical) variants.add(alias);
-  }
-  return [...variants];
+  return [...(SKILL_VARIANTS_BY_CANONICAL.get(canonical) ?? [canonical])];
 }
+
+const AMBIGUOUS_SKILL_VARIANTS: Readonly<Record<string, string>> = {
+  angular: "Angular",
+  express: "Express",
+  go: "Go",
+  next: "Next",
+  rails: "Rails",
+  react: "React",
+  rest: "REST",
+  rust: "Rust",
+  spark: "Spark",
+  spring: "Spring",
+  swift: "Swift",
+};
+const STANDALONE_ABBREVIATIONS = new Set(["js", "ml", "ts"]);
 
 // Whole-token match. Boundaries key off [a-z0-9] only, so sentence punctuation
 // ("Kubernetes.") is a boundary while special chars inside the token ("c++",
 // "node.js", "ci/cd") are matched literally.
-function hasToken(text: string, token: string): boolean {
-  const esc = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(?<![a-z0-9])${esc}(?![a-z0-9])`, "i").test(text);
+function skillPattern(token: string): string {
+  const escape = (value: string) =>
+    value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const parts = token.split(/[\s._/‐‑‒–—-]+/).filter(Boolean);
+  return token.startsWith(".") || parts.length <= 1
+    ? escape(token)
+    : parts.map(escape).join("[\\s._/‐‑‒–—-]+");
 }
 
-export function extractSkills(input: { title: string; description?: string | null }): string[] {
-  const text = normalize(`${input.title}\n${input.description ?? ""}`);
-  const found = new Set<string>();
-  for (const s of MULTI) {
-    if (text.includes(normalize(s))) found.add(canonicalSkill(s));
+function hasToken(text: string, token: string): boolean {
+  const pattern = skillPattern(token);
+  return new RegExp(
+    `(?<![A-Za-z0-9])${pattern}(?![A-Za-z0-9])`,
+    "i",
+  ).test(text);
+}
+
+function hasAmbiguousSkill(
+  text: string,
+  variant: string,
+  expectedCase: string,
+): boolean {
+  const matches = text.matchAll(
+    new RegExp(
+      `(?<![A-Za-z0-9])${skillPattern(variant)}(?![A-Za-z0-9])`,
+      "gi",
+    ),
+  );
+  for (const match of matches) {
+    const index = match.index ?? 0;
+    const lineStart = text.lastIndexOf("\n", index - 1) + 1;
+    const before = text.slice(lineStart, index);
+    const after = text.slice(index + match[0].length);
+    const technologyContext =
+      /\b(?:frameworks?|languages?|skills?|stack|technologies|tools)\s*:[^.!?]*$/i.test(
+        before,
+      ) ||
+      /\b(?:built|developed|experience|expertise|knowledge|proficient|programming|using|work(?:ed)?)\s+(?:in|using|with)\b[^.!?]*$/i.test(
+        before,
+      ) ||
+      /^\s+(?:api|applications?|components?|developer|framework|language|services?|stack)\b/i.test(
+        after,
+      );
+    const commonProse =
+      (variant === "next" &&
+        /^\s+(?:phase|question|round|section|step|steps|week|year)\b/i.test(
+          after,
+        )) ||
+      (variant === "spring" &&
+        /^\s+(?:20\d{2}|semester|season|term)\b/i.test(after)) ||
+      (variant === "express" &&
+        /^\s+(?:concern|interest|themselves|yourself)\b/i.test(after)) ||
+      (variant === "go" &&
+        /^\s+(?:ahead|back|forward|to)\b/i.test(after)) ||
+      (variant === "rust" &&
+        /^\s+(?:prevention|removal)\b/i.test(after)) ||
+      (variant === "spark" &&
+        /^\s+(?:curiosity|interest)\b/i.test(after));
+    if (technologyContext || (!commonProse && match[0] === expectedCase)) {
+      return true;
+    }
   }
-  for (const s of SINGLE) {
-    if (hasToken(text, s)) found.add(canonicalSkill(s));
+  return false;
+}
+
+function hasStandaloneAbbreviation(text: string, token: string): boolean {
+  const esc = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const matches = text.matchAll(
+    new RegExp(`(?<![A-Za-z0-9._-])${esc}(?![A-Za-z0-9])`, "gi"),
+  );
+  for (const match of matches) {
+    const prefix = text.slice(0, match.index);
+    const suffix = text.slice((match.index ?? 0) + match[0].length);
+    if (
+      token === "js" &&
+      /(?:next|node|react|vue)[\s._-]*$/i.test(prefix)
+    ) {
+      continue;
+    }
+    if (token === "ts" && /^\s*[/_-]\s*sci\b/i.test(suffix)) continue;
+    return true;
+  }
+  return false;
+}
+
+export function textHasSkill(text: string, skill: string): boolean {
+  return skillVariants(skill).some((variant) => {
+    if (STANDALONE_ABBREVIATIONS.has(variant)) {
+      return hasStandaloneAbbreviation(text, variant);
+    }
+    const expectedCase = AMBIGUOUS_SKILL_VARIANTS[variant];
+    return expectedCase
+      ? hasAmbiguousSkill(text, variant, expectedCase)
+      : hasToken(text, variant);
+  });
+}
+
+const CANONICAL_SKILL_VOCAB = [
+  ...new Set(SKILL_VOCAB.map(canonicalSkill)),
+];
+
+export function extractSkills(input: { title: string; description?: string | null }): string[] {
+  const text = `${input.title}\n${input.description ?? ""}`;
+  const found = new Set<string>();
+  for (const canonical of CANONICAL_SKILL_VOCAB) {
+    if (textHasSkill(text, canonical)) found.add(canonical);
   }
   return [...found].sort();
 }

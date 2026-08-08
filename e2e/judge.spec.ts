@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { jobCard } from "./helpers";
 
 function judgeStatus(scored: number) {
   const eligible = 7;
@@ -67,12 +68,47 @@ test.describe("judge hub", () => {
     await expect(page.getByText("Target salary saved. Re-run the judge to apply it.")).toBeVisible();
   });
 
-  test("re-running the judge scores the eligible postings", async ({ page }) => {
+  test("re-running uses saved résumé text and keeps missing salary out of gaps", async ({
+    page,
+  }) => {
     await page.goto("/judge");
+    await page.getByLabel("Target salary (USD)").fill("125000");
+    await page.getByRole("button", { name: "Save" }).click();
+    await expect(
+      page.getByText("Target salary saved. Re-run the judge to apply it."),
+    ).toBeVisible();
     await page.getByRole("button", { name: "Re-run judge" }).click();
     await expect(page.getByText(/Re-ran across all axes/)).toBeVisible();
     // After a run the "Last run" tile is no longer "never".
     await expect(page.getByText("never")).toHaveCount(0);
+
+    await page.goto("/jobs");
+    const frontend = jobCard(page, "E2E Frontend Engineer");
+    const fits = frontend.getByRole("region", { name: "Why it fits" });
+    await expect(fits).toContainText(/Matches 3 saved résumé skills/i);
+    await expect(fits).toContainText(/TypeScript/i);
+    await expect(fits).toContainText(/React/i);
+    await expect(fits).toContainText(/Node\.js/i);
+    await expect(frontend).not.toContainText(
+      "No saved résumé skills directly match the posting",
+    );
+
+    const missingSalary = jobCard(page, "E2E Apply Engineer");
+    await expect(missingSalary.getByText("Salary unknown", { exact: true })).toBeVisible();
+    await expect(
+      missingSalary.getByRole("region", { name: "Gaps" }),
+    ).not.toContainText(/salary/i);
+
+    await page.evaluate(async () => {
+      const criteria = await fetch("/api/criteria").then((response) =>
+        response.json(),
+      );
+      await fetch("/api/criteria", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...criteria, salaryTarget: null }),
+      });
+    });
   });
 
   test("shows exact progress while the judge is running", async ({ page }) => {

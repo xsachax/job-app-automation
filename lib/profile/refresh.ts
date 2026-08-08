@@ -5,6 +5,7 @@ import { extractResumeText } from "./resume";
 import { fetchResumePdf } from "./pdf";
 import { parseResume } from "../llm";
 import type { ParsedResume } from "../llm/types";
+import { canonicalSkill } from "../discovery/enrich";
 
 export interface RefreshResult {
   provider: string;
@@ -41,7 +42,7 @@ function mergeSkills(existing: unknown, parsed: unknown): string[] {
   ]) {
     if (typeof value !== "string") continue;
     const skill = value.trim();
-    const key = skill.toLowerCase();
+    const key = canonicalSkill(skill);
     if (!skill || seen.has(key)) continue;
     seen.add(key);
     merged.push(skill);
