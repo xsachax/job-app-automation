@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <body>
+    <main data-automation-id="applicationPage">
+      <header data-automation-id="applicationHeader">Acme application</header>
+      <div data-automation-id="progressBar">Questions</div>
+      <section data-automation-id="questionnairePage">
+        <h1>Application questions</h1>
+        <label>How did you hear about this job?
+          <select id="source" required>
+            <option value="">Select</option>
+            <option value="career-site">Company career site</option>
+            <option value="referral">Employee referral</option>
+          </select>
+        </label>
+        <label>Referrer full name <input id="referrer-name" required /></label>
+        <label>Referral email address <input id="referrer-email" type="email" required /></label>
+        <label>Have you previously worked at Acme?
+          <select id="prior-employment" required>
+            <option value="">Select</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+        </label>
+        <label>Are you legally authorized to work?
+          <select id="authorization" required>
+            <option value="">Select</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+        </label>
+        <label>Will you require visa sponsorship now or in the future?
+          <select id="sponsorship" required>
+            <option value="">Select</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+        </label>
+        <label>Available start date <input id="start-date" type="date" required /></label>
+        <label>Current employer notice period <input id="notice-period" required /></label>
+        <label>Target total annual compensation expectations <input id="compensation" required /></label>
+        <label>Compensation currency
+          <select id="currency" required>
+            <option value="">Select</option>
+            <option value="USD">USD</option>
+            <option value="CAD">CAD</option>
+          </select>
+        </label>
+        <label>Compensation frequency
+          <select id="frequency" required>
+            <option value="">Select</option>
+            <option value="annual">Annual</option>
+            <option value="hourly">Hourly</option>
+          </select>
+        </label>
+        <fieldset>
+          <legend>Are you willing to relocate?</legend>
+          <label><input type="radio" name="relocate" value="yes" required /> Yes</label>
+          <label><input type="radio" name="relocate" value="no" required /> No</label>
+        </fieldset>
+        <fieldset>
+          <legend>Are you willing to travel?</legend>
+          <label><input type="radio" name="travel" value="yes" required /> Yes</label>
+          <label><input type="radio" name="travel" value="no" required /> No</label>
+        </fieldset>
+        <label>Maximum travel percentage
+          <select id="travel-percent" required>
+            <option value="">Select</option>
+            <option value="25">25%</option>
+            <option value="50">50%</option>
+          </select>
+        </label>
+        <label>Are you at least 18 years old?
+          <select id="age" required>
+            <option value="">Select</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+        </label>
+        <label>Do you have any contractual restrictions that would affect this role?
+          <select id="contract-restrictions" required>
+            <option value="">Select</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+        </label>
+        <button id="next" data-automation-id="bottom-navigation-next-button">Next</button>
+      </section>
+    </main>
+    <script>
+      window.nextClicks = 0;
+      document.querySelector("#next").addEventListener("click", () => {
+        window.nextClicks += 1;
+      });
+    </script>
+  </body>
+</html>

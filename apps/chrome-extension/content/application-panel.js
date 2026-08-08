@@ -17,6 +17,7 @@
   const state = {
     session: null,
     profile: {},
+    profileLoaded: false,
     profileAvailability: new Set(),
     context: {},
     host: null,
@@ -32,6 +33,9 @@
     fillIssues: new Map(),
     lastQuestions: new Map(),
     platform: { key: "generic", label: "Custom application" },
+    adapter: null,
+    page: null,
+    definitions: profileSchema.fields,
     frameMode: false,
     scanRevision: 0
   };
@@ -61,25 +65,20 @@
 
   function setProfileAvailability(availability) {
     state.profileAvailability = new Set(
-      profileSchema.fields
-        .filter((field) => availability?.[field.key] === true)
-        .map((field) => field.key)
+      Object.entries(availability || {})
+        .filter(([, available]) => available === true)
+        .map(([key]) => key)
     );
   }
 
   function refreshProfileAvailability() {
-    const effective = profileSchema.buildEffectiveProfile(
-      state.profile,
-      state.context
-    );
     state.profileAvailability = new Set(
-      profileSchema.fields
-        .filter((field) =>
-          field.key === "resumeFile"
-            ? Boolean(state.profile.resumeFile)
-            : Boolean(text(effective[field.key]))
-        )
-        .map((field) => field.key)
+      Object.entries({
+        ...profileSchema.profileAvailability(state.profile, state.context),
+        resumeFile: Boolean(state.profile.resumeFile)
+      })
+        .filter(([, available]) => available)
+        .map(([key]) => key)
     );
   }
 
@@ -170,8 +169,10 @@
   }
 
   function isCandidateControl(element) {
+    const visible =
+      isVisible(element) || state.adapter?.allowsHiddenControl?.(element);
     if (
-      !isVisible(element) ||
+      !visible ||
       element.readOnly ||
       element.getAttribute("aria-disabled") === "true"
     ) {
@@ -295,7 +296,7 @@
   }
 
   function nearbyPrompt(element) {
-    const container = ats.questionContainer(element);
+    const container = ats.questionContainer(element, state.adapter);
     if (!container || container === element) {
       return "";
     }
@@ -312,7 +313,7 @@
     );
   }
 
-  function signalsForQuestion(elements, grouped) {
+  function signalsForQuestion(elements, grouped, adapterDetails = null) {
     const first = elements[0];
     const signals = [];
     const add = (value, weight, source) => {
@@ -347,6 +348,9 @@
     for (const signal of ats.metadataSignals(first)) {
       add(signal.text, signal.weight, signal.source);
     }
+    for (const signal of adapterDetails?.signals || []) {
+      add(signal.text, signal.weight, signal.source);
+    }
 
     return signals;
   }
@@ -375,7 +379,9 @@
       .filter(
         (group) =>
           group &&
-          Array.from(group.querySelectorAll(ats.candidateSelector))
+          Array.from(
+            group.querySelectorAll(ats.candidateSelectorFor(state.adapter))
+          )
             .filter(isCandidateControl)
             .every((control) => elementSet.has(control))
       );
@@ -388,7 +394,9 @@
           String(element.getAttribute?.("aria-required") || "").toLowerCase() ===
             "true"
       ) ||
-      elements.some((element) => ats.hasRequiredMetadata(element))
+      elements.some((element) =>
+        ats.hasRequiredMetadata(element, state.adapter)
+      )
     ) {
       return true;
     }
@@ -523,7 +531,7 @@
       elementRole(question.elements[0]) === "radio";
     return isRequiredQuestion(
       question.elements,
-      signalsForQuestion(question.elements, grouped)
+      signalsForQuestion(question.elements, grouped, question.adapterDetails)
     );
   }
 
@@ -622,9 +630,13 @@
     const seen = new Set();
     for (const rootNode of collectRoots()) {
       for (const element of rootNode.querySelectorAll?.(
-        ats.candidateSelector
+        ats.candidateSelectorFor(state.adapter)
       ) || []) {
-        if (!seen.has(element) && isCandidateControl(element)) {
+        if (
+          !seen.has(element) &&
+          isCandidateControl(element) &&
+          !state.adapter?.shouldIgnoreElement?.(element)
+        ) {
           seen.add(element);
           controls.push(element);
         }
@@ -652,7 +664,7 @@
             ],
             controlKind: "check-many"
           },
-          profileSchema.fields
+          state.definitions
         )
       );
     if (
@@ -685,7 +697,8 @@
     kind,
     signals,
     effectiveProfile,
-    nativeInputType
+    nativeInputType,
+    adapterDetails
   ) {
     if (!match) {
       return { value: "", safe: false };
@@ -698,6 +711,21 @@
             : null,
         safe: match.definition.key === "resumeFile",
         available: state.profileAvailability.has("resumeFile")
+      };
+    }
+    const adapterResolution = state.adapter?.resolveValue?.(
+      match.definition.key,
+      effectiveProfile,
+      adapterDetails,
+      nativeInputType
+    );
+    if (adapterResolution) {
+      return {
+        ...adapterResolution,
+        value: profileSchema.formatControlValue(adapterResolution.value, kind),
+        available: state.profileLoaded
+          ? adapterResolution.available
+          : state.profileAvailability.has(adapterResolution.availabilityKey)
       };
     }
     if (
@@ -843,7 +871,8 @@
         inputType(elements[0]) === "radio" ||
         elementRole(elements[0]) === "radio";
       const kind = controlKind(elements);
-      const signals = signalsForQuestion(elements, grouped);
+      const adapterDetails = state.adapter?.questionDetails?.(elements[0]) || null;
+      const signals = signalsForQuestion(elements, grouped, adapterDetails);
       const label = questionLabel(signals, elements, kind);
 
       if (shouldIgnoreQuestion(label)) {
@@ -856,7 +885,7 @@
           signals,
           controlKind: kind
         },
-        profileSchema.fields
+        state.page?.scanOnly ? [] : state.definitions
       );
       const match = analysis.status === "confident" ? analysis.match : null;
       const resolved = resolveMatchedValue(
@@ -864,7 +893,8 @@
         kind,
         signals,
         effectiveProfile,
-        inputType(elements[0])
+        inputType(elements[0]),
+        adapterDetails
       );
       const matchedValue = resolved.value;
       const answered =
@@ -877,6 +907,11 @@
           : isAnswered(elements);
       const required = isRequiredQuestion(elements, signals);
       const filledByExtension = answered && wasFilledByExtension(elements);
+      const safeSingleCheckbox = state.adapter?.allowsSingleCheckbox?.(
+        adapterDetails,
+        match?.definition?.key,
+        matchedValue
+      );
 
       let status = "unknown";
       let reason = "The field was not recognized.";
@@ -890,7 +925,8 @@
       } else if (
         (inputType(elements[0]) === "checkbox" ||
           elementRole(elements[0]) === "checkbox") &&
-        (kind !== "check-many" || !match)
+        (kind !== "check-many" || !match) &&
+        !safeSingleCheckbox
       ) {
         status = "manual";
         reason = "Review this checkbox manually.";
@@ -926,6 +962,7 @@
         kind,
         label,
         signals,
+        adapterDetails,
         match,
         analysis,
         confidence: analysis.confidence,
@@ -984,7 +1021,9 @@
       uncertain: requiredQuestions.filter(
         (question) => question.status === "uncertain"
       ).length,
-      platform: state.platform.label,
+      platform: state.page
+        ? `${state.platform.label} · ${state.page.label}`
+        : state.platform.label,
       unknownFields
     };
   }
@@ -1229,7 +1268,12 @@
       return null;
     }
     const revision = ++state.scanRevision;
+    state.adapter = ats.activeAdapter(location.href, document);
     state.platform = ats.detectPlatform(location.href, document);
+    state.page = state.adapter?.pageInfo?.(document) || null;
+    state.definitions =
+      state.adapter?.augmentDefinitions?.(profileSchema.fields) ||
+      profileSchema.fields;
     refreshObservers();
     const questions = collectQuestions();
     state.lastQuestions = new Map(
@@ -1254,9 +1298,10 @@
 
   function refreshObservers() {
     const roots = new Set(collectRoots());
-    for (const [rootNode, observer] of state.observers) {
-      if (!roots.has(rootNode)) {
-        observer.disconnect();
+    const observerKey = state.adapter?.key || "generic";
+    for (const [rootNode, registration] of state.observers) {
+      if (!roots.has(rootNode) || registration.key !== observerKey) {
+        registration.observer.disconnect();
         rootNode.removeEventListener?.("input", handleFieldChange, true);
         rootNode.removeEventListener?.("change", handleFieldChange, true);
         state.observers.delete(rootNode);
@@ -1275,10 +1320,13 @@
         rootNode.nodeType === 9
           ? rootNode.body || rootNode.documentElement
           : rootNode;
-      observer.observe(target, { childList: true, subtree: true });
+      observer.observe(
+        target,
+        state.adapter?.observerOptions || { childList: true, subtree: true }
+      );
       rootNode.addEventListener?.("input", handleFieldChange, true);
       rootNode.addEventListener?.("change", handleFieldChange, true);
-      state.observers.set(rootNode, observer);
+      state.observers.set(rootNode, { key: observerKey, observer });
     }
   }
 
@@ -1442,9 +1490,9 @@
   function visibleComboOptions(element) {
     const ownerDocument = element.ownerDocument;
     const optionsFrom = (container) =>
-      Array.from(container?.querySelectorAll?.(ats.optionSelector) || []).filter(
-        isVisible
-      );
+      Array.from(
+        container?.querySelectorAll?.(ats.optionSelectorFor(state.adapter)) || []
+      ).filter(isVisible);
     const controlledIds = [
       element.getAttribute("aria-controls"),
       element.getAttribute("aria-owns")
@@ -1787,6 +1835,36 @@
       return selected;
     }
 
+    if (
+      inputType(first) === "checkbox" ||
+      elementRole(first) === "checkbox"
+    ) {
+      if (
+        matcher.canonicalChoice(value, question.match?.definition.key) !== "yes"
+      ) {
+        return false;
+      }
+      assertActive();
+      const selectedBefore =
+        Boolean(first.checked) || first.getAttribute("aria-checked") === "true";
+      if (!selectedBefore) {
+        first.click();
+      }
+      if (isInput(first) && !first.checked) {
+        setNativeProperty(first, "checked", true);
+        dispatchValueEvents(first);
+      }
+      const selected =
+        Boolean(first.checked) || first.getAttribute("aria-checked") === "true";
+      if (selected) {
+        state.extensionValues.set(
+          first,
+          String(first.value || optionText(first) || "yes")
+        );
+      }
+      return selected;
+    }
+
     return false;
   }
 
@@ -1893,9 +1971,31 @@
       ...(response.profile || {}),
       resumeFile: response.resumeFile || null
     };
+    state.profileLoaded = true;
     refreshProfileAvailability();
+    state.adapter = ats.activeAdapter(location.href, document);
+    state.platform = ats.detectPlatform(location.href, document);
+    state.page = state.adapter?.pageInfo?.(document) || null;
+    state.definitions =
+      state.adapter?.augmentDefinitions?.(profileSchema.fields) ||
+      profileSchema.fields;
 
     state.fillIssues.clear();
+    if (state.page?.scanOnly) {
+      const status = state.shadow?.querySelector("[data-status]");
+      if (status) {
+        status.textContent = `Workday ${state.page.label.toLowerCase()} is review-only. Complete it manually.`;
+      }
+      scan();
+      return { ok: true, filled: 0 };
+    }
+    await state.adapter?.prepareRepeatedSections?.({
+      documentLike: document,
+      profile: profileSchema.buildEffectiveProfile(state.profile, state.context),
+      assertActive,
+      wait
+    });
+    assertActive();
     const questions = collectQuestions();
     let filled = 0;
 
@@ -2227,8 +2327,8 @@
 
   function unmountPanel() {
     clearTimeout(state.scanTimer);
-    for (const [rootNode, observer] of state.observers) {
-      observer.disconnect();
+    for (const [rootNode, registration] of state.observers) {
+      registration.observer.disconnect();
       rootNode.removeEventListener?.("input", handleFieldChange, true);
       rootNode.removeEventListener?.("change", handleFieldChange, true);
     }
@@ -2255,6 +2355,7 @@
       ...(message.profile || {}),
       resumeFile: message.resumeFile || null
     };
+    state.profileLoaded = false;
     setProfileAvailability(message.profileAvailability);
     if (changingSession) {
       state.extensionValues = new WeakMap();
@@ -2285,7 +2386,12 @@
     state.sessionGeneration += 1;
     state.session = null;
     state.context = {};
+    state.profile = {};
+    state.profileLoaded = false;
     state.profileAvailability = new Set();
+    state.adapter = null;
+    state.page = null;
+    state.definitions = profileSchema.fields;
     state.frameMode = false;
   }
 

@@ -1,6 +1,7 @@
 importScripts(
   "lib/profile-schema.js",
   "lib/session-scope.js",
+  "lib/workday-adapter.js",
   "lib/ats-adapter.js"
 );
 
@@ -19,6 +20,7 @@ const PANEL_FILES = [
   "lib/session-scope.js",
   "lib/profile-schema.js",
   "lib/field-matcher.js",
+  "lib/workday-adapter.js",
   "lib/ats-adapter.js",
   "content/application-panel.js"
 ];
@@ -49,15 +51,10 @@ function sanitizeProfile(rawProfile) {
 }
 
 function profileAvailabilityFor(profile, resumeFile, context) {
-  const effective = profileSchema.buildEffectiveProfile(profile, context);
-  return Object.fromEntries(
-    profileSchema.fields.map((field) => [
-      field.key,
-      field.key === "resumeFile"
-        ? Boolean(resumeFile)
-        : Boolean(String(effective[field.key] || "").trim())
-    ])
-  );
+  return {
+    ...profileSchema.profileAvailability(profile, context),
+    resumeFile: Boolean(resumeFile)
+  };
 }
 
 async function replaceProfile(rawProfile) {

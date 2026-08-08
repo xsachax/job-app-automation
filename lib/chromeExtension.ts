@@ -85,12 +85,65 @@ export interface AutofillJob {
   country?: string | null;
 }
 
+export interface AutofillWorkExperience {
+  company: string;
+  title: string;
+  location: string;
+  startDate: string;
+  endDate: string;
+  currentRole: "" | "yes" | "no";
+  description: string;
+}
+
+export interface AutofillEducationEntry {
+  school: string;
+  degree: string;
+  degreeOther: string;
+  fieldOfStudy: string;
+  startDate: string;
+  graduationDate: string;
+  gpa: string;
+}
+
+export interface AutofillCredential {
+  name: string;
+  issuer: string;
+  credentialId: string;
+  issueDate: string;
+  expirationDate: string;
+  doesNotExpire: "" | "yes" | "no";
+}
+
+export interface AutofillLanguage {
+  language: string;
+  overallProficiency: string;
+  speakingProficiency: string;
+  readingProficiency: string;
+  writingProficiency: string;
+}
+
+export interface AutofillWebsite {
+  label: string;
+  url: string;
+}
+
 export interface AutofillProfile {
   firstName: string;
   preferredName: string;
+  middleName: string;
   lastName: string;
+  nameSuffix: string;
   email: string;
   phone: string;
+  phoneCountryCode: string;
+  phoneType: string;
+  phoneExtension: string;
+  homeAddressLine1: string;
+  homeAddressLine2: string;
+  homeCity: string;
+  homeRegion: string;
+  homePostalCode: string;
+  homeCountry: string;
   country: string;
   location: string;
   usCountry: string;
@@ -108,14 +161,20 @@ export interface AutofillProfile {
   linkedinUrl: string;
   githubUrl: string;
   portfolioUrl: string;
+  additionalWebsites: AutofillWebsite[];
   school: string;
   degree: string;
   degreeOther: string;
   fieldOfStudy: string;
+  educationStartDate: string;
   graduationDate: string;
+  educationEntries: AutofillEducationEntry[];
+  workExperiences: AutofillWorkExperience[];
   relevantExperienceYears: string;
   softwareIndustryExperienceYears: string;
   certifications: string;
+  credentialEntries: AutofillCredential[];
+  languages: AutofillLanguage[];
   undergraduateGpa: string;
   graduateGpa: string;
   doctorateGpa: string;
@@ -124,8 +183,18 @@ export interface AutofillProfile {
   greScore: string;
   heardAboutJob: string;
   heardAboutJobOther: string;
+  referrerName: string;
+  referrerEmail: string;
   previousEmployers: string;
   compensationExpectation: string;
+  compensationCurrency: string;
+  compensationFrequency: string;
+  availableStartDate: string;
+  noticePeriod: string;
+  willingToRelocate: "" | "yes" | "no";
+  willingToTravel: "" | "yes" | "no";
+  maxTravelPercentage: string;
+  isAtLeast18: "" | "yes" | "no";
   preferredOfficeLocations: string;
   securityClearances: string;
   canPerformEssentialFunctions: "" | "yes" | "no";
@@ -213,6 +282,56 @@ function numberText(value: unknown): string {
     : "";
 }
 
+function credentialEntries(profile: ProfileData): AutofillCredential[] {
+  return (profile.certifications ?? []).map((credential) => ({
+    name: text(credential.name),
+    issuer: text(credential.issuer),
+    credentialId: text(credential.credentialId),
+    issueDate: text(credential.issueDate),
+    expirationDate: text(credential.expirationDate),
+    doesNotExpire: choice(credential.doesNotExpire),
+  }));
+}
+
+function primaryEducation(profile: ProfileData): AutofillEducationEntry | null {
+  const school = text(profile.school);
+  const degree = text(profile.degree);
+  const fieldOfStudy = text(profile.fieldOfStudy);
+  if (!school && !degree && !fieldOfStudy) return null;
+  const gpa =
+    degree === "Master's degree"
+      ? text(profile.graduateGpa)
+      : degree === "Doctorate"
+        ? text(profile.doctorateGpa)
+        : text(profile.undergraduateGpa);
+  return {
+    school,
+    degree,
+    degreeOther: degree === "Other" ? text(profile.degreeOther) : "",
+    fieldOfStudy,
+    startDate: text(profile.educationStartDate),
+    graduationDate: text(profile.graduationDate),
+    gpa,
+  };
+}
+
+function educationEntries(profile: ProfileData): AutofillEducationEntry[] {
+  const primary = primaryEducation(profile);
+  return [
+    ...(primary ? [primary] : []),
+    ...(profile.additionalEducation ?? []).map((entry) => ({
+      school: text(entry.school),
+      degree: text(entry.degree),
+      degreeOther:
+        text(entry.degree) === "Other" ? text(entry.degreeOther) : "",
+      fieldOfStudy: text(entry.fieldOfStudy),
+      startDate: text(entry.startDate),
+      graduationDate: text(entry.graduationDate),
+      gpa: text(entry.gpa),
+    })),
+  ];
+}
+
 export function buildAutofillProfile(
   profile: ProfileData,
   country?: string | null,
@@ -226,12 +345,53 @@ export function buildAutofillProfile(
     normalizedCountry === "united states" ||
     normalizedCountry === "united states of america";
   const hasCountryContext = isCanada || isUnitedStates;
+  const credentials = credentialEntries(profile);
+  const workExperiences: AutofillWorkExperience[] = (
+    profile.workExperiences ?? []
+  ).map((entry) => ({
+    company: text(entry.company),
+    title: text(entry.title),
+    location: text(entry.location),
+    startDate: text(entry.startDate),
+    endDate: text(entry.endDate),
+    currentRole: choice(entry.currentRole),
+    description: text(entry.description),
+  }));
+  const websites = [
+    { label: "LinkedIn", url: text(profile.linkedin) },
+    { label: "GitHub", url: text(profile.github) },
+    {
+      label: "Portfolio",
+      url: text(profile.website) || text(profile.portfolio),
+    },
+    ...(profile.additionalWebsites ?? []).map((entry) => ({
+      label: text(entry.label),
+      url: text(entry.url),
+    })),
+  ].filter(
+    (entry, index, entries) =>
+      entry.url &&
+      entries.findIndex(
+        (candidate) => candidate.url.toLowerCase() === entry.url.toLowerCase(),
+      ) === index,
+  );
   return {
     firstName: text(profile.firstName),
     preferredName: text(profile.preferredName),
+    middleName: text(profile.middleName),
     lastName: text(profile.lastName),
+    nameSuffix: text(profile.nameSuffix),
     email: text(profile.email),
     phone: text(profile.phone),
+    phoneCountryCode: text(profile.phoneCountryCode),
+    phoneType: text(profile.phoneType),
+    phoneExtension: text(profile.phoneExtension),
+    homeAddressLine1: text(profile.homeAddressLine1),
+    homeAddressLine2: text(profile.homeAddressLine2),
+    homeCity: text(profile.homeCity),
+    homeRegion: text(profile.homeRegion),
+    homePostalCode: text(profile.homePostalCode),
+    homeCountry: text(profile.homeCountry),
     country: !hasCountryContext
       ? ""
       : isCanada
@@ -267,17 +427,29 @@ export function buildAutofillProfile(
     linkedinUrl: text(profile.linkedin),
     githubUrl: text(profile.github),
     portfolioUrl: text(profile.website) || text(profile.portfolio),
+    additionalWebsites: websites,
     school: text(profile.school),
     degree: text(profile.degree),
     degreeOther:
       text(profile.degree) === "Other" ? text(profile.degreeOther) : "",
     fieldOfStudy: text(profile.fieldOfStudy),
+    educationStartDate: text(profile.educationStartDate),
     graduationDate: text(profile.graduationDate),
+    educationEntries: educationEntries(profile),
+    workExperiences,
     relevantExperienceYears: numberText(profile.relevantExperienceYears),
     softwareIndustryExperienceYears: numberText(
       profile.softwareIndustryExperienceYears,
     ),
-    certifications: listText(profile.certifications),
+    certifications: listText(credentials.map((credential) => credential.name)),
+    credentialEntries: credentials,
+    languages: (profile.languages ?? []).map((entry) => ({
+      language: text(entry.language),
+      overallProficiency: text(entry.overallProficiency),
+      speakingProficiency: text(entry.speakingProficiency),
+      readingProficiency: text(entry.readingProficiency),
+      writingProficiency: text(entry.writingProficiency),
+    })),
     undergraduateGpa: text(profile.undergraduateGpa),
     graduateGpa: text(profile.graduateGpa),
     doctorateGpa: text(profile.doctorateGpa),
@@ -289,8 +461,21 @@ export function buildAutofillProfile(
       text(profile.heardAboutJob) === "Other"
         ? text(profile.heardAboutJobOther)
         : "",
-    previousEmployers: companyListText(profile.previousEmployers),
+    referrerName: text(profile.referrerName),
+    referrerEmail: text(profile.referrerEmail),
+    previousEmployers: companyListText([
+      ...(profile.previousEmployers ?? []),
+      ...workExperiences.map((entry) => entry.company),
+    ]),
     compensationExpectation: text(profile.compensationExpectation),
+    compensationCurrency: text(profile.compensationCurrency),
+    compensationFrequency: text(profile.compensationFrequency),
+    availableStartDate: text(profile.availableStartDate),
+    noticePeriod: text(profile.noticePeriod),
+    willingToRelocate: choice(profile.willingToRelocate),
+    willingToTravel: choice(profile.willingToTravel),
+    maxTravelPercentage: text(profile.maxTravelPercentage),
+    isAtLeast18: choice(profile.isAtLeast18),
     preferredOfficeLocations: listText(preferredOfficeLocations, "\n"),
     securityClearances: listText(profile.securityClearances),
     canPerformEssentialFunctions: choice(profile.canPerformEssentialFunctions),

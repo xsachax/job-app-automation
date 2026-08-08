@@ -718,17 +718,12 @@ describe("Chrome extension field matching", () => {
       profileSchema.fields,
     );
     const riskyLabels = [
-      ["Middle name", "text", ""],
       ["Reference name", "text", ""],
       ["Name of current employer", "text", ""],
       ["Reference email", "text", "email"],
-      ["Referral email address", "text", "email"],
-      ["Referrer full name", "text", "name"],
-      ["Who referred you? Email address", "text", ""],
       ["Employer website", "text", ""],
       ["Supervisor city", "text", ""],
       ["Please state your desired salary", "text", ""],
-      ["Phone extension", "text", ""],
     ];
 
     expect(companyWebsite).toBeNull();
@@ -747,7 +742,12 @@ describe("Chrome extension field matching", () => {
     }
 
     const legitimateLabels = [
+      ["Middle name", "middleName"],
       ["Phone number", "phone"],
+      ["Phone extension", "phoneExtension"],
+      ["Referrer full name", "referrerName"],
+      ["Referral email address", "referrerEmail"],
+      ["Who referred you? Email address", "referrerEmail"],
       ["Country calling code", "phoneCountryCode"],
       ["Country of residence", "country"],
     ];

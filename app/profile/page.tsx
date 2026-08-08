@@ -12,6 +12,7 @@ import {
   syncAutofillProfile,
 } from "@/lib/chromeExtension";
 import type { ProfileData } from "@/lib/settings";
+import { WorkdayProfileFields } from "./WorkdayProfileFields";
 import { useProfilePersistence } from "./useProfilePersistence";
 
 type Profile = ProfileData;
@@ -560,7 +561,7 @@ export default function ProfilePage() {
               Save profile or open a job.
             </p>
 
-            <div className="mt-4 grid gap-4 md:grid-cols-3">
+            <div className="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-5">
               <FieldShell label="First name">
                 <input
                   aria-label="First name"
@@ -579,6 +580,15 @@ export default function ProfilePage() {
                   onChange={(e) => setField("preferredName", e.target.value)}
                 />
               </FieldShell>
+              <FieldShell label="Middle name">
+                <input
+                  aria-label="Middle name"
+                  className={cls.input}
+                  value={profile.middleName}
+                  autoComplete="additional-name"
+                  onChange={(e) => setField("middleName", e.target.value)}
+                />
+              </FieldShell>
               <FieldShell label="Last name">
                 <input
                   aria-label="Last name"
@@ -586,6 +596,15 @@ export default function ProfilePage() {
                   value={profile.lastName ?? ""}
                   autoComplete="family-name"
                   onChange={(e) => setField("lastName", e.target.value)}
+                />
+              </FieldShell>
+              <FieldShell label="Name suffix">
+                <input
+                  aria-label="Name suffix"
+                  className={cls.input}
+                  value={profile.nameSuffix}
+                  autoComplete="honorific-suffix"
+                  onChange={(e) => setField("nameSuffix", e.target.value)}
                 />
               </FieldShell>
             </div>
@@ -729,6 +748,8 @@ export default function ProfilePage() {
               </FieldShell>
             </div>
           </section>
+
+          <WorkdayProfileFields profile={profile} onChange={setField} />
 
           <section className={cls.card}>
             <h2 className="text-lg font-semibold text-gray-950 dark:text-gray-50">Resume source</h2>
@@ -963,6 +984,17 @@ export default function ProfilePage() {
                     }
                   />
                 </FieldShell>
+                <FieldShell label="Education start date">
+                  <input
+                    aria-label="Education start date"
+                    type="month"
+                    className={cls.input}
+                    value={profile.educationStartDate}
+                    onChange={(event) =>
+                      setField("educationStartDate", event.target.value)
+                    }
+                  />
+                </FieldShell>
                 <FieldShell label="Relevant experience">
                   <input
                     aria-label="Relevant experience"
@@ -1012,15 +1044,6 @@ export default function ProfilePage() {
                       )
                     }
                     placeholder="Years, for example 2"
-                  />
-                </FieldShell>
-                <FieldShell label="Certifications">
-                  <TagEditor
-                    label="certification"
-                    items={profile.certifications}
-                    placeholder="AWS Certified Cloud Practitioner"
-                    empty="No certifications added."
-                    onChange={(items) => setField("certifications", items)}
                   />
                 </FieldShell>
               </div>

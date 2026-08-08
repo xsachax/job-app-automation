@@ -74,6 +74,9 @@ describe("Chrome extension background security", () => {
     expect(backgroundSource).toMatch(
       /JOB_AUTOFILL_START_SESSION[\s\S]*\{ frameId: 0 \}/,
     );
+    expect(backgroundSource).toMatch(
+      /"lib\/workday-adapter\.js",[\s\S]*"lib\/ats-adapter\.js"/,
+    );
   });
 
   it("does not send profile values or resume bytes during passive scans", () => {
@@ -82,6 +85,9 @@ describe("Chrome extension background security", () => {
     );
     expect(backgroundSource).not.toContain("profile: frameProfile");
     expect(backgroundSource).not.toContain("resumeFile: frameResumeFile");
+    expect(backgroundSource).toContain(
+      "...profileSchema.profileAvailability(profile, context)",
+    );
   });
 
   it("freezes country-scoped profile answers per application session", () => {

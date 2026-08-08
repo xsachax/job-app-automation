@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <body>
+    <main data-automation-id="applicationPage">
+      <header data-automation-id="applicationHeader">Acme application</header>
+      <div data-automation-id="progressBar">Voluntary disclosures</div>
+      <section data-automation-id="selfIdentificationPage">
+        <h1>Voluntary self-identification</h1>
+        <label>Gender identity
+          <select id="gender" required>
+            <option value="">Select</option>
+            <option value="woman">Woman</option>
+            <option value="man">Man</option>
+            <option value="decline">Prefer not to answer</option>
+          </select>
+        </label>
+        <label>Race / ethnicity
+          <select id="race" required>
+            <option value="">Select</option>
+            <option value="asian">Asian</option>
+            <option value="white">White</option>
+            <option value="decline">Prefer not to answer</option>
+          </select>
+        </label>
+        <label>Protected veteran status
+          <select id="veteran" required>
+            <option value="">Select</option>
+            <option value="protected">Protected veteran</option>
+            <option value="not-protected">Not a protected veteran</option>
+            <option value="decline">Prefer not to answer</option>
+          </select>
+        </label>
+        <label>Disability status
+          <select id="disability" required>
+            <option value="">Select</option>
+            <option value="yes">Yes, I have a disability or have had one in the past</option>
+            <option value="no">No, I do not have a disability and have not had one in the past</option>
+            <option value="decline">I do not want to answer</option>
+          </select>
+        </label>
+        <label>Are you Hispanic or Latino? (optional)
+          <select id="ethnicity">
+            <option value="">Select</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+        </label>
+        <button id="next" data-automation-id="bottom-navigation-next-button">Next</button>
+      </section>
+    </main>
+    <script>
+      window.nextClicks = 0;
+      document.querySelector("#next").addEventListener("click", () => {
+        window.nextClicks += 1;
+      });
+    </script>
+  </body>
+</html>

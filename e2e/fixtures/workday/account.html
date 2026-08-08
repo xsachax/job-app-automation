@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <body>
+    <main data-automation-id="applicationPage">
+      <header data-automation-id="applicationHeader">Acme careers</header>
+      <section data-automation-id="accountCreationPage">
+        <h1>Create an account</h1>
+        <label>
+          Email address
+          <input id="account-email" data-automation-id="email" required />
+        </label>
+        <label>
+          Password
+          <input id="account-password" type="password" required />
+        </label>
+        <div class="captcha">
+          <label>CAPTCHA <input id="captcha-answer" required /></label>
+        </div>
+        <button id="create-account" data-automation-id="createAccount">
+          Create account
+        </button>
+        <button id="sign-in" data-automation-id="signIn">Sign in</button>
+      </section>
+    </main>
+    <script>
+      window.accountClicks = 0;
+      document.querySelector("#create-account").addEventListener("click", () => {
+        window.accountClicks += 1;
+      });
+      document.querySelector("#sign-in").addEventListener("click", () => {
+        window.accountClicks += 1;
+      });
+    </script>
+  </body>
+</html>

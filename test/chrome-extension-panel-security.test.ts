@@ -22,8 +22,13 @@ describe("Chrome extension panel security", () => {
   });
 
   it("allows failed controls to be retried on the next explicit fill", () => {
-    expect(panelSource).toMatch(
-      /state\.fillIssues\.clear\(\);\s*const questions = collectQuestions\(\)/,
+    const fillSource = panelSource.slice(
+      panelSource.indexOf("async function fillKnownFields"),
+      panelSource.indexOf("function handleFieldChange"),
+    );
+    expect(fillSource).toContain("state.fillIssues.clear();");
+    expect(fillSource.indexOf("state.fillIssues.clear();")).toBeLessThan(
+      fillSource.indexOf("const questions = collectQuestions();"),
     );
   });
 

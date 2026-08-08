@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <body>
+    <main data-automation-id="applicationPage">
+      <header data-automation-id="applicationHeader">Acme application</header>
+      <div data-automation-id="progressBar">Review</div>
+      <section data-automation-id="reviewPage">
+        <h1>Review your application</h1>
+        <label>Email address <input id="review-email" data-automation-id="email" required /></label>
+        <button id="submit" data-automation-id="submit">Submit</button>
+      </section>
+    </main>
+    <script>
+      window.submitClicks = 0;
+      document.querySelector("#submit").addEventListener("click", () => {
+        window.submitClicks += 1;
+      });
+    </script>
+  </body>
+</html>

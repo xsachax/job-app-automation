@@ -124,7 +124,16 @@ describe("buildResumeContext", () => {
       fieldOfStudy: "Computer Science",
       graduationDate: "2026-05",
       relevantExperienceYears: 1.5,
-      certifications: ["AWS Certified Cloud Practitioner"],
+      certifications: [
+        {
+          name: "AWS Certified Cloud Practitioner",
+          issuer: "",
+          credentialId: "",
+          issueDate: "",
+          expirationDate: "",
+          doesNotExpire: null,
+        },
+      ],
       qualifications: "Legacy text that should not be scored.",
     };
 

@@ -17,7 +17,8 @@ The queue targets roles that are **entry-level or ask for ≤ 2 years of experie
 > a durable **application profile**, **company/location tier boards**, and a **tier-first
 > fit judge** that ranks discovered roles against your preferences and résumé. Legacy
 > auto-apply fillers are retained but unused (see
-> [Paused features](#paused-features)). Workday postings are flagged in a separate list.
+> [Paused features](#paused-features)). Workday postings share the Jobs queue and have
+> dedicated, human-controlled autofill support.
 
 ---
 
@@ -149,7 +150,9 @@ If a direct source sees the same requisition again, that row reopens instead of 
 - **Safe application handoff** — every card opens the real posting. Without the optional
   extension it is a normal link; with the extension connected, the assistant opens beside the
   form and waits for you to start autofill from its protected panel.
-- **Workday flagging** — surfaced in a separate list.
+- **Dedicated Workday assistance** — recognize common multi-page Workday applications,
+  fill supported mandatory controls from structured saved answers, and rescan after
+  Workday rerenders while leaving page progression and submission to you.
 - **Clean dashboard** — Overview, Jobs (US/CA), Companies, Judge, company/location tiers,
   Profile, Settings, Extension, and Workday.
 
@@ -216,7 +219,7 @@ The Chrome extension is optional and needs no build or Web Store publication. Fo
 | **Extension** | Install the optional Chrome extension and see its live connection status. |
 | **Settings** | Edit discovery configuration — countries, max YoE, degree/internship gates, keywords, scraper query terms, per-source enable/disable. |
 | **Profile** | Manage automatically saved country-specific application details, education and qualifications, recurring application defaults, voluntary self-identification answers, a saved résumé PDF from GitHub or Google Drive, Judge signals, and your LinkedIn Connections.csv, then run the Judge. |
-| **Workday** | Read-only list of flagged Workday jobs with apply links. |
+| **Workday** | The legacy `/workday` route redirects to the unified, Workday-filterable Jobs queue. |
 
 ---
 
@@ -252,6 +255,15 @@ Application pages receive only field-availability flags until you explicitly cli
 Turn it off globally from its browser-owned popup. If it is off, disconnected, or not configured,
 dashboard job links behave as normal external links. The unpacked extension has a stable ID, so
 no ID copy/paste is needed.
+
+Workday has a dedicated adapter for contact/address/phone, required résumé upload,
+repeated work and education, credentials, languages, websites, recurring role questions,
+explicit work-eligibility answers, voluntary self-identification, and review pages. It
+supports native controls, Workday combobox/listbox controls, radio groups, textareas,
+month/date fields, and saved-entry-backed “add another” sections. Account/sign-in pages,
+CAPTCHAs, signatures and attestations, nuanced employer-specific legal questions, **Next**,
+and final **Submit** always remain manual. Consequential and identity answers are used only
+when explicitly saved; optional fields remain untouched under the required-only policy.
 
 ---
 
@@ -485,8 +497,9 @@ seeded by `scripts/e2e-seed.ts` (US + CA entry-level discovery fixtures — enri
 skills/salary/sponsorship/fit — plus one Workday flag). It exercises the US/CA queue tabs,
 newest-first ordering, the date-posted and **min-fit** filters, the queue count, enriched
 card display, the **applied-status** flow, connection hover details, durable profile/tier
-editing, Judge progress, the Companies page, and the Workday flag-only list — with no live
-network calls. First run needs the browser:
+editing, Judge progress, and the Companies page. Separate committed Workday fixtures
+exercise the extension's multi-page adapter without any live Workday or job-board
+requests. First run needs the browser:
 `npx playwright install chromium`. Open the last HTML report with `npm run e2e:report`.
 
 The discovery **runtime** browser scraper (`npm run discover:browser`) is separate and
@@ -515,7 +528,7 @@ app/                 Next.js dashboard (pages) + API routes under app/api
   settings/          configurable discovery pipeline editor
   profile/           persistent application profile, résumé, judge signals, connections
   extension/         Chrome extension install and connection status
-  workday/           Workday flag-only list
+  workday/           legacy redirect to the unified Jobs queue
   api/               jobs, config, judge, profile, tiers, connections, extension, …
 apps/
   chrome-extension/  unpacked Manifest V3 extension (popup, form panel, icons)
@@ -548,7 +561,8 @@ e2e/                 Playwright specs (smoke, queue, discovery, jobs-actions, ex
   Chrome restricts dashboard communication to the loopback URL patterns declared in the
   extension manifest, and the extension never submits an application.
 - Prefers **official ATS APIs** over scraping.
-- **Workday** is flag-only by design.
+- **Workday stays human-controlled.** The extension may fill recognized mandatory fields,
+  but never creates accounts, solves CAPTCHAs, advances pages, or submits applications.
 - **Discord (deferred):** scraping a Discord channel you're only a member of would require
   either an official bot (which you can't add) or a self-bot (against Discord's ToS), so
   it's intentionally left out. If a channel republishes an upstream feed, add that feed as

@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <body>
+    <main data-automation-id="applicationPage">
+      <header data-automation-id="applicationHeader">Acme application</header>
+      <div data-automation-id="progressBar">Contact</div>
+      <section data-automation-id="contactInformationPage">
+        <h1>Contact information</h1>
+        <div data-automation-id="formField" data-required="true">
+          <label>First name <input id="first-name" data-automation-id="legalNameSection_firstName" /></label>
+          <span data-automation-id="required">Required</span>
+        </div>
+        <div data-automation-id="formField">
+          <label>Middle name (optional) <input id="middle-name" data-automation-id="legalNameSection_middleName" /></label>
+        </div>
+        <div data-automation-id="formField" data-required="true">
+          <label>Last name <input id="last-name" data-automation-id="legalNameSection_lastName" /></label>
+        </div>
+        <div data-automation-id="formField" data-required="true">
+          <label>Address line 1 <input id="address-1" data-automation-id="addressSection_addressLine1" /></label>
+        </div>
+        <div data-automation-id="formField">
+          <label>Address line 2 (optional) <input id="address-2" data-automation-id="addressSection_addressLine2" /></label>
+        </div>
+        <div data-automation-id="formField" data-required="true">
+          <label>City <input id="home-city" data-automation-id="addressSection_city" /></label>
+        </div>
+        <div data-automation-id="formField" data-required="true">
+          <label>Postal code <input id="postal-code" data-automation-id="addressSection_postalCode" /></label>
+        </div>
+        <div data-automation-id="formField" data-required="true">
+          <span id="country-label">Country</span>
+          <button
+            id="home-country"
+            type="button"
+            role="combobox"
+            aria-labelledby="country-label"
+            aria-controls="country-options"
+            data-automation-id="addressSection_countryRegion"
+          >Select a country</button>
+          <div id="country-options" role="listbox" hidden>
+            <button type="button" role="option" data-value="CA" data-automation-id="promptOption">Canada</button>
+            <button type="button" role="option" data-value="US" data-automation-id="promptOption">United States</button>
+          </div>
+        </div>
+        <div data-automation-id="formField" data-required="true">
+          <label>State or province
+            <select id="home-region" data-automation-id="addressSection_countryRegionSubdivision1">
+              <option value="">Select</option>
+              <option value="NY">New York</option>
+              <option value="ON">Ontario</option>
+            </select>
+          </label>
+        </div>
+        <div data-automation-id="formField" data-required="true">
+          <label>Country calling code
+            <select id="phone-country-code" data-automation-id="country-phone-code">
+              <option value="">Select</option>
+              <option value="+1">Canada / United States (+1)</option>
+              <option value="+44">United Kingdom (+44)</option>
+            </select>
+          </label>
+        </div>
+        <div data-automation-id="formField" data-required="true">
+          <label>Phone number <input id="phone-number" data-automation-id="phone-number" /></label>
+        </div>
+        <div data-automation-id="formField" data-required="true">
+          <label>Phone type
+            <select id="phone-type" data-automation-id="phone-device-type">
+              <option value="">Select</option>
+              <option value="mobile">Mobile</option>
+              <option value="home">Home</option>
+            </select>
+          </label>
+        </div>
+        <button id="next" data-automation-id="bottom-navigation-next-button">Next</button>
+      </section>
+    </main>
+    <script>
+      window.nextClicks = 0;
+      document.querySelector("#next").addEventListener("click", () => {
+        window.nextClicks += 1;
+      });
+      const combo = document.querySelector("#home-country");
+      const list = document.querySelector("#country-options");
+      combo.addEventListener("click", () => {
+        list.hidden = false;
+        combo.setAttribute("aria-expanded", "true");
+      });
+      for (const option of list.querySelectorAll("[role=option]")) {
+        option.addEventListener("click", () => {
+          for (const candidate of list.querySelectorAll("[role=option]")) {
+            candidate.setAttribute("aria-selected", String(candidate === option));
+          }
+          combo.dataset.value = option.dataset.value;
+          combo.textContent = option.textContent;
+          combo.setAttribute("aria-valuetext", option.textContent);
+          combo.setAttribute("aria-expanded", "false");
+          list.hidden = true;
+        });
+      }
+    </script>
+  </body>
+</html>
