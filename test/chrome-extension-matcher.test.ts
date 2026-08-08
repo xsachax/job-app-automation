@@ -47,6 +47,13 @@ interface Matcher {
     candidates: MatchDefinition[];
     reason: string;
   };
+  equivalentCandidateMatch(
+    analysis: {
+      status: "none" | "uncertain" | "confident";
+      candidates: MatchDefinition[];
+    },
+    profile: Record<string, string>,
+  ): MatchDefinition | null;
   resolveEligibilityAnswer(
     definitionKey: string,
     signals: { text: string; weight: number; source?: string }[],
@@ -806,6 +813,42 @@ describe("Chrome extension field matching", () => {
         profileSchema.fields,
       )?.definition.key,
     ).toBe("city");
+  });
+
+  it("coalesces only equivalent saved current-location candidates", () => {
+    const analysis = matcher.analyzeDefinition(
+      {
+        signals: [
+          {
+            text: "Current city / location",
+            weight: 1,
+            source: "label",
+          },
+        ],
+        controlKind: "select",
+        optionTexts: ["New York, NY", "Toronto, ON"],
+      },
+      profileSchema.fields,
+    );
+
+    expect(analysis.status).toBe("uncertain");
+    expect([
+      "location",
+      "city",
+    ]).toContain(
+      matcher.equivalentCandidateMatch(analysis, {
+        location: "New York, NY",
+        city: "New York",
+        homeCity: "New York",
+      })?.definition.key,
+    );
+    expect(
+      matcher.equivalentCandidateMatch(analysis, {
+        location: "Toronto, ON",
+        city: "New York",
+        homeCity: "New York",
+      }),
+    ).toBeNull();
   });
 
   it("leaves generic follow-ups and reversed accommodation questions unanswered", () => {

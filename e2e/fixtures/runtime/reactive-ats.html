@@ -1,0 +1,723 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Offline reactive ATS application</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 0 auto;
+        max-width: 960px;
+        padding: 24px;
+      }
+
+      section,
+      fieldset {
+        border: 1px solid #c7c7c7;
+        margin: 16px 0;
+        padding: 16px;
+      }
+
+      label,
+      .field {
+        display: block;
+        margin: 12px 0;
+      }
+
+      .styled-choice input {
+        opacity: 0;
+        position: absolute;
+      }
+
+      .styled-choice span,
+      [role="radio"],
+      [role="option"],
+      [role="combobox"] {
+        border: 1px solid #777;
+        cursor: pointer;
+        display: inline-block;
+        margin: 4px;
+        padding: 6px 10px;
+      }
+
+      [role="listbox"] {
+        background: white;
+        border: 1px solid #333;
+        padding: 8px;
+        position: absolute;
+        z-index: 100;
+      }
+
+      #unrelated-listbox {
+        left: -10000px;
+        top: 0;
+      }
+
+      #event-log,
+      #model-state {
+        background: #f5f5f5;
+        max-height: 220px;
+        overflow: auto;
+        padding: 12px;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <h1 data-automation-id="applicationHeader">Offline reactive ATS application</h1>
+    <div data-automation-id="progressBar">Application questions</div>
+    <p>
+      This fixture never submits. It emulates controlled generic, Ashby-like,
+      and Workday-like application controls.
+    </p>
+
+    <main id="application" data-automation-id="applicationPage">
+      <section id="generic-controls" data-ats-shape="generic">
+        <h2>Generic required selects</h2>
+
+        <label>
+          Current city / location *
+          <select id="native-city" name="location" required>
+            <option value="">Select a city</option>
+            <option value="ny">New York, NY, United States</option>
+            <option value="toronto">Toronto, ON, Canada</option>
+          </select>
+        </label>
+
+        <label>
+          Country *
+          <select id="native-country" name="country" required>
+            <option value="">Select a country</option>
+            <option value="us">United States</option>
+            <option value="ca">Canada</option>
+          </select>
+        </label>
+
+        <label>
+          State or province *
+          <select id="native-region" name="region" required>
+            <option value="">Select a region</option>
+            <option value="NY">New York</option>
+            <option value="ON">Ontario</option>
+          </select>
+        </label>
+
+        <label>
+          School *
+          <select id="native-school" name="school" required>
+            <option value="">Select a school</option>
+            <option value="uottawa">University of Ottawa</option>
+            <option value="stanford">Stanford University</option>
+          </select>
+        </label>
+
+        <label>
+          Degree *
+          <select id="native-degree" name="degree" required>
+            <option value="">Select a degree</option>
+            <option value="bachelors">Bachelor's degree</option>
+            <option value="masters">Master's degree</option>
+          </select>
+        </label>
+
+        <label>
+          How did you hear about us? *
+          <select id="native-source" name="source" required>
+            <option value="">Select a source</option>
+            <option value="linkedin">LinkedIn</option>
+            <option value="referral">Employee referral</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
+
+        <label>
+          Current country (already entered) *
+          <select id="preserved-country" name="existing_country" required>
+            <option value="">Select a country</option>
+            <option value="us">United States</option>
+            <option value="ca" selected>Canada</option>
+          </select>
+        </label>
+
+        <label>
+          Optional city
+          <select id="optional-native-city" name="optional_location">
+            <option value="">Select a city</option>
+            <option value="ny">New York, NY, United States</option>
+          </select>
+        </label>
+
+        <label>
+          Optional source
+          <select id="optional-native-source" name="optional_source">
+            <option value="">Select a source</option>
+            <option value="linkedin">LinkedIn</option>
+          </select>
+        </label>
+      </section>
+
+      <section id="native-choice-controls" data-ats-shape="generic">
+        <h2>Native choices</h2>
+
+        <fieldset class="application-question">
+          <legend>Are you legally authorized to work in the United States? *</legend>
+          <label class="styled-choice">
+            <input id="authorized-yes" type="radio" name="authorization" value="yes" required>
+            <span>Yes</span>
+          </label>
+          <label class="styled-choice">
+            <input id="authorized-no" type="radio" name="authorization" value="no">
+            <span>No</span>
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Will you now or in the future require visa sponsorship? *</legend>
+          <label>
+            <input id="sponsorship-yes" type="radio" name="sponsorship" value="yes" required>
+            Yes
+          </label>
+          <label>
+            <input id="sponsorship-no" type="radio" name="sponsorship" value="no">
+            No
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Gender identity *</legend>
+          <label>
+            <input id="gender-woman" type="radio" name="gender" value="woman" required>
+            Woman
+          </label>
+          <label>
+            <input id="gender-man" type="radio" name="gender" value="man">
+            Man
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Are you legally authorized to work? (optional)</legend>
+          <label>
+            <input id="optional-authorization-yes" type="radio" name="optional_authorization" value="yes">
+            Yes
+          </label>
+          <label>
+            <input id="optional-authorization-no" type="radio" name="optional_authorization" value="no">
+            No
+          </label>
+        </fieldset>
+      </section>
+
+      <section id="aria-choice-controls" data-ats-shape="ashby">
+        <h2>ARIA choices</h2>
+
+        <div class="field">
+          <div id="age-question">Are you 18 years of age or older? *</div>
+          <div
+            id="age-group"
+            role="radiogroup"
+            aria-labelledby="age-question"
+            aria-required="true"
+          >
+            <div id="age-yes" role="radio" aria-checked="false" data-value="yes">Yes</div>
+            <div id="age-no" role="radio" aria-checked="false" data-value="no">No</div>
+          </div>
+        </div>
+
+        <div class="field">
+          <div id="optional-age-question">Are you 18 years of age or older? (optional)</div>
+          <div
+            id="optional-age-group"
+            role="radiogroup"
+            aria-labelledby="optional-age-question"
+          >
+            <div id="optional-age-yes" role="radio" aria-checked="false" data-value="yes">Yes</div>
+            <div id="optional-age-no" role="radio" aria-checked="false" data-value="no">No</div>
+          </div>
+        </div>
+      </section>
+
+      <section id="checkbox-controls" data-ats-shape="generic">
+        <h2>Checkboxes</h2>
+
+        <fieldset class="application-question" aria-required="true">
+          <legend>
+            Select all office locations where you are willing to work. *
+          </legend>
+          <label>
+            <input id="office-new-york" type="checkbox" name="office-new-york" value="nyc" required>
+            New York, New York, United States
+          </label>
+          <label>
+            <input id="office-toronto" type="checkbox" name="office-toronto" value="toronto" checked>
+            Toronto, Ontario, Canada
+          </label>
+          <label>
+            <input id="office-austin" type="checkbox" name="office-austin" value="austin">
+            Austin, Texas, United States
+          </label>
+        </fieldset>
+
+        <label>
+          <input
+            id="essential-functions"
+            type="checkbox"
+            name="essential_functions"
+            value="yes"
+            required
+          >
+          I confirm that I can perform all essential functions of this role with
+          or without reasonable accommodation. *
+        </label>
+
+        <label>
+          <input id="legal-certification" type="checkbox" name="legal_certification" required>
+          I certify under penalty of law that every statement is complete. *
+        </label>
+
+        <fieldset>
+          <legend>Select optional office locations.</legend>
+          <label>
+            <input id="optional-office-new-york" type="checkbox" name="optional-office-new-york" value="nyc">
+            New York
+          </label>
+        </fieldset>
+      </section>
+
+      <section id="date-controls" data-ats-shape="workday">
+        <h2>Date widgets</h2>
+
+        <label>
+          Available start date *
+          <input id="available-start-date" type="date" name="available_start_date" required>
+        </label>
+
+        <label>
+          Graduation date *
+          <input
+            id="graduation-date"
+            type="month"
+            name="graduation_date"
+            data-automation-id="endDate"
+            required
+          >
+        </label>
+
+        <fieldset
+          data-automation-id="workExperience-1"
+          data-workday-repeat-section
+          data-required="true"
+        >
+          <legend>Work experience 1</legend>
+          <div data-automation-id="formField-startDate">
+            <label>
+              Start month *
+              <select
+                id="work-start-month"
+                data-automation-id="startDateMonth"
+                required
+              >
+                <option value="">Select a month</option>
+                <option value="January">January</option>
+                <option value="July">July</option>
+              </select>
+            </label>
+            <label>
+              Start year *
+              <select
+                id="work-start-year"
+                data-automation-id="startDateYear"
+                required
+              >
+                <option value="">Select a year</option>
+                <option value="2023">2023</option>
+                <option value="2024">2024</option>
+              </select>
+            </label>
+          </div>
+        </fieldset>
+
+        <label>
+          Optional available start date
+          <input id="optional-start-date" type="date" name="optional_start_date">
+        </label>
+      </section>
+
+      <section id="custom-controls">
+        <h2>Portal comboboxes</h2>
+
+        <div class="field application-question" data-ats-shape="ashby">
+          <span id="ashby-school-label">School *</span>
+          <button
+            id="ashby-school-trigger"
+            type="button"
+            role="combobox"
+            aria-labelledby="ashby-school-label"
+            aria-controls="ashby-school-listbox"
+            aria-expanded="false"
+            aria-required="true"
+            data-testid="school-select"
+          >Choose a school</button>
+          <input id="ashby-school-value" type="hidden" name="school">
+        </div>
+
+        <div
+          class="field"
+          data-ats-shape="workday"
+          data-automation-id="addressSection_countryRegionSubdivision1"
+        >
+          <span id="workday-region-label">State or province *</span>
+          <button
+            id="workday-region-trigger"
+            type="button"
+            role="combobox"
+            aria-labelledby="workday-region-label"
+            aria-controls="workday-region-listbox"
+            aria-expanded="false"
+            aria-required="true"
+            data-automation-id="promptOption"
+          >Choose a region</button>
+          <input id="workday-region-value" type="hidden" name="countryRegion">
+        </div>
+
+        <div class="field application-question" data-ats-shape="ashby">
+          <span id="optional-school-label">School (optional)</span>
+          <button
+            id="optional-school-trigger"
+            type="button"
+            role="combobox"
+            aria-labelledby="optional-school-label"
+            aria-controls="optional-school-listbox"
+            aria-expanded="false"
+          >Choose a school</button>
+          <input id="optional-school-value" type="hidden" name="optional_school">
+        </div>
+      </section>
+
+      <section id="file-controls" data-ats-shape="generic">
+        <h2>Files</h2>
+        <label>
+          Resume / CV (PDF) *
+          <input id="resume-file" type="file" name="resume" accept=".pdf,application/pdf" required>
+        </label>
+        <label>
+          Optional supporting document
+          <input id="optional-file" type="file" name="supporting_document">
+        </label>
+      </section>
+
+      <section id="failure-controls" hidden>
+        <h2>Commit failure diagnostics</h2>
+        <label>
+          How did you hear about us? *
+          <select id="reverting-source" name="reverting_source" required>
+            <option value="">Select a source</option>
+            <option value="linkedin">LinkedIn</option>
+          </select>
+        </label>
+      </section>
+
+      <button id="submit-application" type="button">Submit application</button>
+    </main>
+
+    <div id="unrelated-listbox" role="listbox" aria-label="Unrelated global search">
+      <div id="unrelated-school-option" role="option">University of Ottawa</div>
+      <div id="unrelated-region-option" role="option">New York</div>
+    </div>
+
+    <section aria-label="Reactive fixture diagnostics">
+      <h2>Reactive model</h2>
+      <pre id="model-state">{}</pre>
+      <h2>Event log</h2>
+      <ol id="event-log"></ol>
+    </section>
+
+    <script>
+      (() => {
+        const params = new URLSearchParams(location.search);
+        const mode = params.get("mode") || "fill";
+        const harness = {
+          mode,
+          events: [],
+          model: {
+            "essential-functions": false,
+            "legal-certification": false,
+            "office-austin": false,
+            "office-new-york": false,
+            "office-toronto": true,
+            "optional-office-new-york": false,
+            "preserved-country": "ca"
+          },
+          replacements: {},
+          unrelatedOptionClicks: 0,
+          submitClicks: 0
+        };
+        window.__atsHarness = harness;
+
+        const modelState = document.querySelector("#model-state");
+        const eventLog = document.querySelector("#event-log");
+
+        function renderModel() {
+          modelState.textContent = JSON.stringify(harness.model, null, 2);
+        }
+
+        function controlName(target) {
+          return (
+            target.id ||
+            target.getAttribute("name") ||
+            target.getAttribute("data-control") ||
+            target.getAttribute("role") ||
+            target.tagName.toLowerCase()
+          );
+        }
+
+        function targetValue(target) {
+          if (target.matches("input[type=radio], input[type=checkbox]")) {
+            return target.checked ? String(target.value || "true") : "";
+          }
+          return String(
+            target.value ??
+            target.getAttribute("data-value") ??
+            target.getAttribute("aria-valuetext") ??
+            target.textContent ??
+            ""
+          ).trim();
+        }
+
+        function updateNativeModel(target) {
+          if (!target.matches("input, select, textarea")) return;
+          if (target.type === "file") {
+            harness.model[controlName(target)] = target.files?.[0]?.name || "";
+          } else if (target.type === "radio") {
+            if (target.checked) harness.model[target.name] = target.value;
+          } else if (target.type === "checkbox") {
+            harness.model[controlName(target)] = target.checked;
+          } else if (target.type !== "hidden") {
+            harness.model[controlName(target)] = target.value;
+          }
+          renderModel();
+        }
+
+        for (const eventName of ["click", "input", "change", "blur"]) {
+          document.addEventListener(
+            eventName,
+            (event) => {
+              const target = event.target;
+              if (!(target instanceof Element)) return;
+              const entry = {
+                type: event.type,
+                target: controlName(target),
+                value: targetValue(target)
+              };
+              harness.events.push(entry);
+              const item = document.createElement("li");
+              item.textContent = `${entry.type}:${entry.target}:${entry.value}`;
+              eventLog.append(item);
+              updateNativeModel(target);
+            },
+            true
+          );
+        }
+
+        function replaceNode(id) {
+          const current = document.getElementById(id);
+          if (!current) return;
+          const clone = current.cloneNode(true);
+          if ("value" in clone) clone.value = current.value;
+          current.replaceWith(clone);
+          harness.replacements[id] = (harness.replacements[id] || 0) + 1;
+          renderModel();
+        }
+
+        function replaceControlledSelect(id, dependentIds = []) {
+          document.addEventListener("change", (event) => {
+            const target = event.target;
+            if (!(target instanceof HTMLSelectElement) || target.id !== id) return;
+            if (target.dataset.replaced === "true") return;
+            target.dataset.replaced = "true";
+            queueMicrotask(() => {
+              replaceNode(id);
+              for (const dependentId of dependentIds) {
+                replaceNode(dependentId);
+              }
+            });
+          });
+        }
+
+        replaceControlledSelect("native-school", [
+          "native-degree",
+          "native-source"
+        ]);
+        replaceControlledSelect("native-degree");
+
+        function installAriaRadioGroup(groupId, modelKey) {
+          const group = document.getElementById(groupId);
+          group.addEventListener("click", (event) => {
+            const radio = event.target.closest('[role="radio"]');
+            if (!radio || !group.contains(radio)) return;
+            for (const candidate of group.querySelectorAll('[role="radio"]')) {
+              candidate.setAttribute("aria-checked", String(candidate === radio));
+            }
+            harness.model[modelKey] = radio.dataset.value;
+            renderModel();
+          });
+        }
+
+        installAriaRadioGroup("age-group", "age");
+        installAriaRadioGroup("optional-age-group", "optional-age");
+
+        const combos = {
+          "ashby-school-trigger": {
+            listboxId: "ashby-school-listbox",
+            hiddenId: "ashby-school-value",
+            modelKey: "ashby-school",
+            delay: mode === "cancel" ? 650 : 140,
+            options: [
+              ["uottawa", "University of Ottawa"],
+              ["stanford", "Stanford University"]
+            ]
+          },
+          "workday-region-trigger": {
+            listboxId: "workday-region-listbox",
+            hiddenId: "workday-region-value",
+            modelKey: "workday-region",
+            delay: 160,
+            options: [
+              ["NY", "New York"],
+              ["ON", "Ontario"]
+            ]
+          },
+          "optional-school-trigger": {
+            listboxId: "optional-school-listbox",
+            hiddenId: "optional-school-value",
+            modelKey: "optional-school",
+            delay: 100,
+            options: [
+              ["uottawa", "University of Ottawa"]
+            ]
+          }
+        };
+
+        const loading = new Set();
+
+        function closeCombo(trigger, listbox) {
+          trigger.setAttribute("aria-expanded", "false");
+          listbox.remove();
+        }
+
+        function commitCombo(trigger, config, listbox, option) {
+          const hidden = document.getElementById(config.hiddenId);
+          hidden.value = option.dataset.value;
+          hidden.dispatchEvent(new Event("input", { bubbles: true }));
+          hidden.dispatchEvent(new Event("change", { bubbles: true }));
+          trigger.dataset.value = option.dataset.value;
+          trigger.setAttribute("aria-valuetext", option.textContent);
+          trigger.textContent = option.textContent;
+          harness.model[config.modelKey] = option.dataset.value;
+          closeCombo(trigger, listbox);
+          renderModel();
+          queueMicrotask(() => {
+            if (!trigger.isConnected) return;
+            const replacement = trigger.cloneNode(true);
+            trigger.replaceWith(replacement);
+            harness.replacements[trigger.id] =
+              (harness.replacements[trigger.id] || 0) + 1;
+            renderModel();
+          });
+        }
+
+        function openCombo(trigger, config) {
+          trigger.setAttribute("aria-expanded", "true");
+          if (loading.has(trigger.id) || document.getElementById(config.listboxId)) {
+            return;
+          }
+          loading.add(trigger.id);
+          setTimeout(() => {
+            loading.delete(trigger.id);
+            if (mode === "cancel" && trigger.id === "ashby-school-trigger") {
+              const current = document.getElementById(trigger.id);
+              if (!current || current.dataset.userChanged === "true") return;
+            }
+            const listbox = document.createElement("div");
+            listbox.id = config.listboxId;
+            listbox.setAttribute("role", "listbox");
+            listbox.dataset.owner = trigger.id;
+            for (const [value, label] of config.options) {
+              const option = document.createElement("div");
+              option.setAttribute("role", "option");
+              option.dataset.value = value;
+              option.textContent = label;
+              option.addEventListener("click", () =>
+                commitCombo(trigger, config, listbox, option)
+              );
+              listbox.append(option);
+            }
+            document.body.append(listbox);
+          }, config.delay);
+        }
+
+        document.addEventListener("click", (event) => {
+          const trigger = event.target.closest('[role="combobox"]');
+          if (!trigger || !(trigger.id in combos)) return;
+          openCombo(trigger, combos[trigger.id]);
+        });
+
+        for (const option of document.querySelectorAll("#unrelated-listbox [role=option]")) {
+          option.addEventListener("click", () => {
+            harness.unrelatedOptionClicks += 1;
+            renderModel();
+          });
+        }
+
+        document.querySelector("#submit-application").addEventListener("click", () => {
+          harness.submitClicks += 1;
+          renderModel();
+        });
+
+        if (mode === "failure") {
+          for (const section of document.querySelectorAll("#application > section")) {
+            section.hidden = true;
+          }
+          const failureControls = document.querySelector("#failure-controls");
+          failureControls.hidden = false;
+          const source = document.querySelector("#reverting-source");
+          source.addEventListener("change", () => {
+            queueMicrotask(() => {
+              source.value = "";
+              harness.model["reverting-source"] = "";
+              renderModel();
+            });
+          });
+        }
+
+        if (mode === "cancel") {
+          for (const section of document.querySelectorAll("#application > section")) {
+            section.hidden = section.id !== "custom-controls";
+          }
+          document
+            .querySelector("#workday-region-trigger")
+            .closest(".field")
+            .style.display = "none";
+          document
+            .querySelector("#optional-school-trigger")
+            .closest(".field")
+            .style.display = "none";
+        }
+
+        window.setCancelledUserChoice = () => {
+          const trigger = document.querySelector("#ashby-school-trigger");
+          trigger.dataset.userChanged = "true";
+          trigger.dataset.value = "user-choice";
+          trigger.setAttribute("aria-valuetext", "User choice");
+          trigger.textContent = "User choice";
+          document.querySelector("#ashby-school-value").value = "user-choice";
+          harness.model["ashby-school"] = "user-choice";
+          renderModel();
+        };
+
+        renderModel();
+      })();
+    </script>
+  </body>
+</html>

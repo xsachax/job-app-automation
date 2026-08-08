@@ -5,6 +5,7 @@ const extensionScripts = [
   "apps/chrome-extension/lib/session-scope.js",
   "apps/chrome-extension/lib/profile-schema.js",
   "apps/chrome-extension/lib/field-matcher.js",
+  "apps/chrome-extension/lib/control-interactions.js",
   "apps/chrome-extension/lib/workday-adapter.js",
   "apps/chrome-extension/lib/ats-adapter.js",
   "apps/chrome-extension/content/application-panel.js",

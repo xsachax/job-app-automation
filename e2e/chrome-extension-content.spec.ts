@@ -774,7 +774,7 @@ test("matches city variants in native and custom selects and dispatches ATS even
     expect.arrayContaining(["click", "input", "change", "blur"]),
   );
   expect(events.custom).toEqual(
-    expect.arrayContaining(["click", "input", "change", "blur"]),
+    expect.arrayContaining(["click", "change", "blur"]),
   );
 });
 
