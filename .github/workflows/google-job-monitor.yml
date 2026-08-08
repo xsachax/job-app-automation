@@ -1,0 +1,214 @@
+name: Google Careers apply monitor
+
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Safe operation to run
+        required: true
+        default: detector-test
+        type: choice
+        options:
+          - detector-test
+          - notification-test
+          - live-dry-run
+          - monitor-once
+
+concurrency:
+  group: google-careers-monitor-78703249065943750
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  MONITOR_START_AT: "2026-08-08T07:30:14Z"
+  MONITOR_EXPIRES_AT: "2026-08-10T07:30:14Z"
+
+jobs:
+  monitor:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      vars.GOOGLE_JOB_MONITOR_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check UTC monitoring window
+        id: window
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_MODE: ${{ inputs.mode }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          now_epoch=$(date -u +%s)
+          start_epoch=$(date -u -d "$MONITOR_START_AT" +%s)
+          expiry_epoch=$(date -u -d "$MONITOR_EXPIRES_AT" +%s)
+
+          if (( now_epoch < start_epoch )); then
+            state=not_started
+            active=false
+          elif (( now_epoch >= expiry_epoch )); then
+            state=expired
+            active=false
+          else
+            state=active
+            active=true
+          fi
+
+          runtime_required=false
+          if [[ "$EVENT_NAME" == "workflow_dispatch" &&
+                ( "$DISPATCH_MODE" == "detector-test" ||
+                  "$DISPATCH_MODE" == "notification-test" ) ]]; then
+            runtime_required=true
+          elif [[ "$active" == "true" ]]; then
+            runtime_required=true
+          fi
+
+          {
+            echo "state=$state"
+            echo "active=$active"
+            echo "runtime_required=$runtime_required"
+          } >> "$GITHUB_OUTPUT"
+          echo "Monitoring window state: $state"
+
+      - name: Reject unconfirmed production dispatch
+        if: >-
+          github.event_name == 'workflow_dispatch' &&
+          inputs.mode == 'monitor-once' &&
+          vars.GOOGLE_JOB_MONITOR_ENABLED != 'true'
+        shell: bash
+        run: |
+          echo "::error::Run notification-test and enable GOOGLE_JOB_MONITOR_ENABLED before monitor-once."
+          exit 1
+
+      - name: Checkout
+        if: steps.window.outputs.runtime_required == 'true'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Node.js
+        if: steps.window.outputs.runtime_required == 'true'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies for offline detector test
+        if: >-
+          github.event_name == 'workflow_dispatch' &&
+          inputs.mode == 'detector-test'
+        run: npm ci
+
+      - name: Run offline detector test
+        if: >-
+          github.event_name == 'workflow_dispatch' &&
+          inputs.mode == 'detector-test'
+        run: npm run test:google-job-monitor
+
+      - name: Send safe notification test
+        if: >-
+          github.event_name == 'workflow_dispatch' &&
+          inputs.mode == 'notification-test'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          node --experimental-strip-types
+          scripts/custom/google-job-monitor/notify-cli.ts
+          --mode test
+
+      - name: Run one bounded target check
+        id: target_check
+        if: >-
+          steps.window.outputs.active == 'true' &&
+          (
+            github.event_name == 'schedule' ||
+            inputs.mode == 'live-dry-run' ||
+            (inputs.mode == 'monitor-once' &&
+             vars.GOOGLE_JOB_MONITOR_ENABLED == 'true')
+          )
+        shell: bash
+        run: |
+          set -euo pipefail
+          result_file="$RUNNER_TEMP/google-job-monitor-result.json"
+          set +e
+          node --experimental-strip-types \
+            scripts/custom/google-job-monitor/cli.ts > "$result_file"
+          exit_code=$?
+          set -e
+
+          node - "$result_file" "$exit_code" "$GITHUB_OUTPUT" <<'NODE'
+          const fs = require("node:fs");
+          const [resultFile, exitCodeText, outputFile] = process.argv.slice(2);
+          const result = JSON.parse(fs.readFileSync(resultFile, "utf8"));
+          const exitCode = Number(exitCodeText);
+          const expectedCodes = {
+            available: 0,
+            unavailable: 10,
+            unknown: 20,
+            not_started: 30,
+            expired: 31,
+          };
+          if (
+            typeof result !== "object" ||
+            result === null ||
+            !(result.status in expectedCodes) ||
+            expectedCodes[result.status] !== exitCode ||
+            typeof result.checkedAt !== "string" ||
+            !Number.isFinite(Date.parse(result.checkedAt)) ||
+            result.checkedAt.includes("\n")
+          ) {
+            throw new Error("Monitor returned an invalid result");
+          }
+          fs.appendFileSync(
+            outputFile,
+            `status=${result.status}\nchecked_at=${result.checkedAt}\n`,
+          );
+          NODE
+
+      - name: Report target status
+        if: steps.target_check.outcome == 'success'
+        env:
+          STATUS: ${{ steps.target_check.outputs.status }}
+          DISPATCH_MODE: ${{ inputs.mode }}
+        shell: bash
+        run: |
+          case "$STATUS" in
+            unknown)
+              echo "::warning::Target status is unknown; no notification will be sent."
+              ;;
+            unavailable)
+              echo "::notice::Target remains unavailable."
+              ;;
+            available)
+              if [[ "$DISPATCH_MODE" == "live-dry-run" ]]; then
+                echo "::notice::Dry run detected available; notification intentionally suppressed."
+              else
+                echo "::notice::Target detected available; invoking one-shot notifier."
+              fi
+              ;;
+          esac
+
+      - name: Send one-shot availability notification
+        if: >-
+          steps.target_check.outputs.status == 'available' &&
+          vars.GOOGLE_JOB_MONITOR_ENABLED == 'true' &&
+          (github.event_name == 'schedule' || inputs.mode == 'monitor-once')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CHECKED_AT: ${{ steps.target_check.outputs.checked_at }}
+        run: >-
+          node --experimental-strip-types
+          scripts/custom/google-job-monitor/notify-cli.ts
+          --mode available
+          --checked-at "$CHECKED_AT"
+
+      - name: Report inactive live request
+        if: >-
+          github.event_name == 'workflow_dispatch' &&
+          (inputs.mode == 'live-dry-run' || inputs.mode == 'monitor-once') &&
+          steps.window.outputs.active != 'true'
+        env:
+          WINDOW_STATE: ${{ steps.window.outputs.state }}
+        run: echo "::notice::No target request made; monitoring window is $WINDOW_STATE."
