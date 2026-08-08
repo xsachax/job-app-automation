@@ -29,7 +29,9 @@
     "discovery:verify": "tsx scripts/verify-queries.ts",
     "discover": "tsx scripts/discover.ts",
     "discover:browser": "tsx scripts/discover.ts --browser",
-    "companies:dedupe": "tsx scripts/dedupe-companies.ts"
+    "companies:dedupe": "tsx scripts/dedupe-companies.ts",
+    "google-job:monitor": "tsx scripts/custom/google-job-monitor/cli.ts",
+    "test:google-job-monitor": "vitest run --config scripts/custom/google-job-monitor/vitest.config.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
