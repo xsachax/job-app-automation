@@ -306,7 +306,15 @@
       )
     );
     return candidates
-      .filter((candidate) => !candidate.contains(element))
+      .filter(
+        (candidate) =>
+          !elements.some((questionElement) =>
+            candidate.contains(questionElement)
+          ) &&
+          !candidate.querySelector(
+            "input, textarea, select, button, [contenteditable='true'], [role='combobox'], [role='radio'], [role='checkbox']"
+          )
+      )
       .map((candidate) => text(candidate.textContent))
       .filter((value) => value.length >= 2 && value.length <= 240);
   }

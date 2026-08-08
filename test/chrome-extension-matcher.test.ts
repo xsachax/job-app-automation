@@ -1,5 +1,9 @@
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
+import {
+  commonQuestionCorpus,
+  guardedQuestionCorpus,
+} from "./fixtures/chrome-extension-common-questions";
 
 interface MatchDefinition {
   definition: { key: string; label: string };
@@ -456,6 +460,69 @@ describe("Chrome extension field matching", () => {
     }
   });
 
+  it("resolves at least 95 percent of the common safe-question corpus", () => {
+    const outcomes = commonQuestionCorpus.map((question) => {
+      const context = {
+        autocomplete: question.autocomplete,
+        signals: question.signals,
+        controlKind: question.controlKind,
+        optionTexts: question.optionTexts,
+      };
+      const first = matcher.findBestDefinition(context, profileSchema.fields);
+      const second = matcher.findBestDefinition(context, profileSchema.fields);
+      return {
+        category: question.category,
+        prompt: question.signals[0].text,
+        expected: question.expectedKey,
+        actual: first?.definition.key || "",
+        deterministic:
+          first?.definition.key === second?.definition.key &&
+          first?.score === second?.score,
+      };
+    });
+    const incorrect = outcomes.filter(
+      (outcome) => outcome.actual && outcome.actual !== outcome.expected,
+    );
+    const unresolved = outcomes.filter((outcome) => !outcome.actual);
+    const matched = outcomes.filter(
+      (outcome) => outcome.actual === outcome.expected,
+    );
+    const matchRate = matched.length / outcomes.length;
+
+    expect(
+      outcomes.every((outcome) => outcome.deterministic),
+      JSON.stringify(outcomes.filter((outcome) => !outcome.deterministic), null, 2),
+    ).toBe(true);
+    expect(incorrect, JSON.stringify(incorrect, null, 2)).toEqual([]);
+    expect(
+      matchRate,
+      `${matched.length}/${outcomes.length} matched; unresolved:\n${JSON.stringify(
+        unresolved,
+        null,
+        2,
+      )}`,
+    ).toBeGreaterThanOrEqual(0.95);
+  });
+
+  it("keeps the common ambiguity and consequential guard corpus manual", () => {
+    const unsafeMatches = guardedQuestionCorpus
+      .map((question) => ({
+        prompt: question.signals[0].text,
+        actual:
+          matcher.findBestDefinition(
+            {
+              signals: question.signals,
+              controlKind: question.controlKind,
+              optionTexts: question.optionTexts,
+            },
+            profileSchema.fields,
+          )?.definition.key || "",
+      }))
+      .filter((outcome) => outcome.actual);
+
+    expect(unsafeMatches, JSON.stringify(unsafeMatches, null, 2)).toEqual([]);
+  });
+
   it("recognizes the reported education and application fields", () => {
     const reportedFields = [
       ["Country* Required", "select", "country"],
@@ -567,6 +634,22 @@ describe("Chrome extension field matching", () => {
         "location",
       ),
     ).toBe(100);
+    expect(
+      matcher.scoreChoice(
+        "Toronto, ON",
+        "toronto-ca",
+        "Toronto, Ontario, Canada",
+        "location",
+      ),
+    ).toBe(100);
+    expect(
+      matcher.scoreChoice(
+        "Toronto, ON",
+        "toronto-ca",
+        "Toronto, Canada",
+        "location",
+      ),
+    ).toBe(94);
     expect(
       matcher.scoreChoice(
         "Portland, OR",

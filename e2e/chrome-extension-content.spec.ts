@@ -291,7 +291,7 @@ test("fills required native radio groups from parent and member metadata", async
           </label>
         </fieldset>
         <label>
-          Explanation (optional)
+          Explain your visa sponsorship needs (optional)
           <input id="authorization-explanation">
         </label>
       </div>
@@ -301,6 +301,17 @@ test("fills required native radio groups from parent and member metadata", async
           <input type="radio" name="travel" value="yes" required> Yes
         </label>
         <label><input type="radio" name="travel" value="no"> No</label>
+      </fieldset>
+      <fieldset>
+        <legend>Will you require visa sponsorship?</legend>
+        <label>
+          <input type="radio" name="sponsorship" value="yes" required>
+          Yes, I will require sponsorship
+        </label>
+        <label>
+          <input type="radio" name="sponsorship" value="no">
+          No, I will not require sponsorship
+        </label>
       </fieldset>
       <fieldset>
         <legend>Are you legally authorized to work? (optional)</legend>
@@ -321,15 +332,19 @@ test("fills required native radio groups from parent and member metadata", async
     profile: {
       workAuthorization: "yes",
       willingToTravel: "no",
+      requiresSponsorship: "no",
     },
     requiredByDefault: false,
   });
 
-  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 2 });
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 3 });
   await expect(
     page.locator('input[name="authorization"][value="yes"]'),
   ).toBeChecked();
   await expect(page.locator('input[name="travel"][value="no"]')).toBeChecked();
+  await expect(
+    page.locator('input[name="sponsorship"][value="no"]'),
+  ).toBeChecked();
   await expect(page.locator("#authorization-explanation")).toHaveValue("");
   await expect(
     page.locator('input[name="optional-authorization"]:checked'),
