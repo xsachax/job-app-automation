@@ -782,8 +782,40 @@
         </div>
       </section>
 
+      <section id="replaced-combo-controls" hidden>
+        <h2>Replaced custom combobox ownership</h2>
+        <div class="field application-question">
+          <label id="replaced-source-label" for="replaced-source">
+            How did you hear about us? *
+          </label>
+          <button
+            id="replaced-source"
+            data-testid="replaced-source"
+            type="button"
+            role="combobox"
+            aria-labelledby="replaced-source-label"
+            aria-controls="replaced-source-listbox"
+            aria-expanded="false"
+            aria-required="true"
+          >Choose a source</button>
+        </div>
+      </section>
+
+      <section id="shadow-combo-controls" hidden>
+        <h2>Shadow-root custom combobox ownership</h2>
+        <div id="shadow-combo-host"></div>
+      </section>
+
       <button id="submit-application" type="button">Submit application</button>
     </main>
+
+    <div id="shadow-source-listbox" role="listbox" hidden>
+      <div
+        id="document-shadow-source-option"
+        role="option"
+        data-value="linkedin"
+      >LinkedIn</div>
+    </div>
 
     <div id="unrelated-listbox" role="listbox" aria-label="Unrelated global search">
       <div id="unrelated-school-option" role="option">University of Ottawa</div>
@@ -815,7 +847,10 @@
             "rejected-source-committed": false
           },
           replacements: {},
+          documentShadowOptionClicks: 0,
           unrelatedOptionClicks: 0,
+          shadowOptionClicks: 0,
+          staleOptionClicks: 0,
           submitClicks: 0
         };
         window.__atsHarness = harness;
@@ -1176,6 +1211,58 @@
           });
         }
 
+        const shadowHost = document.querySelector("#shadow-combo-host");
+        const shadowRoot = shadowHost.attachShadow({ mode: "open" });
+        shadowRoot.innerHTML = `
+          <div class="field application-question">
+            <label id="shadow-source-label" for="shadow-source-trigger">
+              How did you hear about us? *
+            </label>
+            <button
+              id="shadow-source-trigger"
+              type="button"
+              role="combobox"
+              aria-labelledby="shadow-source-label"
+              aria-controls="shadow-source-listbox"
+              aria-expanded="false"
+              aria-required="true"
+            >Choose a source</button>
+            <input id="shadow-source-value" type="hidden" name="shadow_source">
+            <div id="shadow-source-listbox" role="listbox" hidden>
+              <div
+                id="shadow-source-option"
+                role="option"
+                data-value="linkedin"
+              >LinkedIn</div>
+            </div>
+          </div>
+        `;
+        const shadowTrigger = shadowRoot.querySelector("#shadow-source-trigger");
+        const shadowListbox = shadowRoot.querySelector("#shadow-source-listbox");
+        const shadowOption = shadowRoot.querySelector("#shadow-source-option");
+        shadowTrigger.addEventListener("click", () => {
+          shadowTrigger.setAttribute("aria-expanded", "true");
+          shadowListbox.hidden = false;
+        });
+        shadowOption.addEventListener("click", () => {
+          shadowTrigger.dataset.value = shadowOption.dataset.value;
+          shadowTrigger.setAttribute("aria-valuetext", shadowOption.textContent);
+          shadowTrigger.setAttribute("aria-expanded", "false");
+          shadowTrigger.textContent = shadowOption.textContent;
+          shadowRoot.querySelector("#shadow-source-value").value =
+            shadowOption.dataset.value;
+          shadowListbox.hidden = true;
+          harness.shadowOptionClicks += 1;
+          harness.model["shadow-source"] = shadowOption.dataset.value;
+          renderModel();
+        });
+        document
+          .querySelector("#document-shadow-source-option")
+          .addEventListener("click", () => {
+            harness.documentShadowOptionClicks += 1;
+            renderModel();
+          });
+
         document.querySelector("#submit-application").addEventListener("click", () => {
           harness.submitClicks += 1;
           renderModel();
@@ -1234,6 +1321,83 @@
               renderModel();
             }, 900);
           });
+        }
+
+        if (mode === "controlled-input") {
+          for (const section of document.querySelectorAll("#application > section")) {
+            section.hidden = section.id !== "rejected-combo-controls";
+          }
+          const source = document.querySelector("#rejected-source");
+          source.addEventListener("click", () => {
+            source.setAttribute("aria-expanded", "true");
+          });
+          source.addEventListener("input", () => {
+            if (source.value !== "LinkedIn") return;
+            source.value = "User choice";
+            source.setAttribute("aria-expanded", "false");
+            harness.model["rejected-source"] = "User choice";
+            harness.model["rejected-source-committed"] = false;
+            renderModel();
+          });
+        }
+
+        if (mode === "replaced-combo") {
+          for (const section of document.querySelectorAll("#application > section")) {
+            section.hidden = section.id !== "replaced-combo-controls";
+          }
+          const source = document.querySelector("#replaced-source");
+          let hydrationStarted = false;
+          source.addEventListener("click", () => {
+            source.setAttribute("aria-expanded", "true");
+            if (hydrationStarted) return;
+            hydrationStarted = true;
+            setTimeout(() => {
+              const current = document.querySelector("#replaced-source");
+              if (!current) return;
+              const replacement = current.cloneNode(true);
+              replacement.dataset.value = "user-choice";
+              replacement.setAttribute("aria-valuetext", "User choice");
+              replacement.textContent = "User choice";
+              current.replaceWith(replacement);
+              harness.replacements["replaced-source"] =
+                (harness.replacements["replaced-source"] || 0) + 1;
+              harness.model["replaced-source"] = "User choice";
+              renderModel();
+            }, 50);
+            setTimeout(() => {
+              const listbox = document.createElement("div");
+              listbox.id = "replaced-source-listbox";
+              listbox.setAttribute("role", "listbox");
+              listbox.dataset.owner = "replaced-source";
+              const option = document.createElement("div");
+              option.setAttribute("role", "option");
+              option.dataset.value = "linkedin";
+              option.textContent = "LinkedIn";
+              option.addEventListener("click", () => {
+                harness.staleOptionClicks += 1;
+                const current = document.querySelector("#replaced-source");
+                if (current) {
+                  current.value = "LinkedIn";
+                  current.dataset.value = "linkedin";
+                  current.setAttribute("aria-valuetext", "LinkedIn");
+                  current.setAttribute("aria-expanded", "false");
+                }
+                harness.model["replaced-source"] = "linkedin";
+                harness.model["replaced-source-committed"] = true;
+                listbox.remove();
+                renderModel();
+              });
+              listbox.append(option);
+              document.body.append(listbox);
+            }, 300);
+          });
+        }
+
+        if (mode === "shadow-combo") {
+          for (const section of document.querySelectorAll("#application > section")) {
+            section.hidden = section.id !== "shadow-combo-controls";
+          }
+          document.querySelector("#shadow-source-listbox").hidden = false;
         }
 
         if (mode === "cancel") {

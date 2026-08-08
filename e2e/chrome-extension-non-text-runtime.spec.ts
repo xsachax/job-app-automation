@@ -27,10 +27,13 @@ interface RuntimeState {
 }
 
 interface FixtureState {
+  documentShadowOptionClicks: number;
   events: { type: string; target: string; value: string }[];
   model: Record<string, string | boolean>;
   replacements: Record<string, number>;
   unrelatedOptionClicks: number;
+  shadowOptionClicks: number;
+  staleOptionClicks: number;
   submitClicks: number;
 }
 
@@ -586,7 +589,7 @@ test.describe("unpacked extension non-text runtime", () => {
       const rejectedSource = application.locator(
         '[data-testid="rejected-source"]',
       );
-      await expect(rejectedSource).toHaveValue("LinkedIn");
+      await expect(rejectedSource).toHaveValue("");
       await expect(rejectedSource).toHaveAttribute(
         "data-job-autofill-review",
         "failed",
@@ -610,7 +613,7 @@ test.describe("unpacked extension non-text runtime", () => {
         () =>
           (globalThis as unknown as { __atsHarness: FixtureState }).__atsHarness,
       );
-      expect(state.model["rejected-source"]).toBe("LinkedIn");
+      expect(state.model["rejected-source"]).toBe("");
       expect(state.model["rejected-source-committed"]).toBe(false);
 
       await expect
@@ -635,6 +638,7 @@ test.describe("unpacked extension non-text runtime", () => {
         "Filled 0 fields. Review the page.",
       );
 
+      await rejectedSource.fill("Manual choice");
       await rejectedSource.fill("");
       await expect
         .poll(() => extensionState(popup, applicationUrl))
@@ -649,6 +653,142 @@ test.describe("unpacked extension non-text runtime", () => {
         });
       await expect(rejectedSource).not.toHaveAttribute(
         "data-job-autofill-review",
+      );
+    } finally {
+      await runtime.close();
+      await closeServer(fixture.server);
+    }
+  });
+
+  test("stops async option work when a replacement contains newer input", async () => {
+    const fixture = await startFixtureServer();
+    const runtime = await launchUnpackedExtension([
+      "--host-resolver-rules=MAP ats.test 127.0.0.1",
+    ]);
+    try {
+      const applicationUrl = `${fixture.origin}/application?mode=replaced-combo`;
+      const application = await launchFromDashboard(runtime, applicationUrl);
+      const popup = await openPopupForPage(runtime, application);
+
+      await popup.locator("[data-fill]").click();
+      const replacedSource = application.locator(
+        '[data-testid="replaced-source"]',
+      );
+      await expect(replacedSource).toHaveText("User choice");
+      await expect(replacedSource).toHaveAttribute(
+        "data-value",
+        "user-choice",
+      );
+      await application.waitForTimeout(400);
+
+      const state = await application.evaluate(
+        () =>
+          (globalThis as unknown as { __atsHarness: FixtureState }).__atsHarness,
+      );
+      expect(state.replacements["replaced-source"]).toBe(1);
+      expect(state.staleOptionClicks).toBe(0);
+      expect(state.model["replaced-source"]).toBe("User choice");
+      expect(state.model["replaced-source-committed"]).not.toBe(true);
+      await expect
+        .poll(() => extensionState(popup, applicationUrl))
+        .toMatchObject({
+          session: {
+            progress: {
+              answered: 0,
+              filledByExtension: 0,
+              needsAttention: 1,
+              unknownFields: [{ status: "failed" }],
+            },
+          },
+        });
+      await expect(popup.locator("[data-notice]")).toHaveText(
+        "Filled 0 fields. Review the page.",
+      );
+    } finally {
+      await runtime.close();
+      await closeServer(fixture.server);
+    }
+  });
+
+  test("preserves a synchronous controlled value that replaces the typed query", async () => {
+    const fixture = await startFixtureServer();
+    const runtime = await launchUnpackedExtension([
+      "--host-resolver-rules=MAP ats.test 127.0.0.1",
+    ]);
+    try {
+      const applicationUrl = `${fixture.origin}/application?mode=controlled-input`;
+      const application = await launchFromDashboard(runtime, applicationUrl);
+      const popup = await openPopupForPage(runtime, application);
+
+      await popup.locator("[data-fill]").click();
+      const controlledSource = application.locator(
+        '[data-testid="rejected-source"]',
+      );
+      await expect(controlledSource).toHaveValue("User choice");
+      const state = await application.evaluate(
+        () =>
+          (globalThis as unknown as { __atsHarness: FixtureState }).__atsHarness,
+      );
+      expect(state.model["rejected-source"]).toBe("User choice");
+      expect(state.model["rejected-source-committed"]).toBe(false);
+      await expect
+        .poll(() => extensionState(popup, applicationUrl))
+        .toMatchObject({
+          session: {
+            progress: {
+              answered: 0,
+              filledByExtension: 0,
+              needsAttention: 1,
+              unknownFields: [{ status: "failed" }],
+            },
+          },
+        });
+      await expect(popup.locator("[data-notice]")).toHaveText(
+        "Filled 0 fields. Review the page.",
+      );
+    } finally {
+      await runtime.close();
+      await closeServer(fixture.server);
+    }
+  });
+
+  test("uses the shadow-owned listbox instead of a document duplicate ID", async () => {
+    const fixture = await startFixtureServer();
+    const runtime = await launchUnpackedExtension([
+      "--host-resolver-rules=MAP ats.test 127.0.0.1",
+    ]);
+    try {
+      const applicationUrl = `${fixture.origin}/application?mode=shadow-combo`;
+      const application = await launchFromDashboard(runtime, applicationUrl);
+      const popup = await openPopupForPage(runtime, application);
+
+      await popup.locator("[data-fill]").click();
+      await expect(
+        application.locator("#shadow-combo-host #shadow-source-trigger"),
+      ).toHaveText("LinkedIn");
+      await expect(
+        application.locator("#shadow-combo-host #shadow-source-value"),
+      ).toHaveValue("linkedin");
+
+      const state = await application.evaluate(
+        () =>
+          (globalThis as unknown as { __atsHarness: FixtureState }).__atsHarness,
+      );
+      expect(state.shadowOptionClicks).toBe(1);
+      expect(state.documentShadowOptionClicks).toBe(0);
+      expect(state.model["shadow-source"]).toBe("linkedin");
+      await expect
+        .poll(() => extensionState(popup, applicationUrl))
+        .toMatchObject({
+          session: {
+            progress: {
+              filledByExtension: 1,
+              needsAttention: 0,
+            },
+          },
+        });
+      await expect(popup.locator("[data-notice]")).toHaveText(
+        "Filled 1 field. Review the page.",
       );
     } finally {
       await runtime.close();

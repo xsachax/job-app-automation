@@ -8,12 +8,23 @@ interface ListboxLike {
 interface ControlInteractions {
   comboboxCommitEvidence(
     element: unknown,
-    options?: { includeUnassociatedHidden?: boolean },
+    options?: {
+      includeSelectedOptions?: boolean;
+      includeUnassociatedHidden?: boolean;
+    },
   ): { source: string; value: string }[];
   committedControlValue(element: unknown): string;
+  controlOwnershipState(element: unknown): string;
   controlledListboxIds(element: unknown): string[];
   controlReference(element: unknown): unknown;
   resolveControl(reference: unknown): unknown;
+  resolveControlledListboxes(element: unknown): unknown[];
+  resolveOwnedControl(reference: unknown, expectedValue?: string | null): unknown;
+  restoreOwnedControlValue(
+    reference: unknown,
+    ownedValue: string | null,
+    originalValue: string,
+  ): unknown;
   scopedListboxes(
     element: unknown,
     visibleListboxes: ListboxLike[],
@@ -161,6 +172,298 @@ describe("Chrome extension control interactions", () => {
     expect(
       interactions.resolveControl(interactions.controlReference(original)),
     ).toBe(replacement);
+  });
+
+  it("restores only the extension-owned query on a live replacement", () => {
+    const replacement = { id: "source", isConnected: true, value: "LinkedIn" };
+    const root = {
+      getElementById() {
+        return replacement;
+      },
+    };
+    const original = {
+      id: "source",
+      isConnected: false,
+      value: "",
+      getRootNode() {
+        return root;
+      },
+    };
+    const reference = interactions.controlReference(original);
+
+    expect(
+      interactions.restoreOwnedControlValue(reference, "LinkedIn", ""),
+    ).toBe(replacement);
+    expect(replacement.value).toBe("");
+
+    replacement.value = "User choice";
+    expect(
+      interactions.restoreOwnedControlValue(reference, "LinkedIn", ""),
+    ).toBeNull();
+    expect(replacement.value).toBe("User choice");
+  });
+
+  it("rejects a replacement that no longer contains the owned query", () => {
+    const replacement = {
+      id: "source",
+      isConnected: true,
+      tagName: "INPUT",
+      value: "User choice",
+    };
+    const original = {
+      id: "source",
+      isConnected: false,
+      tagName: "INPUT",
+      value: "LinkedIn",
+      getRootNode() {
+        return {
+          getElementById() {
+            return replacement;
+          },
+        };
+      },
+    };
+
+    expect(
+      interactions.resolveOwnedControl(
+        interactions.controlReference(original),
+        interactions.controlOwnershipState(original),
+      ),
+    ).toBeNull();
+    expect(
+      interactions.resolveOwnedControl(
+        interactions.controlReference(original),
+        interactions.controlOwnershipState({
+          tagName: "INPUT",
+          value: "",
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("rejects a connected original moved outside its captured root or ID", () => {
+    const firstRoot = {};
+    const secondRoot = {};
+    let currentRoot = firstRoot;
+    const control = {
+      id: "source",
+      isConnected: true,
+      getRootNode() {
+        return currentRoot;
+      },
+    };
+    const reference = interactions.controlReference(control);
+
+    currentRoot = secondRoot;
+    control.id = "other";
+
+    expect(interactions.resolveControl(reference)).toBeNull();
+  });
+
+  it("rejects controls from a detached iframe document", () => {
+    const frameElement = {
+      contentDocument: null as unknown,
+      isConnected: false,
+    };
+    const ownerWindow = {
+      document: null as unknown,
+      frameElement,
+    };
+    const ownerDocument = {
+      defaultView: ownerWindow,
+      nodeType: 9,
+    };
+    ownerWindow.document = ownerDocument;
+    frameElement.contentDocument = ownerDocument;
+    const control = {
+      id: "source",
+      isConnected: true,
+      getRootNode() {
+        return ownerDocument;
+      },
+    };
+
+    expect(
+      interactions.resolveControl(interactions.controlReference(control)),
+    ).toBeNull();
+  });
+
+  it("rejects a button combobox whose selection state changed while waiting", () => {
+    const root = {};
+    const values: Record<string, string> = {
+      "aria-valuetext": "",
+      "data-value": "",
+    };
+    const control = {
+      id: "source",
+      isConnected: true,
+      tagName: "BUTTON",
+      textContent: "Choose a source",
+      value: "",
+      getRootNode() {
+        return root;
+      },
+      getAttribute(name: string) {
+        return values[name] ?? null;
+      },
+      closest() {
+        return null;
+      },
+    };
+    const reference = interactions.controlReference(control);
+    const baseline = interactions.controlOwnershipState(control);
+
+    control.value = "user-choice";
+    expect(interactions.resolveOwnedControl(reference, baseline)).toBeNull();
+
+    control.value = "";
+    values["aria-valuetext"] = "User choice";
+    values["data-value"] = "user-choice";
+    control.textContent = "User choice";
+
+    expect(interactions.resolveOwnedControl(reference, baseline)).toBeNull();
+  });
+
+  it("resolves duplicate owned listbox IDs from the control shadow root first", () => {
+    const shadowRoot = {
+      host: { isConnected: true },
+      getElementById(id: string) {
+        return id === "shared-listbox" ? shadowListbox : null;
+      },
+    };
+    const ownerDocument = {
+      getElementById(id: string) {
+        return id === "shared-listbox" ? documentListbox : null;
+      },
+    };
+    const shadowOption = {
+      id: "shadow-option",
+      textContent: "Shadow LinkedIn",
+      value: "",
+      getAttribute(name: string) {
+        const values: Record<string, string> = {
+          "aria-selected": "true",
+          "data-value": "shadow-linkedin",
+        };
+        return values[name] ?? null;
+      },
+    };
+    const documentOption = {
+      id: "document-option",
+      textContent: "Document LinkedIn",
+      value: "",
+      getAttribute(name: string) {
+        const values: Record<string, string> = {
+          "aria-selected": "true",
+          "data-value": "document-linkedin",
+        };
+        return values[name] ?? null;
+      },
+    };
+    const shadowListbox = {
+      id: "shared-listbox",
+      isConnected: true,
+      getRootNode() {
+        return shadowRoot;
+      },
+      getAttribute(name: string) {
+        return name === "role" ? "listbox" : null;
+      },
+      querySelectorAll() {
+        return [shadowOption];
+      },
+    };
+    const documentListbox = {
+      id: "shared-listbox",
+      isConnected: true,
+      getRootNode() {
+        return ownerDocument;
+      },
+      getAttribute(name: string) {
+        const values: Record<string, string> = {
+          role: "listbox",
+          "data-owner": "source-trigger",
+        };
+        return values[name] ?? null;
+      },
+      querySelectorAll() {
+        return [documentOption];
+      },
+    };
+    const control = {
+      id: "source-trigger",
+      ownerDocument,
+      tagName: "INPUT",
+      textContent: "",
+      value: "",
+      getRootNode() {
+        return shadowRoot;
+      },
+      getAttribute(name: string) {
+        const values: Record<string, string> = {
+          role: "combobox",
+          "aria-controls": "shared-listbox",
+        };
+        return values[name] ?? null;
+      },
+      closest() {
+        return null;
+      },
+    };
+
+    expect(interactions.resolveControlledListboxes(control)).toEqual([
+      shadowListbox,
+    ]);
+    expect(interactions.comboboxCommitEvidence(control)).toEqual([
+      {
+        source: "selected-option:shared-listbox:shadow-option",
+        value: "shadow-linkedin",
+      },
+    ]);
+  });
+
+  it("accepts an ID-less shadow control's forward-controlled document portal", () => {
+    const shadowRoot = {
+      host: { isConnected: true },
+      getElementById() {
+        return null;
+      },
+    };
+    const ownerDocument = {
+      getElementById() {
+        return listbox;
+      },
+    };
+    const option = { id: "active-option" };
+    const listbox = {
+      id: "portal-listbox",
+      isConnected: true,
+      getRootNode() {
+        return ownerDocument;
+      },
+      getAttribute(name: string) {
+        return name === "role" ? "listbox" : null;
+      },
+      querySelectorAll(selector: string) {
+        expect(selector).toBe("[id]");
+        return [option];
+      },
+    };
+    const control = {
+      id: "",
+      ownerDocument,
+      getRootNode() {
+        return shadowRoot;
+      },
+      getAttribute(name: string) {
+        const values: Record<string, string> = {
+          "aria-controls": "portal-listbox",
+        };
+        return values[name] ?? null;
+      },
+    };
+
+    expect(interactions.resolveControlledListboxes(control)).toEqual([listbox]);
   });
 
   it("reads committed values from non-value-holding visible triggers", () => {

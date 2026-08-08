@@ -526,16 +526,13 @@
       if (text(explicitValue)) {
         return true;
       }
-      const controlledIds = String(
-        first.getAttribute("aria-controls") ||
-          first.getAttribute("aria-owns") ||
-          ""
-      ).split(/\s+/);
-      const hasSelectedOption = controlledIds.some((id) =>
-        first.ownerDocument
-          ?.getElementById(id)
-          ?.querySelector?.('[role="option"][aria-selected="true"]')
-      );
+      const hasSelectedOption = interactions
+        .resolveControlledListboxes(first)
+        .some((listbox) =>
+          listbox.querySelector?.(
+            '[role="option"][aria-selected="true"], option:checked'
+          )
+        );
       if (hasSelectedOption) {
         return true;
       }
@@ -1622,19 +1619,11 @@
     } else if (["choice", "check-many"].includes(kind)) {
       options = elements;
     } else if (kind === "combobox") {
-      const controlledIds = [
-        first.getAttribute("aria-controls"),
-        first.getAttribute("aria-owns")
-      ]
-        .filter(Boolean)
-        .flatMap((value) => String(value).split(/\s+/));
       options = Array.from(
         new Set(
-          controlledIds.flatMap((id) =>
+          interactions.resolveControlledListboxes(first).flatMap((listbox) =>
             Array.from(
-              first.ownerDocument
-                ?.getElementById(id)
-                ?.querySelectorAll(ats.optionSelectorFor(state.adapter)) || []
+              listbox.querySelectorAll(ats.optionSelectorFor(state.adapter)) || []
             )
           )
         )
@@ -1761,7 +1750,6 @@
   }
 
   function visibleComboOptions(element, initiallyVisible = []) {
-    const ownerDocument = element.ownerDocument;
     const optionsFrom = (container) =>
       Array.from(
         container?.querySelectorAll?.(ats.optionSelectorFor(state.adapter)) || []
@@ -1771,9 +1759,9 @@
     if (controlledIds.length) {
       return Array.from(
         new Set(
-          controlledIds.flatMap((id) =>
-            optionsFrom(ownerDocument.getElementById(id))
-          )
+          interactions
+            .resolveControlledListboxes(element)
+            .flatMap(optionsFrom)
         )
       );
     }
@@ -1796,171 +1784,214 @@
   }
 
   async function waitForComboboxOptions(
-    element,
+    reference,
     value,
     fieldKey,
     assertActive,
-    initiallyVisible
+    ownedState,
+    initiallyVisible,
+    ranker = rankOptions
   ) {
     const deadline = Date.now() + 1_500;
-    let ranked = [];
     do {
       assertActive();
-      ranked = rankOptions(
-        visibleComboOptions(element, initiallyVisible),
+      const current = interactions.resolveOwnedControl(reference, ownedState);
+      if (!current) {
+        return false;
+      }
+      const ranked = ranker(
+        visibleComboOptions(current, initiallyVisible),
         value,
         fieldKey
       );
       if (hasUniqueChoice(ranked)) {
-        return ranked;
+        return true;
       }
       await wait(75);
       assertActive();
     } while (Date.now() < deadline);
-    return ranked;
-  }
-
-  async function waitForComboboxFallbackOptions(
-    element,
-    value,
-    fieldKey,
-    assertActive,
-    ownsValue,
-    initiallyVisible
-  ) {
-    const deadline = Date.now() + 1_500;
-    let ranked = [];
-    do {
-      assertActive();
-      if (!ownsValue()) {
-        return null;
-      }
-      ranked = rankFallbackOptions(
-        visibleComboOptions(element, initiallyVisible),
-        value,
-        fieldKey
-      );
-      if (hasUniqueChoice(ranked)) {
-        return ranked;
-      }
-      await wait(75);
-      assertActive();
-    } while (Date.now() < deadline);
-    return ranked;
+    return Boolean(interactions.resolveOwnedControl(reference, ownedState));
   }
 
   async function fillCombobox(question, value, assertActive) {
-    const element = question.elements[0];
-    const reference = interactions.controlReference(element);
-    const initiallyVisible = visibleListboxes(element);
-    const originalValue = isInput(element) ? element.value : "";
-    let ownedValue = null;
+    const reference = interactions.controlReference(question.elements[0]);
+    const originalValue = isInput(question.elements[0])
+      ? String(question.elements[0].value)
+      : "";
+    let ownedValue = isInput(question.elements[0]) ? originalValue : null;
+    let ownedState = interactions.controlOwnershipState(question.elements[0]);
+    let committed = false;
     const restoreTypedValue = () => {
-      const current = interactions.resolveControl(reference);
-      if (
-        isInput(current) &&
-        ownedValue !== null &&
-        current.value === ownedValue &&
-        current.value !== originalValue
-      ) {
-        setNativeProperty(current, "value", originalValue);
-        dispatchValueEvents(current);
+      const restored = interactions.restoreOwnedControlValue(
+        reference,
+        ownedValue,
+        originalValue
+      );
+      if (restored) {
+        dispatchValueEvents(restored);
       }
     };
     try {
       assertActive();
-      element.focus?.();
-      dispatchPointerClick(element);
+      let current = interactions.resolveOwnedControl(reference, ownedState);
+      if (!current) {
+        return fillFailure(
+          question,
+          "The field was replaced before the extension could open it."
+        );
+      }
+      const initiallyVisible = visibleListboxes(current);
+      current.focus?.();
+      dispatchPointerClick(current);
       await wait(60);
       assertActive();
 
       const fieldKey = question.match?.definition.key;
-      const initialOptions = visibleComboOptions(element, initiallyVisible);
-      let options = initialOptions;
-      let ranked = rankOptions(options, value, fieldKey);
+      current = interactions.resolveOwnedControl(reference, ownedState);
+      if (!current) {
+        return fillFailure(
+          question,
+          "The field was replaced while its options were opening."
+        );
+      }
+      let ranked = rankOptions(
+        visibleComboOptions(current, initiallyVisible),
+        value,
+        fieldKey
+      );
       let usedFallback = false;
-      if (!hasUniqueChoice(ranked) && isInput(element) && !element.readOnly) {
-        if (element.value !== originalValue) {
+      if (!hasUniqueChoice(ranked) && isInput(current) && !current.readOnly) {
+        current = interactions.resolveOwnedControl(reference, ownedState);
+        if (!isInput(current) || String(current.value) !== originalValue) {
           return fillFailure(
             question,
             "The field changed before the extension could choose an option."
           );
         }
         assertActive();
-        setNativeProperty(element, "value", value);
+        current = interactions.resolveOwnedControl(reference, ownedState);
+        if (!isInput(current) || String(current.value) !== originalValue) {
+          return fillFailure(
+            question,
+            "The field changed before the extension could enter its search."
+          );
+        }
+        setNativeProperty(current, "value", value);
+        ownedValue = String(current.value);
+        ownedState = interactions.controlOwnershipState(current);
         const EventConstructor =
-          element.ownerDocument?.defaultView?.Event || Event;
-        element.dispatchEvent(new EventConstructor("input", { bubbles: true }));
-        ownedValue = String(element.value);
-        ranked = await waitForComboboxOptions(
-          element,
+          current.ownerDocument?.defaultView?.Event || Event;
+        current.dispatchEvent(new EventConstructor("input", { bubbles: true }));
+        current = interactions.resolveOwnedControl(reference, ownedState);
+        if (!current) {
+          return fillFailure(
+            question,
+            "The field changed while the extension entered its search."
+          );
+        }
+        await waitForComboboxOptions(
+          reference,
           value,
           fieldKey,
           assertActive,
+          ownedState,
           initiallyVisible
         );
       } else if (!hasUniqueChoice(ranked)) {
-        ranked = await waitForComboboxOptions(
-          element,
+        await waitForComboboxOptions(
+          reference,
           value,
           fieldKey,
           assertActive,
+          ownedState,
           initiallyVisible
         );
       }
 
-      options = visibleComboOptions(element, initiallyVisible);
-      if (
-        isInput(element) &&
-        ownedValue !== null &&
-        element.value !== ownedValue
-      ) {
+      current = interactions.resolveOwnedControl(reference, ownedState);
+      if (!current) {
         return fillFailure(
           question,
-          "The field changed before the extension could commit its option."
+          "The field changed or was replaced while its options were loading."
         );
       }
+      ranked = rankOptions(
+        visibleComboOptions(current, initiallyVisible),
+        value,
+        fieldKey
+      );
       if (!hasUniqueChoice(ranked) && supportsSafeFallback(fieldKey)) {
+        current = interactions.resolveOwnedControl(reference, ownedState);
+        if (!current) {
+          return fillFailure(
+            question,
+            "The field changed before the extension could choose a fallback option."
+          );
+        }
         let fallbackRanked = [];
         if (
-          isInput(element) &&
+          isInput(current) &&
           ownedValue !== null &&
-          element.value === ownedValue &&
-          element.value !== originalValue
+          String(current.value) === ownedValue &&
+          String(current.value) !== originalValue
         ) {
           assertActive();
-          setNativeProperty(element, "value", originalValue);
+          current = interactions.resolveOwnedControl(reference, ownedState);
+          if (!isInput(current)) {
+            return fillFailure(
+              question,
+              "The field was replaced before the extension could choose a fallback option."
+            );
+          }
+          setNativeProperty(current, "value", originalValue);
+          ownedValue = String(current.value);
+          ownedState = interactions.controlOwnershipState(current);
           const EventConstructor =
-            element.ownerDocument?.defaultView?.Event || Event;
-          element.dispatchEvent(
+            current.ownerDocument?.defaultView?.Event || Event;
+          current.dispatchEvent(
             new EventConstructor("input", { bubbles: true })
           );
-          ownedValue = String(element.value);
-          fallbackRanked = await waitForComboboxFallbackOptions(
-            element,
+          current = interactions.resolveOwnedControl(reference, ownedState);
+          if (!current) {
+            return fillFailure(
+              question,
+              "The field changed while the extension prepared fallback options."
+            );
+          }
+          await waitForComboboxOptions(
+            reference,
             value,
             fieldKey,
             assertActive,
-            () => element.value === ownedValue,
-            initiallyVisible
+            ownedState,
+            initiallyVisible,
+            rankFallbackOptions
           );
-          if (fallbackRanked === null) {
+          current = interactions.resolveOwnedControl(reference, ownedState);
+          if (!current) {
             return fillFailure(
               question,
               "The field changed before the extension could choose a fallback option."
             );
           }
-        } else {
           fallbackRanked = rankFallbackOptions(
-            visibleComboOptions(element, initiallyVisible),
+            visibleComboOptions(current, initiallyVisible),
             value,
             fieldKey
           );
-        }
-        options = visibleComboOptions(element, initiallyVisible);
-        if (!hasUniqueChoice(fallbackRanked) && !options.length) {
-          options = initialOptions.filter((option) => option.isConnected);
-          fallbackRanked = rankFallbackOptions(options, value, fieldKey);
+        } else {
+          current = interactions.resolveOwnedControl(reference, ownedState);
+          if (!current) {
+            return fillFailure(
+              question,
+              "The field changed before the extension could rank fallback options."
+            );
+          }
+          fallbackRanked = rankFallbackOptions(
+            visibleComboOptions(current, initiallyVisible),
+            value,
+            fieldKey
+          );
         }
         if (hasUniqueChoice(fallbackRanked)) {
           ranked = fallbackRanked;
@@ -1969,16 +2000,34 @@
       }
 
       if (!hasUniqueChoice(ranked)) {
-        restoreTypedValue();
         return fillFailure(
           question,
           "No unique option owned by this field matched the saved answer."
         );
       }
 
+      assertActive();
+      current = interactions.resolveOwnedControl(reference, ownedState);
+      if (!current) {
+        return fillFailure(
+          question,
+          "The field changed before the extension could click its option."
+        );
+      }
+      ranked = (usedFallback ? rankFallbackOptions : rankOptions)(
+        visibleComboOptions(current, initiallyVisible),
+        value,
+        fieldKey
+      );
+      if (!hasUniqueChoice(ranked) || !ranked[0].option.isConnected) {
+        return fillFailure(
+          question,
+          "The matching option was replaced before the extension could click it."
+        );
+      }
       const commitEvidenceBeforeClick = new Set(
         interactions
-          .comboboxCommitEvidence(element, {
+          .comboboxCommitEvidence(current, {
             includeUnassociatedHidden: true
           })
           .map(
@@ -1986,23 +2035,28 @@
           )
       );
       assertActive();
-      if (
-        isInput(element) &&
-        ownedValue !== null &&
-        element.value !== ownedValue
-      ) {
+      current = interactions.resolveOwnedControl(reference, ownedState);
+      if (!current) {
         return fillFailure(
           question,
           "The field changed before the extension could commit its option."
         );
       }
-      dispatchPointerClick(ranked[0].option);
-      if (isInput(element)) {
-        ownedValue = String(element.value);
+      ranked = (usedFallback ? rankFallbackOptions : rankOptions)(
+        visibleComboOptions(current, initiallyVisible),
+        value,
+        fieldKey
+      );
+      if (!hasUniqueChoice(ranked) || !ranked[0].option.isConnected) {
+        return fillFailure(
+          question,
+          "The matching option changed before the extension could commit it."
+        );
       }
+      dispatchPointerClick(ranked[0].option);
       await wait(0);
       assertActive();
-      let current = committedElement(question, reference);
+      current = committedElement(question, reference);
       if (!current) {
         return fillFailure(
           question,
@@ -2053,6 +2107,7 @@
             source: committedEvidence.source,
             value: committedEvidence.value
           });
+          committed = true;
           return true;
         }
       } while (Date.now() < commitDeadline);
@@ -2061,9 +2116,10 @@
         question,
         "The field matched, but the selected value did not remain committed after the form updated."
       );
-    } catch (error) {
-      restoreTypedValue();
-      throw error;
+    } finally {
+      if (!committed) {
+        restoreTypedValue();
+      }
     }
   }
 

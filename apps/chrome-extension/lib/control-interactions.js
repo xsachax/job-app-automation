@@ -59,8 +59,48 @@
     };
   }
 
+  function rootIsLive(rootNode) {
+    if (rootNode?.host) {
+      return (
+        Boolean(rootNode.host.isConnected) &&
+        rootIsLive(rootNode.host.ownerDocument)
+      );
+    }
+    if (rootNode?.nodeType === 9) {
+      const ownerWindow = rootNode.defaultView;
+      if (!ownerWindow) {
+        return false;
+      }
+      try {
+        const frameElement = ownerWindow.frameElement;
+        return frameElement
+          ? Boolean(
+              frameElement.isConnected &&
+                frameElement.contentDocument === rootNode
+            )
+          : ownerWindow.document === rootNode;
+      } catch {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function controlMatchesReference(control, reference) {
+    if (!control?.isConnected || !rootIsLive(reference?.rootNode)) {
+      return false;
+    }
+    if (reference?.id && String(control.id || "") !== reference.id) {
+      return false;
+    }
+    const currentRoot = control.getRootNode?.();
+    return (
+      !currentRoot || !reference?.rootNode || currentRoot === reference.rootNode
+    );
+  }
+
   function resolveControl(reference) {
-    if (reference?.element?.isConnected) {
+    if (controlMatchesReference(reference?.element, reference)) {
       return reference.element;
     }
     if (!reference?.id || !reference.rootNode) {
@@ -68,15 +108,110 @@
     }
     if (typeof reference.rootNode.getElementById === "function") {
       const byId = reference.rootNode.getElementById(reference.id);
-      if (byId?.isConnected) {
+      if (controlMatchesReference(byId, reference)) {
         return byId;
       }
     }
     return (
       Array.from(reference.rootNode.querySelectorAll?.("[id]") || []).find(
-        (candidate) => candidate.id === reference.id && candidate.isConnected
+        (candidate) =>
+          candidate.id === reference.id &&
+          controlMatchesReference(candidate, reference)
       ) || null
     );
+  }
+
+  function controlOwnershipState(element) {
+    const tagName = String(element?.tagName || "").toUpperCase();
+    const evidence = comboboxCommitEvidence(element, {
+      includeSelectedOptions: false
+    }).map((item) => `${item.source}\u0000${item.value}`);
+    if (["INPUT", "TEXTAREA", "SELECT"].includes(tagName)) {
+      return JSON.stringify({
+        evidence,
+        value: String(element?.value || "")
+      });
+    }
+    return JSON.stringify({
+      ariaValueText: text(element?.getAttribute?.("aria-valuetext")),
+      dataValue: text(element?.getAttribute?.("data-value")),
+      evidence,
+      text: text(element?.textContent),
+      value: "value" in (element || {}) ? String(element.value || "") : ""
+    });
+  }
+
+  function resolveOwnedControl(reference, expectedState = null) {
+    const control = resolveControl(reference);
+    if (!control) {
+      return null;
+    }
+    if (
+      expectedState !== null &&
+      controlOwnershipState(control) !== expectedState
+    ) {
+      return null;
+    }
+    return control;
+  }
+
+  function restoreOwnedControlValue(reference, ownedValue, originalValue) {
+    if (ownedValue === null) {
+      return null;
+    }
+    const control = resolveControl(reference);
+    if (
+      !control ||
+      !("value" in control) ||
+      String(control.value) !== String(ownedValue) ||
+      String(control.value) === String(originalValue)
+    ) {
+      return null;
+    }
+    setNativeProperty(control, "value", originalValue);
+    return control;
+  }
+
+  function connectedElementById(rootNode, id) {
+    if (!rootNode || !id || !rootIsLive(rootNode)) {
+      return null;
+    }
+    let candidate = null;
+    if (typeof rootNode.getElementById === "function") {
+      candidate = rootNode.getElementById(id);
+    }
+    if (!candidate) {
+      candidate =
+        Array.from(rootNode.querySelectorAll?.("[id]") || []).find(
+          (element) => element.id === id
+        ) || null;
+    }
+    if (!candidate?.isConnected) {
+      return null;
+    }
+    const candidateRoot = candidate.getRootNode?.();
+    return candidateRoot && candidateRoot !== rootNode ? null : candidate;
+  }
+
+  function resolveControlledListboxes(element) {
+    const ownerDocument = element?.ownerDocument || null;
+    const rootNode = element?.getRootNode?.() || ownerDocument;
+    const listboxes = [];
+    for (const id of controlledListboxIds(element)) {
+      const local = connectedElementById(rootNode, id);
+      if (local?.getAttribute?.("role") === "listbox") {
+        listboxes.push(local);
+        continue;
+      }
+      if (rootNode === ownerDocument) {
+        continue;
+      }
+      const portal = connectedElementById(ownerDocument, id);
+      if (portal?.getAttribute?.("role") === "listbox") {
+        listboxes.push(portal);
+      }
+    }
+    return Array.from(new Set(listboxes));
   }
 
   function semanticTokens(...values) {
@@ -139,6 +274,7 @@
     const includeUnassociatedHidden = Boolean(
       options.includeUnassociatedHidden
     );
+    const includeSelectedOptions = options.includeSelectedOptions !== false;
     const evidence = [];
     const seen = new Set();
     const add = (source, value) => {
@@ -165,21 +301,23 @@
       );
     }
 
-    for (const id of controlledListboxIds(element)) {
-      const listbox = element?.ownerDocument?.getElementById?.(id);
-      const selectedOptions = Array.from(
-        listbox?.querySelectorAll?.(
-          "[role='option'][aria-selected='true'], option:checked"
-        ) || []
-      );
-      for (const [index, option] of selectedOptions.entries()) {
-        add(
-          `selected-option:${id}:${option.id || index}`,
-          option.getAttribute?.("data-value") ||
-            option.value ||
-            option.getAttribute?.("aria-label") ||
-            option.textContent
+    if (includeSelectedOptions) {
+      for (const listbox of resolveControlledListboxes(element)) {
+        const id = listbox.id;
+        const selectedOptions = Array.from(
+          listbox?.querySelectorAll?.(
+            "[role='option'][aria-selected='true'], option:checked"
+          ) || []
         );
+        for (const [index, option] of selectedOptions.entries()) {
+          add(
+            `selected-option:${id}:${option.id || index}`,
+            option.getAttribute?.("data-value") ||
+              option.value ||
+              option.getAttribute?.("aria-label") ||
+              option.textContent
+          );
+        }
       }
     }
 
@@ -223,9 +361,13 @@
   const api = Object.freeze({
     comboboxCommitEvidence,
     committedControlValue,
+    controlOwnershipState,
     controlledListboxIds,
     controlReference,
     resolveControl,
+    resolveControlledListboxes,
+    resolveOwnedControl,
+    restoreOwnedControlValue,
     scopedListboxes,
     setNativeProperty
   });
