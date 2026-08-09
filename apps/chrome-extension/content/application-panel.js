@@ -28,6 +28,8 @@
     progressSignature: "",
     sessionGeneration: 0,
     extensionValues: new WeakMap(),
+    extensionQueries: new Map(),
+    inferredListboxOwners: new WeakMap(),
     elementIds: new WeakMap(),
     nextElementId: 1,
     fillIssues: new Map(),
@@ -494,6 +496,18 @@
     return "text";
   }
 
+  function isExtensionOwnedQuery(element, value) {
+    for (const [reference, query] of state.extensionQueries) {
+      if (
+        text(query) === value &&
+        interactions.resolveControl(reference) === element
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   function isAnswered(elements) {
     const first = elements[0];
     if (isSelect(first)) {
@@ -520,9 +534,12 @@
       if (text(interactions.committedControlValue(first))) {
         return true;
       }
+      const collapsedValue = text(
+        interactions.collapsedEditableComboboxValue(first)
+      );
       return (
-        first.getAttribute("aria-expanded") === "false" &&
-        Boolean(text(first.value))
+        Boolean(collapsedValue) &&
+        !isExtensionOwnedQuery(first, collapsedValue)
       );
     }
     if (controlKind(elements) === "combobox") {
@@ -1798,16 +1815,17 @@
       );
     }
 
+    const scopedListboxes = interactions.scopedListboxes(
+      element,
+      visibleListboxes(element),
+      initiallyVisible
+    );
+    const reference = interactions.controlReference(element);
+    for (const listbox of scopedListboxes) {
+      state.inferredListboxOwners.set(listbox, reference);
+    }
     return Array.from(
-      new Set(
-        interactions
-          .scopedListboxes(
-            element,
-            visibleListboxes(element),
-            initiallyVisible
-          )
-          .flatMap(optionsFrom)
-      )
+      new Set(scopedListboxes.flatMap(optionsFrom))
     );
   }
 
@@ -1860,6 +1878,14 @@
       });
     let ownedCommitState = commitStateFor(question.elements[0]);
     let committed = false;
+    const markExtensionQuery = (control) => {
+      if (isInput(control)) {
+        state.extensionQueries.set(reference, String(control.value));
+      }
+    };
+    const clearExtensionQuery = () => {
+      state.extensionQueries.delete(reference);
+    };
     const restoreTypedValue = () => {
       const liveControl = interactions.resolveControl(reference);
       const restored = interactions.restoreOwnedControlValue(
@@ -1873,6 +1899,7 @@
         }
       );
       if (restored) {
+        clearExtensionQuery();
         dispatchValueEvents(restored);
       }
     };
@@ -1953,6 +1980,7 @@
               );
             }
             ownedValue = String(current.value);
+            clearExtensionQuery();
             ownedState = interactions.controlOwnershipState(current);
             ownedCommitState = commitStateFor(current);
           }
@@ -1966,6 +1994,7 @@
           }
           setNativeProperty(current, "value", query);
           ownedValue = String(current.value);
+          markExtensionQuery(current);
           ownedState = interactions.controlOwnershipState(current);
           ownedCommitState = commitStateFor(current);
           const EventConstructor =
@@ -1977,6 +2006,9 @@
               question,
               "The field changed while the extension entered its search."
             );
+          }
+          if (String(current.value) === ownedValue) {
+            markExtensionQuery(current);
           }
           await waitForComboboxOptions(
             reference,
@@ -2058,6 +2090,7 @@
             );
           }
           ownedValue = String(current.value);
+          clearExtensionQuery();
           ownedState = interactions.controlOwnershipState(current);
           ownedCommitState = commitStateFor(current);
           const EventConstructor =
@@ -2220,6 +2253,7 @@
           current.getAttribute("aria-expanded") !== "true" &&
           visibleComboOptions(current, initiallyVisible).length === 0;
         if (committedEvidence && popupClosed) {
+          clearExtensionQuery();
           state.extensionValues.set(current, {
             kind: "combobox-commit",
             source: committedEvidence.source,
@@ -2954,6 +2988,9 @@
   function questionForEditTarget(target) {
     const selectedOption = target.closest?.("[role='option']");
     const listbox = selectedOption?.closest?.("[role='listbox']");
+    const inferredControl = listbox
+      ? interactions.resolveControl(state.inferredListboxOwners.get(listbox))
+      : null;
     return collectQuestions().find((question) => {
       if (
         question.elements.some(
@@ -2963,6 +3000,12 @@
             ats.questionContainer(element, state.adapter, question.elements)
               ?.contains?.(target)
         )
+      ) {
+        return true;
+      }
+      if (
+        inferredControl &&
+        question.elements.some((element) => element === inferredControl)
       ) {
         return true;
       }
@@ -2976,10 +3019,22 @@
   }
 
   function clearFillIssueForTrustedEdit(event) {
-    if (!event.isTrusted || !state.fillIssues.size || !event.target?.closest) {
+    if (!event.isTrusted || !event.target?.closest) {
       return false;
     }
     const question = questionForEditTarget(event.target);
+    for (const reference of state.extensionQueries.keys()) {
+      const control = interactions.resolveControl(reference);
+      if (
+        control === event.target ||
+        question?.elements.some((element) => element === control)
+      ) {
+        state.extensionQueries.delete(reference);
+      }
+    }
+    if (!state.fillIssues.size) {
+      return false;
+    }
     if (!question || !state.fillIssues.delete(question.key)) {
       return false;
     }
@@ -3040,6 +3095,8 @@
     setProfileAvailability(message.profileAvailability);
     if (changingSession) {
       state.extensionValues = new WeakMap();
+      state.extensionQueries = new Map();
+      state.inferredListboxOwners = new WeakMap();
       state.fillIssues.clear();
       state.lastQuestions = new Map();
     }

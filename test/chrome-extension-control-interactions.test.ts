@@ -6,6 +6,7 @@ interface ListboxLike {
 }
 
 interface ControlInteractions {
+  collapsedEditableComboboxValue(element: unknown): string;
   comboboxCommitEvidence(
     element: unknown,
     options?: {
@@ -138,6 +139,42 @@ describe("Chrome extension control interactions", () => {
     const reference = interactions.controlReference(original);
 
     expect(interactions.resolveControl(reference)).toBe(replacement);
+  });
+
+  it("re-resolves only a unique semantic replacement without an ID", () => {
+    const attributes: Record<string, string> = {
+      "aria-label": "How did you hear about us?",
+      name: "source",
+      role: "combobox",
+      type: "text",
+    };
+    const root = {
+      querySelectorAll() {
+        return [replacement];
+      },
+    };
+    const control = (isConnected: boolean) => ({
+      isConnected,
+      tagName: "INPUT",
+      value: "LinkedIn",
+      getAttribute(name: string) {
+        return attributes[name] ?? null;
+      },
+      getRootNode() {
+        return root;
+      },
+      closest() {
+        return null;
+      },
+    });
+    const original = control(false);
+    const replacement = control(true);
+    const reference = interactions.controlReference(original);
+
+    expect(interactions.resolveControl(reference)).toBe(replacement);
+
+    root.querySelectorAll = () => [replacement, control(true)];
+    expect(interactions.resolveControl(reference)).toBeNull();
   });
 
   it("rejects same-id candidates in a detached shadow root", () => {
@@ -1164,24 +1201,59 @@ describe("Chrome extension control interactions", () => {
   });
 
   it("keeps collapsed editable combobox values separate from commit evidence", () => {
-    const control = {
-      value: "LinkedIn",
-      textContent: "",
-      tagName: "INPUT",
-      getAttribute(name: string) {
-        const attributes: Record<string, string> = {
-          role: "combobox",
-          "aria-expanded": "false",
-        };
-        return attributes[name] ?? null;
-      },
-      closest() {
-        return null;
-      },
-    };
+    for (const attributes of [
+      { role: "combobox" },
+      { "aria-haspopup": "listbox" },
+      { role: "combobox", "aria-expanded": "false" },
+    ]) {
+      const control = {
+        value: "LinkedIn",
+        textContent: "",
+        tagName: "INPUT",
+        getAttribute(name: string) {
+          return attributes[name as keyof typeof attributes] ?? null;
+        },
+        closest() {
+          return null;
+        },
+      };
 
-    expect(interactions.comboboxCommitEvidence(control)).toEqual([]);
-    expect(interactions.committedControlValue(control)).toBe("");
+      expect(interactions.comboboxCommitEvidence(control)).toEqual([]);
+      expect(interactions.committedControlValue(control)).toBe("");
+      expect(interactions.collapsedEditableComboboxValue(control)).toBe(
+        "LinkedIn",
+      );
+    }
+  });
+
+  it("does not expose editable query text while the combobox is demonstrably open", () => {
+    for (const expandedOwner of ["control", "wrapper"]) {
+      const wrapper = {
+        getAttribute(name: string) {
+          return name === "aria-expanded" ? "true" : null;
+        },
+      };
+      const control = {
+        value: "LinkedIn",
+        textContent: "",
+        tagName: "INPUT",
+        parentElement: expandedOwner === "wrapper" ? wrapper : null,
+        getAttribute(name: string) {
+          const attributes: Record<string, string> = {
+            role: "combobox",
+            ...(expandedOwner === "control" ? { "aria-expanded": "true" } : {}),
+          };
+          return attributes[name] ?? null;
+        },
+        closest(selector: string) {
+          return expandedOwner === "wrapper" && selector.includes("aria-expanded")
+            ? wrapper
+            : null;
+        },
+      };
+
+      expect(interactions.collapsedEditableComboboxValue(control)).toBe("");
+    }
   });
 
   it("does not treat unrelated hidden field metadata as a committed value", () => {

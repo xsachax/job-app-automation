@@ -925,6 +925,48 @@ describe("Chrome extension field matching", () => {
     ).toBe(100);
     expect(
       matcher.scoreChoice(
+        "Remote",
+        "remote",
+        "Remote / Work from home",
+        "preferredOfficeLocations",
+      ),
+    ).toBe(100);
+    expect(
+      matcher.scoreChoice(
+        "New York, NY",
+        "remote",
+        "Remote / Work from home",
+        "preferredOfficeLocations",
+      ),
+    ).toBe(0);
+    expect(
+      matcher.scoreChoice(
+        "Remote",
+        "new-york",
+        "New York, New York, United States",
+        "preferredOfficeLocations",
+      ),
+    ).toBe(0);
+    for (const label of [
+      "Not remote",
+      "No remote work available",
+      "Remote work is not available",
+      "Remote work is not possible",
+      "Remote work is not an option",
+      "Remote work not supported",
+    ]) {
+      expect(
+        matcher.scoreChoice(
+          "Remote",
+          "office-only",
+          label,
+          "preferredOfficeLocations",
+        ),
+        label,
+      ).toBe(0);
+    }
+    expect(
+      matcher.scoreChoice(
         "Company career site",
         "company_website",
         "Company Website",

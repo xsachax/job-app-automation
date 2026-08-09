@@ -1774,6 +1774,28 @@
     return /\b(?:remote|work from home|anywhere)\b/.test(normalizeText(value));
   }
 
+  function isNegatedRemoteLocation(value) {
+    return /\b(?:not|non) remote\b|\bno remote(?: work)?\b|\bremote(?: work)? (?:is )?(?:unavailable|unsupported|prohibited|disallowed|(?:not|never) (?:available|possible|supported|offered|allowed|permitted|an option))\b/.test(
+      normalizeText(value)
+    );
+  }
+
+  function scoreRemoteOfficePreference(savedValue, optionValue, optionLabel) {
+    const savedRemote =
+      isRemoteLocation(savedValue) && !isNegatedRemoteLocation(savedValue);
+    const normalizedLabel = normalizeText(optionLabel);
+    const optionRemote =
+      (isRemoteLocation(normalizedLabel) &&
+        !isNegatedRemoteLocation(normalizedLabel)) ||
+      (!normalizedLabel &&
+        isRemoteLocation(optionValue) &&
+        !isNegatedRemoteLocation(optionValue));
+    if (!savedRemote && !optionRemote) {
+      return null;
+    }
+    return savedRemote && optionRemote ? 100 : 0;
+  }
+
   function scoreLocationChoice(savedValue, optionValue, optionLabel) {
     const saved = locationIdentity(savedValue);
     if (!saved.city || isRemoteLocation(optionLabel)) {
@@ -1831,6 +1853,16 @@
 
   function scoreChoice(savedValue, optionValue, optionLabel, fieldKey) {
     if (["city", "location", "preferredOfficeLocations"].includes(fieldKey)) {
+      if (fieldKey === "preferredOfficeLocations") {
+        const remoteScore = scoreRemoteOfficePreference(
+          savedValue,
+          optionValue,
+          optionLabel
+        );
+        if (remoteScore !== null) {
+          return remoteScore;
+        }
+      }
       if (hasLocationRegionConflict(savedValue, optionValue, optionLabel)) {
         return 0;
       }

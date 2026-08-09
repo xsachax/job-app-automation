@@ -130,28 +130,38 @@ test("cancelled combobox fill preserves newer user input", async ({ page }) => {
   );
 });
 
-test("preserves a prefilled collapsed editable combobox", async ({ page }) => {
+test("preserves prefilled editable comboboxes without aria-expanded", async ({
+  page,
+}) => {
   await installContentPanel(page, {
     html: `
-      <label id="source-label" for="source">How did you hear about us? *</label>
+      <label id="source-role-label" for="source-role">How did you hear about us? *</label>
       <input
-        id="source"
+        id="source-role"
         role="combobox"
-        aria-expanded="false"
-        aria-labelledby="source-label"
+        aria-labelledby="source-role-label"
         aria-required="true"
         value="LinkedIn"
       >
+      <label id="source-popup-label" for="source-popup">How did you hear about us? *</label>
+      <input
+        id="source-popup"
+        aria-haspopup="listbox"
+        aria-labelledby="source-popup-label"
+        aria-required="true"
+        value="Employee referral"
+      >
       <script>
-        const source = document.getElementById("source");
-        source.addEventListener("click", () => {
-          document.body.dataset.comboboxClicks =
-            String(Number(document.body.dataset.comboboxClicks || "0") + 1);
-        });
-        source.addEventListener("input", () => {
-          document.body.dataset.comboboxInputs =
-            String(Number(document.body.dataset.comboboxInputs || "0") + 1);
-        });
+        for (const source of document.querySelectorAll("input")) {
+          source.addEventListener("click", () => {
+            document.body.dataset.comboboxClicks =
+              String(Number(document.body.dataset.comboboxClicks || "0") + 1);
+          });
+          source.addEventListener("input", () => {
+            document.body.dataset.comboboxInputs =
+              String(Number(document.body.dataset.comboboxInputs || "0") + 1);
+          });
+        }
       </script>
     `,
     profile: { heardAboutJob: "Company career site" },
@@ -159,9 +169,85 @@ test("preserves a prefilled collapsed editable combobox", async ({ page }) => {
   });
 
   expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 0 });
-  await expect(page.locator("#source")).toHaveValue("LinkedIn");
+  await expect(page.locator("#source-role")).toHaveValue("LinkedIn");
+  await expect(page.locator("#source-popup")).toHaveValue("Employee referral");
   await expect(page.locator("body")).not.toHaveAttribute("data-combobox-clicks");
   await expect(page.locator("body")).not.toHaveAttribute("data-combobox-inputs");
+});
+
+test("does not count an extension-owned query without aria-expanded as answered", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `
+      <label id="source-label" for="source">How did you hear about us? *</label>
+      <input
+        id="source"
+        role="combobox"
+        aria-labelledby="source-label"
+        aria-required="true"
+      >
+    `,
+    profile: { heardAboutJob: "LinkedIn" },
+    requiredByDefault: false,
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 0 });
+  await expect(page.locator("#source")).toHaveValue("");
+  await expect(page.locator("#source")).toHaveAttribute(
+    "data-job-autofill-review",
+    "failed",
+  );
+});
+
+test("a trusted option click releases retained query ownership", async ({ page }) => {
+  await installContentPanel(page, {
+    html: `
+      <label id="source-label" for="source">How did you hear about us? *</label>
+      <input
+        id="source"
+        role="combobox"
+        aria-labelledby="source-label"
+        aria-required="true"
+      >
+      <div id="source-options" role="listbox" hidden>
+        <div id="manual-source" role="option">Manual source</div>
+      </div>
+      <script>
+        const source = document.getElementById("source");
+        source.addEventListener("input", () => {
+          if (source.value !== "LinkedIn") return;
+          document.getElementById("source-options").hidden = false;
+          setTimeout(() => {
+            if (source.value === "LinkedIn") source.value = "Framework choice";
+          }, 250);
+        });
+        document.getElementById("manual-source").addEventListener("click", () => {
+          source.value = "LinkedIn";
+          document.getElementById("source-options").hidden = true;
+        });
+      </script>
+    `,
+    profile: { heardAboutJob: "LinkedIn" },
+    requiredByDefault: false,
+    revealPanel: true,
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 0 });
+  await expect(page.locator("#source")).toHaveValue("Framework choice");
+  await expect(page.locator("#source")).toHaveAttribute(
+    "data-job-autofill-review",
+    "failed",
+  );
+  await page.locator("#manual-source").click();
+
+  await expect(page.locator("#source")).toHaveValue("LinkedIn");
+  await expect(page.locator("#source")).not.toHaveAttribute(
+    "data-job-autofill-review",
+  );
+  await expect(
+    page.locator("#job-autofill-extension-panel").getByText("1 of 1 answered"),
+  ).toBeVisible();
 });
 
 test("preserves answers entered while an earlier control is still filling", async ({
@@ -1243,6 +1329,44 @@ test("keeps unrelated named checkboxes manual inside a shared fieldset", async (
       .locator("#job-autofill-extension-panel")
       .getByText("Review this checkbox manually."),
   ).toHaveCount(2);
+});
+
+test("selects an explicitly saved remote office preference", async ({ page }) => {
+  await installContentPanel(page, {
+    html: `
+      <fieldset aria-required="true">
+        <legend>Select every office where you are able to work</legend>
+        <label><input id="remote-office" type="checkbox" name="offices" value="remote"> Remote / Work from home</label>
+        <label><input id="new-york-office" type="checkbox" name="offices" value="new-york"> New York, New York, United States</label>
+      </fieldset>
+    `,
+    profile: { preferredOfficeLocations: "Remote" },
+    requiredByDefault: false,
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 1 });
+  await expect(page.locator("#remote-office")).toBeChecked();
+  await expect(page.locator("#new-york-office")).not.toBeChecked();
+});
+
+test("does not substitute a remote office for a saved concrete city", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `
+      <fieldset aria-required="true">
+        <legend>Select every office where you are able to work</legend>
+        <label><input id="remote-office" type="checkbox" name="offices" value="remote"> Remote / Work from home</label>
+        <label><input id="new-york-office" type="checkbox" name="offices" value="new-york"> New York, New York, United States</label>
+      </fieldset>
+    `,
+    profile: { preferredOfficeLocations: "New York, NY" },
+    requiredByDefault: false,
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 1 });
+  await expect(page.locator("#new-york-office")).toBeChecked();
+  await expect(page.locator("#remote-office")).not.toBeChecked();
 });
 
 test("rescans fields added by a hydrated application step", async ({ page }) => {
