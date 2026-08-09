@@ -72,15 +72,15 @@ export default async function OverviewPage() {
     <div>
       <PageHeader
         title="Overview"
-        subtitle={`${scope.headline}, refreshed from company career sites and job boards.`}
+        subtitle={`${scope.geographyNeutralHeadline}, refreshed from company career sites and job boards.`}
       >
         <ScanButton />
       </PageHeader>
 
       <div className="mb-6 rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-sm text-indigo-900 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200">
-        <b>Discovery mode.</b> {scope.summary} Auto-apply and resume matching are paused. Use{" "}
-        <b>Run scrape</b> to refresh API and supported browser sources, including Shopify, and score
-        newly discovered jobs.
+        <b>Discovery mode.</b> {scope.geographyNeutralSummary} Auto-apply and resume matching are
+        paused. Use <b>Run scrape</b> to refresh API and supported browser sources, including Shopify,
+        and score newly discovered jobs.
       </div>
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3">

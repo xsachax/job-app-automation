@@ -60,4 +60,34 @@ describe("discovery scope copy", () => {
     );
     expect(copy.summary).not.toMatch(/OTHER|UNKNOWN|ANY/);
   });
+
+  it("keeps fixed operational view copy neutral when configured countries change", () => {
+    const withExtraCountry = formatDiscoveryScope({
+      config: {
+        ...DEFAULT_DISCOVERY_CONFIG,
+        countries: ["US", "CA", "GB"],
+      },
+      criteria: DEFAULT_CRITERIA,
+    });
+    const withoutOperationalCountries = formatDiscoveryScope({
+      config: {
+        ...DEFAULT_DISCOVERY_CONFIG,
+        countries: ["GB"],
+      },
+      criteria: DEFAULT_CRITERIA,
+    });
+
+    expect(withExtraCountry.geographyNeutralSummary).toBe(
+      withoutOperationalCountries.geographyNeutralSummary,
+    );
+    expect(withExtraCountry.geographyNeutralSummary).toBe(
+      "Open roles matching Software Engineer. Required experience is capped at 2 years. Roles that require an advanced degree are excluded. Internships and co-ops are excluded.",
+    );
+    expect(withExtraCountry.geographyNeutralSummary).not.toMatch(
+      /United States|Canada|United Kingdom/,
+    );
+    expect(withExtraCountry.summary).toContain(
+      "in United States, Canada, and United Kingdom",
+    );
+  });
 });

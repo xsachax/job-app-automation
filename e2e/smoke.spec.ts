@@ -8,8 +8,9 @@ test.describe("smoke", () => {
     await expect(page.getByText("US queue")).toBeVisible();
     await expect(page.getByText("Canada queue")).toBeVisible();
     await expect(
-      page.getByText(/Open roles matching Software Engineer in United States and Canada/).first(),
+      page.getByText(/Open roles matching Software Engineer/).first(),
     ).toBeVisible();
+    await expect(page.getByText(/United States and Canada/)).toHaveCount(0);
     await expect(page.getByText("Companies covered")).toBeVisible();
   });
 
@@ -29,7 +30,7 @@ test.describe("smoke", () => {
     await page.goto("/companies");
     await expect(page.getByRole("heading", { name: "Companies" })).toBeVisible();
     await expect(
-      page.getByText(/Open roles matching Software Engineer in United States and Canada/),
+      page.getByText(/Open roles matching Software Engineer/),
     ).toBeVisible();
     await expect(page.getByText("API sources")).toBeVisible();
     await expect(page.getByText("Browser-scraped sources")).toBeVisible();

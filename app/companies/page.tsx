@@ -66,7 +66,7 @@ export default async function CompaniesPage() {
     <div>
       <PageHeader
         title="Companies"
-        subtitle={`${API_COMPANIES.length} companies scraped via public APIs, ${BROWSER_COMPANIES.length} via headless browser, plus ${BOARD_SOURCES.length} community job boards. ${scope.headline}.`}
+        subtitle={`${API_COMPANIES.length} companies scraped via public APIs, ${BROWSER_COMPANIES.length} via headless browser, plus ${BOARD_SOURCES.length} community job boards. ${scope.geographyNeutralHeadline}.`}
       />
 
       <h2 className="mb-3 text-lg font-semibold">API sources</h2>

@@ -11,6 +11,8 @@ export interface DiscoveryScopeInput {
 export interface DiscoveryScopeCopy {
   headline: string;
   summary: string;
+  geographyNeutralHeadline: string;
+  geographyNeutralSummary: string;
   roleTerms: string[];
   countryNames: string[];
 }
@@ -98,10 +100,13 @@ export function formatDiscoveryScope({
   const internshipSentence = config.includeInternships
     ? "Internships and co-ops are included"
     : "Internships and co-ops are excluded";
+  const policySummary = `${experienceSentence(config.maxYoE)}. ${degreeSentence}. ${internshipSentence}.`;
 
   return {
     headline,
-    summary: `${headline}. ${experienceSentence(config.maxYoE)}. ${degreeSentence}. ${internshipSentence}.`,
+    summary: `${headline}. ${policySummary}`,
+    geographyNeutralHeadline: roles,
+    geographyNeutralSummary: `${roles}. ${policySummary}`,
     roleTerms,
     countryNames,
   };
