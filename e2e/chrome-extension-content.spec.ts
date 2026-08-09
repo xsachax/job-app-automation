@@ -130,6 +130,40 @@ test("cancelled combobox fill preserves newer user input", async ({ page }) => {
   );
 });
 
+test("preserves a prefilled collapsed editable combobox", async ({ page }) => {
+  await installContentPanel(page, {
+    html: `
+      <label id="source-label" for="source">How did you hear about us? *</label>
+      <input
+        id="source"
+        role="combobox"
+        aria-expanded="false"
+        aria-labelledby="source-label"
+        aria-required="true"
+        value="LinkedIn"
+      >
+      <script>
+        const source = document.getElementById("source");
+        source.addEventListener("click", () => {
+          document.body.dataset.comboboxClicks =
+            String(Number(document.body.dataset.comboboxClicks || "0") + 1);
+        });
+        source.addEventListener("input", () => {
+          document.body.dataset.comboboxInputs =
+            String(Number(document.body.dataset.comboboxInputs || "0") + 1);
+        });
+      </script>
+    `,
+    profile: { heardAboutJob: "Company career site" },
+    requiredByDefault: false,
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 0 });
+  await expect(page.locator("#source")).toHaveValue("LinkedIn");
+  await expect(page.locator("body")).not.toHaveAttribute("data-combobox-clicks");
+  await expect(page.locator("body")).not.toHaveAttribute("data-combobox-inputs");
+});
+
 test("preserves answers entered while an earlier control is still filling", async ({
   page,
 }) => {

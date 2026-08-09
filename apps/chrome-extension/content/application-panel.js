@@ -517,7 +517,13 @@
       return Boolean(text(first.textContent));
     }
     if (controlKind(elements) === "combobox" && isInput(first)) {
-      return Boolean(text(interactions.committedControlValue(first)));
+      if (text(interactions.committedControlValue(first))) {
+        return true;
+      }
+      return (
+        first.getAttribute("aria-expanded") === "false" &&
+        Boolean(text(first.value))
+      );
     }
     if (controlKind(elements) === "combobox") {
       const explicitValue =
@@ -947,14 +953,31 @@
       };
     }
     if (
-      match.definition.key === "city" &&
+      ["city", "location"].includes(match.definition.key) &&
       ["select", "combobox"].includes(kind)
     ) {
+      const explicitLocation =
+        effectiveProfile.location || effectiveProfile.city;
+      const contextualLocation = matcher.contextualLocationChoice(
+        explicitLocation,
+        effectiveProfile.country
+      );
+      if (contextualLocation === null) {
+        return {
+          value: "",
+          searchValue: "",
+          safe: false,
+          available: true,
+          reason:
+            "The saved location conflicts with the application country and needs manual review."
+        };
+      }
       return {
         value: profileSchema.formatControlValue(
-          effectiveProfile.location || effectiveProfile.city,
+          contextualLocation,
           kind
         ),
+        searchValue: profileSchema.formatControlValue(explicitLocation, kind),
         safe: true,
         available:
           state.profileAvailability.has("location") ||
@@ -1072,6 +1095,7 @@
       const key =
         stableQuestionIdentity(elements, kind, label, match) || groupKey;
       const matchedValue = resolved.value;
+      const matchedSearchValue = resolved.searchValue || matchedValue;
       const answered =
         !state.fillIssues.has(key) &&
         (kind === "check-many"
@@ -1121,6 +1145,13 @@
         status = "uncertain";
         reason =
           resolved.reason || "The wording needs manual review before filling.";
+      } else if (
+        match &&
+        matcher.requiresExplicitChoice(match.definition.key) &&
+        !matchedValue
+      ) {
+        status = "manual";
+        reason = "Save an explicit nonblank answer before filling this field.";
       } else if (match && (matchedValue || resolved.available)) {
         status = "ready";
         reason = "";
@@ -1152,6 +1183,7 @@
           analysis.candidates?.[0]?.definition?.label ||
           "",
         matchedValue,
+        matchedSearchValue,
         answered,
         required,
         inputSnapshot: inputSnapshot(elements),
@@ -1860,6 +1892,10 @@
       assertActive();
 
       const fieldKey = question.match?.definition.key;
+      const searchQueries = matcher.choiceSearchQueries(
+        question.matchedSearchValue || value,
+        fieldKey
+      );
       current = interactions.resolveOwnedControl(reference, ownedState);
       if (!current) {
         return fillFailure(
@@ -1874,43 +1910,98 @@
       );
       let usedFallback = false;
       if (!hasUniqueChoice(ranked) && isInput(current) && !current.readOnly) {
-        current = interactions.resolveOwnedControl(reference, ownedState);
-        if (!isInput(current) || String(current.value) !== originalValue) {
-          return fillFailure(
-            question,
-            "The field changed before the extension could choose an option."
+        for (const query of searchQueries) {
+          assertActive();
+          current = interactions.resolveOwnedControl(reference, ownedState);
+          if (!isInput(current) || String(current.value) !== ownedValue) {
+            return fillFailure(
+              question,
+              "The field changed before the extension could retry its search."
+            );
+          }
+          if (ownedValue !== originalValue) {
+            current = interactions.restoreOwnedControlValue(
+              reference,
+              ownedValue,
+              originalValue,
+              ownedCommitState,
+              {
+                initiallyVisible,
+                visibleListboxes: visibleListboxes(current)
+              }
+            );
+            if (!isInput(current)) {
+              return fillFailure(
+                question,
+                "The field changed before the extension could restore its owned search."
+              );
+            }
+            const RestoreEventConstructor =
+              current.ownerDocument?.defaultView?.Event || Event;
+            current.dispatchEvent(
+              new RestoreEventConstructor("input", { bubbles: true })
+            );
+            current = interactions.resolveControl(reference);
+            if (
+              !isInput(current) ||
+              String(current.value) !== originalValue ||
+              commitStateFor(current) !== ownedCommitState
+            ) {
+              return fillFailure(
+                question,
+                "The field changed or committed a newer value while the extension restored its owned search."
+              );
+            }
+            ownedValue = String(current.value);
+            ownedState = interactions.controlOwnershipState(current);
+            ownedCommitState = commitStateFor(current);
+          }
+          assertActive();
+          current = interactions.resolveOwnedControl(reference, ownedState);
+          if (!isInput(current) || String(current.value) !== originalValue) {
+            return fillFailure(
+              question,
+              "The field changed before the extension could enter its search."
+            );
+          }
+          setNativeProperty(current, "value", query);
+          ownedValue = String(current.value);
+          ownedState = interactions.controlOwnershipState(current);
+          ownedCommitState = commitStateFor(current);
+          const EventConstructor =
+            current.ownerDocument?.defaultView?.Event || Event;
+          current.dispatchEvent(new EventConstructor("input", { bubbles: true }));
+          current = interactions.resolveOwnedControl(reference, ownedState);
+          if (!current) {
+            return fillFailure(
+              question,
+              "The field changed while the extension entered its search."
+            );
+          }
+          await waitForComboboxOptions(
+            reference,
+            value,
+            fieldKey,
+            assertActive,
+            ownedState,
+            initiallyVisible
           );
-        }
-        assertActive();
-        current = interactions.resolveOwnedControl(reference, ownedState);
-        if (!isInput(current) || String(current.value) !== originalValue) {
-          return fillFailure(
-            question,
-            "The field changed before the extension could enter its search."
+          current = interactions.resolveOwnedControl(reference, ownedState);
+          if (!current) {
+            return fillFailure(
+              question,
+              "The field changed while the extension ranked its search results."
+            );
+          }
+          ranked = rankOptions(
+            visibleComboOptions(current, initiallyVisible),
+            value,
+            fieldKey
           );
+          if (hasUniqueChoice(ranked)) {
+            break;
+          }
         }
-        setNativeProperty(current, "value", value);
-        ownedValue = String(current.value);
-        ownedState = interactions.controlOwnershipState(current);
-        ownedCommitState = commitStateFor(current);
-        const EventConstructor =
-          current.ownerDocument?.defaultView?.Event || Event;
-        current.dispatchEvent(new EventConstructor("input", { bubbles: true }));
-        current = interactions.resolveOwnedControl(reference, ownedState);
-        if (!current) {
-          return fillFailure(
-            question,
-            "The field changed while the extension entered its search."
-          );
-        }
-        await waitForComboboxOptions(
-          reference,
-          value,
-          fieldKey,
-          assertActive,
-          ownedState,
-          initiallyVisible
-        );
       } else if (!hasUniqueChoice(ranked)) {
         await waitForComboboxOptions(
           reference,

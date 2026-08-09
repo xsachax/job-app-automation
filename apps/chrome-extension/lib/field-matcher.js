@@ -13,6 +13,10 @@
     "location",
     "region"
   ]);
+  const consequentialChoiceFieldKeys = new Set([
+    "raceEthnicity",
+    "veteranStatus"
+  ]);
   const directChoiceNegationKeys = new Set([
     "willingToRelocate",
     "willingToTravel",
@@ -322,7 +326,12 @@
       "prefer not to say",
       "decline to answer",
       "decline to self identify",
+      "decline to self identification",
+      "decline to disclose",
       "i decline to answer",
+      "i decline to disclose",
+      "i decline to self identify",
+      "i decline to self identify my race ethnic identity",
       "choose not to disclose",
       "i choose not to self identify",
       "do not wish to disclose",
@@ -396,7 +405,14 @@
     "not a protected veteran": [
       "not a protected veteran",
       "i am not a protected veteran",
-      "not protected veteran"
+      "not protected veteran",
+      "veteran but not protected",
+      "i am a veteran but i am not a protected veteran"
+    ],
+    "not a veteran": [
+      "not a veteran",
+      "i am not a veteran",
+      "no i am not a veteran"
     ],
     "u s citizen": [
       "u s citizen",
@@ -511,6 +527,21 @@
     "united states of america",
     "usa",
     "us"
+  ]);
+  const canadianRegionKeys = new Set([
+    "alberta",
+    "british columbia",
+    "manitoba",
+    "new brunswick",
+    "newfoundland and labrador",
+    "nova scotia",
+    "northwest territories",
+    "nunavut",
+    "ontario",
+    "prince edward island",
+    "quebec",
+    "saskatchewan",
+    "yukon"
   ]);
   const safeFallbackFieldKeys = new Set([
     "degree",
@@ -854,11 +885,27 @@
   }
 
   function isExcluded(definition, signals) {
-    return (definition.excludeAliases || []).some((excludedAlias) =>
-      signals.some((signal) =>
+    const excludedSignals = signals.filter((signal) =>
+      (definition.excludeAliases || []).some((excludedAlias) =>
         literalPhraseMatches(signal.text, excludedAlias)
       )
     );
+    if (!excludedSignals.length) {
+      return false;
+    }
+    if (!consequentialChoiceFieldKeys.has(definition.key)) {
+      return true;
+    }
+    const explicitSources = new Set(["aria", "label", "nearby", "prompt"]);
+    const hasExplicitFieldSignal = signals.some(
+      (signal) =>
+        explicitSources.has(signal.source) &&
+        !excludedSignals.includes(signal) &&
+        (definition.aliases || []).some(
+          (alias) => scoreText(signal.text, alias) >= MINIMUM_SCORE
+        )
+    );
+    return !hasExplicitFieldSignal;
   }
 
   function isCompatible(definition, controlKind) {
@@ -1474,6 +1521,18 @@
   function canonicalChoice(value, fieldKey) {
     const normalized = normalizeText(value);
 
+    if (fieldKey === "raceEthnicity") {
+      const race = canonicalRaceChoice(normalized);
+      if (race) {
+        return race;
+      }
+    }
+    if (fieldKey === "veteranStatus") {
+      const veteran = canonicalVeteranChoice(normalized);
+      if (veteran) {
+        return veteran;
+      }
+    }
     if (["yes", "true", "y", "1", "affirmative"].includes(normalized)) {
       return "yes";
     }
@@ -1490,6 +1549,125 @@
     }
 
     return normalized;
+  }
+
+  function canonicalAlias(value, allowedCanonicals) {
+    for (const [canonical, aliases] of Object.entries(choiceAliases)) {
+      if (
+        allowedCanonicals.has(canonical) &&
+        (canonical === value || aliases.includes(value))
+      ) {
+        return canonical;
+      }
+    }
+    return "";
+  }
+
+  const raceChoiceCanonicals = new Set([
+    "american indian or alaska native",
+    "asian",
+    "black or african american",
+    "hispanic or latino",
+    "middle eastern or north african",
+    "native hawaiian or other pacific islander",
+    "other",
+    "prefer not to answer",
+    "two or more races",
+    "white"
+  ]);
+  const veteranChoiceCanonicals = new Set([
+    "not a protected veteran",
+    "not a veteran",
+    "prefer not to answer",
+    "protected veteran"
+  ]);
+
+  function isDeclineChoice(normalized) {
+    return (
+      /\bdeclin(?:e|ed|ing)\b.{0,40}\b(?:answer|disclos|identif)/.test(
+        normalized
+      ) ||
+      /\b(?:choose|prefer|wish) not to\b.{0,36}\b(?:answer|disclos|identif)/.test(
+        normalized
+      ) ||
+      /\b(?:do not|don t) (?:wish|want|choose|prefer) to\b.{0,36}\b(?:answer|disclos|identif)/.test(
+        normalized
+      )
+    );
+  }
+
+  function canonicalRaceChoice(normalized) {
+    if (!normalized) {
+      return "";
+    }
+    if (isDeclineChoice(normalized)) {
+      return "prefer not to answer";
+    }
+    const withoutQualifier = normalized
+      .replace(
+        /\b(?:not|non) hispanic (?:or )?latino\b|\bnot of hispanic or latino (?:origin|descent)\b/g,
+        ""
+      )
+      .replace(
+        /^(?:i (?:(?:choose to )?self identify as|identify as|am)|my (?:race|race ethnicity|ethnicity) is) /,
+        ""
+      )
+      .replace(/\ball races\b$/, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    const direct = canonicalAlias(withoutQualifier, raceChoiceCanonicals);
+    if (direct) {
+      return direct;
+    }
+    if (
+      /\b(?:multiracial|multi racial|multiple races|two or more races)\b/.test(
+        withoutQualifier
+      )
+    ) {
+      return "two or more races";
+    }
+    if (
+      /^(?:other(?: please specify)?|other self describe|self describe|another race(?: or ethnicity)?|not listed(?: above)?)$/.test(
+        withoutQualifier
+      )
+    ) {
+      return "other";
+    }
+    return "";
+  }
+
+  function canonicalVeteranChoice(normalized) {
+    if (!normalized) {
+      return "";
+    }
+    if (
+      /\b(?:not sure|unsure|uncertain|unknown|do not know|don t know)\b/.test(
+        normalized
+      )
+    ) {
+      return "";
+    }
+    if (isDeclineChoice(normalized)) {
+      return "prefer not to answer";
+    }
+    const direct = canonicalAlias(normalized, veteranChoiceCanonicals);
+    if (direct) {
+      return direct;
+    }
+    if (/\bnot (?:a )?protected veteran\b/.test(normalized)) {
+      return "not a protected veteran";
+    }
+    if (/\bnot (?:a )?veteran\b/.test(normalized)) {
+      return "not a veteran";
+    }
+    if (
+      /^(?:yes )?(?:i (?:am|identify as|choose to self identify as) )?(?:a |one or more (?:of the )?classifications of (?:a )?)?protected veteran(?: listed above)?$/.test(
+        normalized
+      )
+    ) {
+      return "protected veteran";
+    }
+    return "";
   }
 
   function normalizeCity(value) {
@@ -1531,13 +1709,28 @@
     );
   }
 
+  function locationCountry(value) {
+    const normalized = normalizeText(value);
+    const matched = [...locationCountries]
+      .sort((left, right) => right.length - left.length)
+      .find(
+        (country) =>
+          normalized === country || normalized.endsWith(` ${country}`)
+      );
+    if (!matched) {
+      return "";
+    }
+    return canonicalChoice(matched, "country");
+  }
+
   function locationIdentity(value) {
+    let country = locationCountry(value);
     const rawParts = String(value || "")
       .split(/[,|/]+/)
       .map((part) => stripCountrySuffix(part))
       .filter(Boolean);
     if (!rawParts.length) {
-      return { city: "", region: "" };
+      return { city: "", region: "", country };
     }
 
     let city = normalizeCity(rawParts[0]);
@@ -1562,52 +1755,71 @@
         region = suffix.canonical;
       }
     }
-    return { city, region };
+    if (!country && region) {
+      country = canadianRegionKeys.has(region) ? "canada" : "united states";
+    }
+    if (!country && rawParts.length > 1) {
+      const possibleCountry = normalizeText(rawParts.at(-1));
+      if (
+        possibleCountry &&
+        !canonicalRegion(possibleCountry)
+      ) {
+        country = possibleCountry;
+      }
+    }
+    return { city, region, country };
+  }
+
+  function isRemoteLocation(value) {
+    return /\b(?:remote|work from home|anywhere)\b/.test(normalizeText(value));
   }
 
   function scoreLocationChoice(savedValue, optionValue, optionLabel) {
     const saved = locationIdentity(savedValue);
-    if (!saved.city) {
+    if (!saved.city || isRemoteLocation(optionLabel)) {
       return 0;
     }
     return Math.max(
       ...[optionValue, optionLabel].map((candidate) => {
         const option = locationIdentity(candidate);
-        const cityScore = scoreText(saved.city, option.city);
+        if (!option.city || option.city !== saved.city) {
+          return 0;
+        }
         if (
-          !option.city ||
-          (option.city !== saved.city &&
-            (cityScore < 74 ||
-              tokens(option.city).length !== tokens(saved.city).length))
+          saved.region &&
+          option.region &&
+          option.region !== saved.region
         ) {
           return 0;
         }
-        if (option.region && saved.region) {
-          if (option.region !== saved.region) {
-            return 0;
-          }
-          return option.city === saved.city ? 100 : 90;
+        if (
+          saved.country &&
+          option.country &&
+          option.country !== saved.country
+        ) {
+          return 0;
         }
-        return option.city === saved.city ? 94 : 86;
+        return saved.region && option.region ? 100 : 94;
       })
     );
   }
 
   function hasLocationRegionConflict(savedValue, optionValue, optionLabel) {
     const saved = locationIdentity(savedValue);
-    if (!saved.city || !saved.region) {
+    if (!saved.city || (!saved.region && !saved.country)) {
       return false;
     }
     const conflicts = (candidate) => {
       const option = locationIdentity(candidate);
-      const cityScore = scoreText(saved.city, option.city);
       return (
         option.city &&
-        option.region &&
-        option.region !== saved.region &&
-        (option.city === saved.city ||
-          (cityScore >= 74 &&
-            tokens(option.city).length === tokens(saved.city).length))
+        option.city === saved.city &&
+        ((option.region &&
+          saved.region &&
+          option.region !== saved.region) ||
+          (option.country &&
+            saved.country &&
+            option.country !== saved.country))
       );
     };
     const label = locationIdentity(optionLabel);
@@ -1622,16 +1834,7 @@
       if (hasLocationRegionConflict(savedValue, optionValue, optionLabel)) {
         return 0;
       }
-      return Math.max(
-        scoreLocationChoice(savedValue, optionValue, optionLabel),
-        Math.min(
-          92,
-          Math.max(
-            scoreText(optionValue, savedValue),
-            scoreText(optionLabel, savedValue)
-          )
-        )
-      );
+      return scoreLocationChoice(savedValue, optionValue, optionLabel);
     }
     const saved = canonicalChoice(savedValue, fieldKey);
     const value = canonicalChoice(optionValue, fieldKey);
@@ -1641,13 +1844,39 @@
       return 0;
     }
     if (
-      fieldKey === "veteranStatus" &&
-      ((saved === "protected veteran" &&
-        [value, label].includes("not a protected veteran")) ||
-        (saved === "not a protected veteran" &&
-          [value, label].includes("protected veteran")))
+      fieldKey === "raceEthnicity" &&
+      saved === "hispanic or latino" &&
+      [optionValue, optionLabel].some((candidate) =>
+        /\b(?:not|non) hispanic (?:or )?latino\b/.test(normalizeText(candidate))
+      )
     ) {
       return 0;
+    }
+    if (
+      fieldKey === "veteranStatus" &&
+      ((saved === "protected veteran" &&
+        [value, label].some((candidate) =>
+          ["not a protected veteran", "not a veteran"].includes(candidate)
+        )) ||
+        (["not a protected veteran", "not a veteran"].includes(saved) &&
+          [value, label].includes("protected veteran")) ||
+        (saved === "not a veteran" &&
+          [value, label].includes("not a protected veteran")))
+    ) {
+      return 0;
+    }
+    if (consequentialChoiceFieldKeys.has(fieldKey)) {
+      const allowed =
+        fieldKey === "raceEthnicity"
+          ? raceChoiceCanonicals
+          : veteranChoiceCanonicals;
+      const canonicalCandidates = [value, label].filter((candidate) =>
+        allowed.has(candidate)
+      );
+      if (!allowed.has(saved) || !canonicalCandidates.length) {
+        return 0;
+      }
+      return canonicalCandidates.includes(saved) ? 100 : 0;
     }
     if (saved === value || saved === label) {
       return 100;
@@ -1662,6 +1891,49 @@
       92,
       Math.max(scoreText(value, saved), scoreText(label, saved))
     );
+  }
+
+  function choiceSearchQueries(savedValue, fieldKey) {
+    const value = String(savedValue || "").trim();
+    if (!value) {
+      return [];
+    }
+    if (!["city", "location"].includes(fieldKey)) {
+      return [value];
+    }
+    const city = String(value)
+      .split(/[,|/]+/)[0]
+      .trim()
+      .replace(/\s*\([^)]*\)\s*$/, "")
+      .replace(/\s+city$/i, "")
+      .trim();
+    return Array.from(
+      new Map(
+        [value, city]
+          .filter(Boolean)
+          .map((candidate) => [normalizeText(candidate), candidate])
+      ).values()
+    );
+  }
+
+  function contextualLocationChoice(savedValue, countryValue) {
+    const value = String(savedValue || "").trim();
+    if (!value) {
+      return "";
+    }
+    const country = canonicalChoice(countryValue, "country");
+    if (!country) {
+      return value;
+    }
+    const savedCountry = locationIdentity(value).country;
+    if (savedCountry) {
+      return savedCountry === country ? value : null;
+    }
+    return `${value}, ${String(countryValue || "").trim()}`;
+  }
+
+  function requiresExplicitChoice(fieldKey) {
+    return consequentialChoiceFieldKeys.has(fieldKey);
   }
 
   function scoreSafeFallback(fieldKey, optionValue, optionLabel) {
@@ -1701,6 +1973,9 @@
     resolveEligibilityAnswer,
     resolvePreviousEmployerAnswer,
     canonicalChoice,
+    choiceSearchQueries,
+    contextualLocationChoice,
+    requiresExplicitChoice,
     scoreChoice,
     scoreSafeFallback
   });

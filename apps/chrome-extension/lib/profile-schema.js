@@ -1226,8 +1226,20 @@
         "race and ethnicity",
         "race or ethnicity",
         "racial ethnic identity",
+        "race ethnic identity",
+        "racial and ethnic identity",
+        "ethnic identity",
+        "voluntary self identification of race ethnicity",
+        "voluntary self identification race ethnic identity",
+        "voluntary self identification race ethnic identity pre offer",
         "race",
         "ethnicity"
+      ],
+      excludeAliases: [
+        "equal opportunity employer",
+        "equal employment opportunity",
+        "do not discriminate",
+        "non discrimination policy"
       ],
       exactAliases: ["race", "ethnicity", "race ethnicity"],
       controls: ["text", "choice", "select", "combobox"]
@@ -1293,8 +1305,21 @@
         "veteran status",
         "protected veteran status",
         "voluntary self identification of veteran status",
+        "voluntary self identification of protected veteran status",
+        "voluntary self identification of protected veteran classification",
+        "voluntary self identification of protected veteran classification status post offer",
         "protected veteran",
-        "veteran classification"
+        "veteran classification",
+        "protected veteran classification",
+        "protected veteran classification status",
+        "pre offer protected veteran status",
+        "post offer protected veteran status"
+      ],
+      excludeAliases: [
+        "equal opportunity employer",
+        "equal employment opportunity",
+        "do not discriminate",
+        "non discrimination policy"
       ],
       exactAliases: ["veteran status", "protected veteran status"],
       controls: ["choice", "select", "combobox"]

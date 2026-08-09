@@ -1147,7 +1147,41 @@ describe("Chrome extension control interactions", () => {
     };
 
     expect(interactions.comboboxCommitEvidence(control)).toEqual([]);
-    expect(interactions.committedControlValue(control)).toBe("LinkedIn");
+    expect(interactions.committedControlValue(control)).toBe("");
+
+    for (const attributes of [
+      { role: "ComboBox" },
+      { "aria-haspopup": "listbox" },
+    ]) {
+      const variant = {
+        ...control,
+        getAttribute(name: string) {
+          return attributes[name as keyof typeof attributes] ?? null;
+        },
+      };
+      expect(interactions.committedControlValue(variant)).toBe("");
+    }
+  });
+
+  it("keeps collapsed editable combobox values separate from commit evidence", () => {
+    const control = {
+      value: "LinkedIn",
+      textContent: "",
+      tagName: "INPUT",
+      getAttribute(name: string) {
+        const attributes: Record<string, string> = {
+          role: "combobox",
+          "aria-expanded": "false",
+        };
+        return attributes[name] ?? null;
+      },
+      closest() {
+        return null;
+      },
+    };
+
+    expect(interactions.comboboxCommitEvidence(control)).toEqual([]);
+    expect(interactions.committedControlValue(control)).toBe("");
   });
 
   it("does not treat unrelated hidden field metadata as a committed value", () => {

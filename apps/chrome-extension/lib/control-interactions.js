@@ -641,9 +641,15 @@
 
   function committedControlValue(element) {
     const evidence = comboboxCommitEvidence(element);
+    const tagName = String(element?.tagName || "").toUpperCase();
+    const role = text(element?.getAttribute?.("role")).toLowerCase();
+    const popup = text(element?.getAttribute?.("aria-haspopup")).toLowerCase();
+    const editableCombobox =
+      ["INPUT", "TEXTAREA"].includes(tagName) &&
+      (role === "combobox" || popup === "listbox");
     return (
-      text(element?.value) ||
       evidence[0]?.value ||
+      (editableCombobox ? "" : text(element?.value)) ||
       text(element?.textContent)
     );
   }

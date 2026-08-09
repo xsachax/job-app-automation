@@ -12,6 +12,11 @@ interface MatchDefinition {
 
 interface Matcher {
   normalizeText(value: string): string;
+  choiceSearchQueries(savedValue: string, fieldKey?: string): string[];
+  contextualLocationChoice(
+    savedValue: string,
+    country: string,
+  ): string | null;
   scoreChoice(
     savedValue: string,
     optionValue: string,
@@ -616,6 +621,107 @@ describe("Chrome extension field matching", () => {
     }
   });
 
+  it("recognizes current-location and consequential identity wording without matching EEO prose", () => {
+    const recognizedFields = [
+      ["Location", "combobox", "location"],
+      ["Current location", "combobox", "location"],
+      ["Location (City)", "combobox", "city"],
+      ["Current City", "combobox", "city"],
+      ["City / Town", "select", "city"],
+      [
+        "Voluntary Self-Identification: Race / Ethnic Identity (Pre-Offer)",
+        "select",
+        "raceEthnicity",
+      ],
+      [
+        "Voluntary Self-Identification of Protected-Veteran Classification / Status (Post-Offer)",
+        "choice",
+        "veteranStatus",
+      ],
+    ];
+
+    for (const [label, controlKind, expectedKey] of recognizedFields) {
+      const analysis = matcher.analyzeDefinition(
+        {
+          signals: [{ text: label, weight: 1, source: "label" }],
+          controlKind,
+        },
+        profileSchema.fields,
+      );
+      const match =
+        analysis.match ??
+        matcher.equivalentCandidateMatch(analysis, {
+          location: "New York, NY",
+          city: "New York",
+          homeCity: "New York",
+        });
+      expect(match?.definition.key, label).toBe(expectedKey);
+    }
+
+    for (const prose of [
+      "We are an equal opportunity employer and do not discriminate based on race, ethnicity, or veteran status.",
+      "Our voluntary equal employment opportunity disclosure explains protected veteran rights.",
+    ]) {
+      expect(
+        matcher.findBestDefinition(
+          {
+            signals: [{ text: prose, weight: 1, source: "description" }],
+            controlKind: "select",
+          },
+          profileSchema.fields,
+        ),
+        prose,
+      ).toBeNull();
+    }
+
+    for (const [label, description, expectedKey] of [
+      [
+        "Race / ethnicity",
+        "We are an equal opportunity employer and do not discriminate based on race.",
+        "raceEthnicity",
+      ],
+      [
+        "Protected veteran status",
+        "Our equal employment opportunity notice describes protected veteran rights.",
+        "veteranStatus",
+      ],
+    ]) {
+      expect(
+        matcher.findBestDefinition(
+          {
+            signals: [
+              { text: label, weight: 1, source: "label" },
+              { text: description, weight: 0.74, source: "description" },
+            ],
+            controlKind: "select",
+          },
+          profileSchema.fields,
+        )?.definition.key,
+        label,
+      ).toBe(expectedKey);
+    }
+
+    for (const [label, description, expectedKey] of [
+      ["Phone", "Phone extension", "phoneExtension"],
+      ["Degree", "Degree field", "fieldOfStudy"],
+      ["Country", "Country calling code", "phoneCountryCode"],
+    ]) {
+      expect(
+        matcher.findBestDefinition(
+          {
+            signals: [
+              { text: label, weight: 1, source: "label" },
+              { text: description, weight: 0.74, source: "description" },
+            ],
+            controlKind: "text",
+          },
+          profileSchema.fields,
+        )?.definition.key,
+        `${label}: ${description}`,
+      ).toBe(expectedKey);
+    }
+  });
+
   it("maps common structured profile values to ATS options", () => {
     expect(
       matcher.scoreChoice(
@@ -623,6 +729,78 @@ describe("Chrome extension field matching", () => {
         "Bachelor of Science",
         "Bachelor of Science",
         "degree",
+      ),
+    ).toBe(100);
+    expect(
+      matcher.scoreChoice(
+        "White",
+        "opaque-race",
+        "White (Not Hispanic or Latino)",
+        "raceEthnicity",
+      ),
+    ).toBe(100);
+    expect(
+      matcher.scoreChoice(
+        "Hispanic or Latino",
+        "opaque-race",
+        "White (Not Hispanic or Latino)",
+        "raceEthnicity",
+      ),
+    ).toBe(0);
+    expect(
+      matcher.scoreChoice(
+        "Hispanic or Latino",
+        "opaque-race",
+        "Hispanic or Latino (all races)",
+        "raceEthnicity",
+      ),
+    ).toBe(100);
+    expect(
+      matcher.scoreChoice(
+        "Other",
+        "opaque-other",
+        "Other (please specify)",
+        "raceEthnicity",
+      ),
+    ).toBe(100);
+    expect(
+      matcher.scoreChoice(
+        "White",
+        "opaque-race",
+        "I choose to self-identify as White",
+        "raceEthnicity",
+      ),
+    ).toBe(100);
+    expect(
+      matcher.scoreChoice(
+        "Prefer not to answer",
+        "opaque-race",
+        "I prefer to identify as White",
+        "raceEthnicity",
+      ),
+    ).toBe(0);
+    expect(
+      matcher.scoreChoice(
+        "White",
+        "opaque-race",
+        "Non-white",
+        "raceEthnicity",
+      ),
+    ).toBe(0);
+    expect(
+      matcher.scoreChoice(
+        "Two or more races",
+        "opaque-race",
+        "Multiracial / Two-or-More Races (Not Hispanic or Latino)",
+        "raceEthnicity",
+      ),
+    ).toBe(100);
+    expect(
+      matcher.scoreChoice(
+        "Prefer not to answer",
+        "opaque-decline",
+        "I decline to self-identify my race / ethnic identity",
+        "raceEthnicity",
       ),
     ).toBe(100);
     expect(
@@ -665,6 +843,70 @@ describe("Chrome extension field matching", () => {
         "city",
       ),
     ).toBe(0);
+    expect(
+      matcher.scoreChoice(
+        "Protected veteran",
+        "opaque-protected",
+        "Yes — I identify as one or more classifications of a protected veteran",
+        "veteranStatus",
+      ),
+    ).toBe(100);
+    expect(
+      matcher.scoreChoice(
+        "Protected veteran",
+        "opaque-not-protected",
+        "I am a veteran, but I am not a protected veteran",
+        "veteranStatus",
+      ),
+    ).toBe(0);
+    expect(
+      matcher.scoreChoice(
+        "Protected veteran",
+        "opaque-protected",
+        "I choose to self-identify as a protected veteran",
+        "veteranStatus",
+      ),
+    ).toBe(100);
+    expect(
+      matcher.scoreChoice(
+        "Prefer not to answer",
+        "opaque-protected",
+        "I choose to self-identify as a protected veteran",
+        "veteranStatus",
+      ),
+    ).toBe(0);
+    expect(
+      matcher.scoreChoice(
+        "Protected veteran",
+        "opaque-uncertain",
+        "Not sure whether I am a protected veteran",
+        "veteranStatus",
+      ),
+    ).toBe(0);
+    expect(
+      matcher.scoreChoice(
+        "Veteran but not protected",
+        "opaque-not-protected",
+        "I am a veteran, but I am not a protected veteran",
+        "veteranStatus",
+      ),
+    ).toBe(100);
+    expect(
+      matcher.scoreChoice(
+        "Not a veteran",
+        "opaque-not-veteran",
+        "No — I am not a veteran",
+        "veteranStatus",
+      ),
+    ).toBe(100);
+    expect(
+      matcher.scoreChoice(
+        "Prefer not to answer",
+        "opaque-decline",
+        "I decline to disclose my protected-veteran status",
+        "veteranStatus",
+      ),
+    ).toBe(100);
     expect(
       matcher.scoreChoice(
         "New York, NY",
@@ -739,6 +981,14 @@ describe("Chrome extension field matching", () => {
     expect(
       matcher.scoreChoice(
         "Protected veteran",
+        "protected",
+        "I identify as one or more of the classifications of protected veteran listed above",
+        "veteranStatus",
+      ),
+    ).toBe(100);
+    expect(
+      matcher.scoreChoice(
+        "Protected veteran",
         "not-protected",
         "I am not a protected veteran",
         "veteranStatus",
@@ -760,6 +1010,148 @@ describe("Chrome extension field matching", () => {
         "disabilityStatus",
       ),
     ).toBe(100);
+  });
+
+  it("ranks only unique safe location, race, and veteran options", () => {
+    const rank = (
+      savedValue: string,
+      fieldKey: string,
+      options: { value: string; label: string }[],
+    ) =>
+      options
+        .map((option) => ({
+          ...option,
+          score: matcher.scoreChoice(
+            savedValue,
+            option.value,
+            option.label,
+            fieldKey,
+          ),
+        }))
+        .sort((left, right) => right.score - left.score);
+
+    const locations = rank(
+      "Portland, OR, United States",
+      "location",
+      [
+        {
+          value: "opaque-correct",
+          label: "Portland (Oregon), United States",
+        },
+        {
+          value: "opaque-wrong-region",
+          label: "Portland, Maine, United States",
+        },
+        {
+          value: "opaque-wrong-country",
+          label: "Portland, Oregon, Canada",
+        },
+        { value: "portland-remote", label: "Remote — United States" },
+        { value: "opaque-fuzzy", label: "Portsmouth, New Hampshire" },
+      ],
+    );
+    expect(locations[0]).toMatchObject({
+      value: "opaque-correct",
+      score: 100,
+    });
+    expect(locations.slice(1).every((option) => option.score === 0)).toBe(true);
+    expect(
+      matcher.scoreChoice(
+        "London, ON, Canada",
+        "opaque-foreign",
+        "London, United Kingdom",
+        "location",
+      ),
+    ).toBe(0);
+    expect(
+      matcher.scoreChoice(
+        "London, Canada",
+        "London",
+        "London, United Kingdom",
+        "location",
+      ),
+    ).toBe(0);
+    expect(
+      matcher.scoreChoice(
+        "Portland, OR, United States",
+        "opaque-bare",
+        "Portland",
+        "location",
+      ),
+    ).toBe(94);
+    expect(
+      matcher.scoreChoice(
+        "Mexico City, Mexico",
+        "opaque-wrong-country",
+        "Mexico, Maine, United States",
+        "location",
+      ),
+    ).toBe(0);
+
+    const ambiguousRace = rank("White", "raceEthnicity", [
+      { value: "opaque-white", label: "White (Not Hispanic or Latino)" },
+      { value: "opaque-caucasian", label: "Caucasian" },
+    ]);
+    expect(ambiguousRace[0].score).toBe(ambiguousRace[1].score);
+
+    const veteranChoices = rank("Not a protected veteran", "veteranStatus", [
+      {
+        value: "opaque-protected",
+        label: "I identify as one or more classifications of a protected veteran",
+      },
+      {
+        value: "opaque-not-protected",
+        label: "I am not a protected veteran",
+      },
+      { value: "yes", label: "Yes" },
+      { value: "no", label: "No" },
+      { value: "other", label: "Other" },
+    ]);
+    expect(veteranChoices[0]).toMatchObject({
+      value: "opaque-not-protected",
+      score: 100,
+    });
+    expect(
+      veteranChoices
+        .filter((option) => ["yes", "no", "other"].includes(option.value))
+        .every((option) => option.score === 0),
+    ).toBe(true);
+
+    for (const fieldKey of ["raceEthnicity", "veteranStatus"]) {
+      expect(matcher.scoreChoice("", "first", "First option", fieldKey)).toBe(0);
+      expect(matcher.scoreChoice("", "other", "Other", fieldKey)).toBe(0);
+    }
+  });
+
+  it("derives deterministic full and city-only location search queries", () => {
+    expect(
+      matcher.choiceSearchQueries("New York, NY", "location"),
+    ).toEqual(["New York, NY", "New York"]);
+    expect(
+      matcher.choiceSearchQueries(
+        "Toronto (Ontario), Canada",
+        "city",
+      ),
+    ).toEqual(["Toronto (Ontario), Canada", "Toronto"]);
+    expect(
+      matcher.choiceSearchQueries("LinkedIn", "heardAboutJob"),
+    ).toEqual(["LinkedIn"]);
+    expect(matcher.choiceSearchQueries("", "location")).toEqual([]);
+    expect(
+      matcher.contextualLocationChoice("New York, NY", "United States"),
+    ).toBe("New York, NY");
+    expect(
+      matcher.contextualLocationChoice("New York", "United States"),
+    ).toBe("New York, United States");
+    expect(
+      matcher.contextualLocationChoice("Toronto, ON", "Canada"),
+    ).toBe("Toronto, ON");
+    expect(
+      matcher.contextualLocationChoice("Mexico City", "Mexico"),
+    ).toBe("Mexico City, Mexico");
+    expect(
+      matcher.contextualLocationChoice("Mexico City, Mexico", "United States"),
+    ).toBeNull();
   });
 
   it("allows conservative Other fallbacks only for benign fields", () => {
