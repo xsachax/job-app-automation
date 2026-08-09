@@ -4,20 +4,24 @@ import { getDiscoveryConfig } from "@/lib/discovery/config";
 import { cls, PageHeader } from "../components/ui";
 import { CompanyLogo } from "../components/CompanyLogo";
 import { ACTIVE_JOB_WHERE } from "@/lib/jobs/availability";
+import { getDiscoveryScopeCopy } from "@/lib/discovery/scope";
 
 export const dynamic = "force-dynamic";
 
 export default async function CompaniesPage() {
-  const grouped = await prisma.job.groupBy({
-    by: ["company", "country"],
-    where: {
-      isWorkday: false,
-      isEntryLevel: true,
-      ...ACTIVE_JOB_WHERE,
-      country: { in: ["US", "CA"] },
-    },
-    _count: { _all: true },
-  });
+  const [scope, grouped] = await Promise.all([
+    getDiscoveryScopeCopy(),
+    prisma.job.groupBy({
+      by: ["company", "country"],
+      where: {
+        isWorkday: false,
+        isEntryLevel: true,
+        ...ACTIVE_JOB_WHERE,
+        country: { in: ["US", "CA"] },
+      },
+      _count: { _all: true },
+    }),
+  ]);
 
   const counts = new Map<string, { us: number; ca: number }>();
   for (const g of grouped) {
@@ -62,7 +66,7 @@ export default async function CompaniesPage() {
     <div>
       <PageHeader
         title="Companies"
-        subtitle={`${API_COMPANIES.length} companies scraped via public APIs, ${BROWSER_COMPANIES.length} via headless browser, plus ${BOARD_SOURCES.length} community job boards (long tail of employers). Counts are current open entry-level roles.`}
+        subtitle={`${API_COMPANIES.length} companies scraped via public APIs, ${BROWSER_COMPANIES.length} via headless browser, plus ${BOARD_SOURCES.length} community job boards. ${scope.headline}.`}
       />
 
       <h2 className="mb-3 text-lg font-semibold">API sources</h2>
@@ -158,8 +162,8 @@ export default async function CompaniesPage() {
       <h2 className="mb-3 text-lg font-semibold">Community job boards</h2>
       <p className="mb-3 text-xs text-gray-400">
         Aggregator feeds (a raw <code className="rounded bg-gray-100 px-1 dark:bg-gray-800 dark:text-gray-200">listings.json</code>) that
-        cover hundreds of employers beyond the named list. Their roles are merged into the US/CA lists
-        and deduped against company-site postings (the native listing wins). Currently{" "}
+        cover hundreds of employers beyond the named list. Their roles are merged into the configured
+        discovery results and deduped against company-site postings (the native listing wins). Currently{" "}
         <strong>{boardUs}</strong> US + <strong>{boardCa}</strong> CA roles surfaced <em>only</em> via
         boards.
       </p>
@@ -204,7 +208,8 @@ export default async function CompaniesPage() {
         Any hiring YC company from the last <strong>{ycConfig.yc.yearsBack}</strong> years with a team
         of <strong>{ycConfig.yc.minTeamSize}+</strong> is pulled from the live YC directory; we resolve
         each one&apos;s public ATS (Greenhouse / Lever / Ashby) from its own site and merge the roles
-        into the US/CA lists (deduped against the named companies above). Resolved boards are cached.
+        into the configured discovery results (deduped against the named companies above). Resolved
+        boards are cached.
       </p>
       <div className={cls.card + " flex flex-wrap gap-x-8 gap-y-2 text-sm"}>
         {ycResolved === 0 ? (

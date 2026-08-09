@@ -4,12 +4,20 @@ import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
 import type { DiscoveryConfigData } from "@/lib/discovery/config";
 import { DEFAULT_YC_CONFIG } from "@/lib/discovery/config";
+import { formatDiscoveryScope } from "@/lib/discovery/scope-copy";
+import type { Criteria } from "@/lib/matching/score";
+import type { ProfileData } from "@/lib/settings";
 import { api } from "../components/api";
 import { cls, PageHeader } from "../components/ui";
 
 interface ConfigResponse {
   config: DiscoveryConfigData;
   sources: string[];
+}
+
+interface ScopeContext {
+  criteria: Criteria;
+  profile: Pick<ProfileData, "targetRoles">;
 }
 
 const DEFAULT_CONFIG: DiscoveryConfigData = {
@@ -59,18 +67,27 @@ export default function SettingsPage() {
   const [roleKeywordsText, setRoleKeywordsText] = useState("");
   const [excludeTitleKeywordsText, setExcludeTitleKeywordsText] = useState("");
   const [queryTermsText, setQueryTermsText] = useState("");
+  const [scopeContext, setScopeContext] = useState<ScopeContext | null>(null);
 
   useEffect(() => {
     let active = true;
     (async () => {
       try {
-        const data = await api<ConfigResponse>("/api/config");
+        const [data, criteria, profile] = await Promise.all([
+          api<ConfigResponse>("/api/config"),
+          api<Criteria>("/api/criteria"),
+          api<ProfileData>("/api/profile"),
+        ]);
         if (!active) return;
         setConfig(data.config);
         setSources(data.sources);
         setRoleKeywordsText(listText(data.config.roleKeywords));
         setExcludeTitleKeywordsText(listText(data.config.excludeTitleKeywords));
         setQueryTermsText(listText(data.config.queryTerms));
+        setScopeContext({
+          criteria,
+          profile: { targetRoles: profile.targetRoles },
+        });
       } catch (e) {
         if (active) setError((e as Error).message);
       } finally {
@@ -87,12 +104,20 @@ export default function SettingsPage() {
     setError(null);
     setMessage(null);
     try {
-      const data = await api<ConfigResponse>("/api/config");
+      const [data, criteria, profile] = await Promise.all([
+        api<ConfigResponse>("/api/config"),
+        api<Criteria>("/api/criteria"),
+        api<ProfileData>("/api/profile"),
+      ]);
       setConfig(data.config);
       setSources(data.sources);
       setRoleKeywordsText(listText(data.config.roleKeywords));
       setExcludeTitleKeywordsText(listText(data.config.excludeTitleKeywords));
       setQueryTermsText(listText(data.config.queryTerms));
+      setScopeContext({
+        criteria,
+        profile: { targetRoles: profile.targetRoles },
+      });
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -178,6 +203,17 @@ export default function SettingsPage() {
 
   const countryOptions = uniqueSorted(["US", "CA", ...(config?.countries ?? [])]);
   const disabledCount = config?.disabledSources.length ?? 0;
+  const scopeCopy =
+    config && scopeContext
+      ? formatDiscoveryScope({
+          config: {
+            ...config,
+            roleKeywords: parseList(roleKeywordsText),
+            queryTerms: parseList(queryTermsText),
+          },
+          ...scopeContext,
+        })
+      : null;
 
   return (
     <div>
@@ -217,8 +253,13 @@ export default function SettingsPage() {
               <div>
                 <h2 className="text-lg font-semibold">Discovery scope</h2>
                 <p className={helper}>
-                  These filters decide which locations and seniority levels survive the next scrape.
+                  These filters decide which roles and locations survive the next scrape.
                 </p>
+                {scopeCopy && (
+                  <p className="mt-3 max-w-3xl text-sm text-gray-700 dark:text-gray-300">
+                    <strong>Current draft:</strong> {scopeCopy.summary}
+                  </p>
+                )}
               </div>
               <span className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950 dark:text-indigo-200">
                 Next run only
@@ -281,7 +322,7 @@ export default function SettingsPage() {
                   Maximum required years of experience
                 </label>
                 <p className={helper}>
-                  Roles requiring more experience than this are excluded from future entry-level lists.
+                  Roles requiring more experience than this are excluded from future discovery results.
                 </p>
                 <input
                   id="maxYoE"
@@ -325,7 +366,7 @@ export default function SettingsPage() {
                         Include internships and co-ops
                       </span>
                       <span className="mt-1 block text-xs text-gray-500 dark:text-gray-400">
-                        Keeps internship-style postings alongside new-grad and full-time roles.
+                        Keeps internship-style postings alongside other in-scope roles.
                       </span>
                     </span>
                   </label>
@@ -345,8 +386,7 @@ export default function SettingsPage() {
                   Role keywords
                 </label>
                 <p className={helper}>
-                  Comma-separated extra role keywords that broaden what counts as in-scope beyond the
-                  built-in software vocabulary.
+                  Comma-separated extra role keywords that broaden what counts as in-scope.
                 </p>
                 <textarea
                   id="roleKeywords"
@@ -356,7 +396,7 @@ export default function SettingsPage() {
                     setRoleKeywordsText(event.target.value);
                     setMessage(null);
                   }}
-                  placeholder="security, data scientist, machine learning"
+                  placeholder="account executive, data scientist, security"
                 />
               </div>
 
@@ -396,7 +436,7 @@ export default function SettingsPage() {
                     setQueryTermsText(event.target.value);
                     setMessage(null);
                   }}
-                  placeholder="software engineer, backend, platform"
+                  placeholder="account executive, data scientist, platform engineer"
                 />
               </div>
             </div>
