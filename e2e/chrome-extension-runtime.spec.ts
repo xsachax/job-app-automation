@@ -1,19 +1,10 @@
 import { createServer, type Server } from "node:http";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { chromium, expect, test, type BrowserContext, type Page } from "@playwright/test";
-
-interface ExternalChromeApi {
-  runtime: {
-    lastError?: { message?: string };
-    sendMessage(
-      extensionId: string,
-      message: unknown,
-      callback: (response: unknown) => void,
-    ): void;
-  };
-}
+import { expect, test } from "@playwright/test";
+import {
+  externalExtensionMessage,
+  launchUnpackedExtension,
+  type UnpackedExtensionRuntime,
+} from "./helpers/unpacked-extension-harness";
 
 interface ExtensionChromeApi {
   runtime: {
@@ -45,29 +36,6 @@ function closeServer(server: Server): Promise<void> {
   });
 }
 
-async function externalMessage<T>(
-  page: Page,
-  extensionId: string,
-  message: unknown,
-): Promise<T> {
-  return page.evaluate(
-    ({ id, payload }) =>
-      new Promise<T>((resolveMessage, reject) => {
-        const chromeApi = (
-          globalThis as unknown as { chrome: ExternalChromeApi }
-        ).chrome;
-        chromeApi.runtime.sendMessage(id, payload, (response) => {
-          if (chromeApi.runtime.lastError) {
-            reject(new Error(chromeApi.runtime.lastError.message));
-            return;
-          }
-          resolveMessage(response as T);
-        });
-      }),
-    { id: extensionId, payload: message },
-  );
-}
-
 test("the unpacked extension fills a known cross-origin ATS frame", async () => {
   let port = 0;
   const server = createServer((request, response) => {
@@ -93,29 +61,17 @@ test("the unpacked extension fills a known cross-origin ATS frame", async () => 
     response.end("<p>Extension control page</p>");
   });
 
-  let context: BrowserContext | undefined;
-  const userDataDir = await mkdtemp(join(tmpdir(), "job-autofill-extension-"));
+  let runtime: UnpackedExtensionRuntime | undefined;
   try {
     port = await listen(server);
-    const extensionPath = resolve(process.cwd(), "apps/chrome-extension");
-    context = await chromium.launchPersistentContext(userDataDir, {
-      channel: "chromium",
-      headless: true,
-      args: [
-        `--disable-extensions-except=${extensionPath}`,
-        `--load-extension=${extensionPath}`,
-        "--host-resolver-rules=MAP company.test 127.0.0.1,MAP jobs.lever.co 127.0.0.1",
-      ],
-    });
-
-    const serviceWorker =
-      context.serviceWorkers()[0] ??
-      (await context.waitForEvent("serviceworker"));
-    const extensionId = new URL(serviceWorker.url()).hostname;
+    runtime = await launchUnpackedExtension([
+      "--host-resolver-rules=MAP company.test 127.0.0.1,MAP jobs.lever.co 127.0.0.1",
+    ]);
+    const { context, extensionId } = runtime;
     const controlPage = context.pages()[0] ?? (await context.newPage());
     await controlPage.goto(`http://localhost:${port}/control`);
 
-    const saved = await externalMessage<{ ok: boolean; error?: string }>(
+    const saved = await externalExtensionMessage<{ ok: boolean; error?: string }>(
       controlPage,
       extensionId,
       {
@@ -129,17 +85,16 @@ test("the unpacked extension fills a known cross-origin ATS frame", async () => 
     expect(saved).toMatchObject({ ok: true });
 
     const applicationPagePromise = context.waitForEvent("page");
-    const launched = await externalMessage<{ ok: boolean; error?: string }>(
-      controlPage,
-      extensionId,
-      {
-        type: "JOB_AUTOFILL_LAUNCH",
-        url: `http://company.test:${port}/apply`,
-        jobTitle: "Extension runtime fixture",
-        company: "Example",
-        country: "CA",
-      },
-    );
+    const launched = await externalExtensionMessage<{
+      ok: boolean;
+      error?: string;
+    }>(controlPage, extensionId, {
+      type: "JOB_AUTOFILL_LAUNCH",
+      url: `http://company.test:${port}/apply`,
+      jobTitle: "Extension runtime fixture",
+      company: "Example",
+      country: "CA",
+    });
     expect(launched).toMatchObject({ ok: true });
 
     const applicationPage =
@@ -206,10 +161,9 @@ test("the unpacked extension fills a known cross-origin ATS frame", async () => 
     await expect(leverFrame.locator("#first-name")).toHaveValue("Sacha");
     await expect(leverFrame.locator("#email")).toHaveValue("");
   } finally {
-    await context?.close();
+    await runtime?.close();
     if (server.listening) {
       await closeServer(server);
     }
-    await rm(userDataDir, { recursive: true, force: true });
   }
 });

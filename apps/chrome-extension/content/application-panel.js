@@ -7,10 +7,10 @@
 
   const profileSchema = root.JobAutofillProfile;
   const matcher = root.JobAutofillMatcher;
+  const interactions = root.JobAutofillControlInteractions;
   const sessionScope = root.JobAutofillSessionScope;
   const ats = root.JobAutofillAts;
-
-  if (!profileSchema || !matcher || !sessionScope || !ats) {
+  if (!profileSchema || !matcher || !interactions || !sessionScope || !ats) {
     throw new Error("Job autofill libraries were not loaded.");
   }
 
@@ -516,23 +516,23 @@
     if (isContentEditable(first)) {
       return Boolean(text(first.textContent));
     }
-    if (controlKind(elements) === "combobox" && !isInput(first)) {
+    if (controlKind(elements) === "combobox" && isInput(first)) {
+      return Boolean(text(interactions.committedControlValue(first)));
+    }
+    if (controlKind(elements) === "combobox") {
       const explicitValue =
         first.getAttribute("data-value") ||
         first.getAttribute("aria-valuetext");
       if (text(explicitValue)) {
         return true;
       }
-      const controlledIds = String(
-        first.getAttribute("aria-controls") ||
-          first.getAttribute("aria-owns") ||
-          ""
-      ).split(/\s+/);
-      const hasSelectedOption = controlledIds.some((id) =>
-        first.ownerDocument
-          ?.getElementById(id)
-          ?.querySelector?.('[role="option"][aria-selected="true"]')
-      );
+      const hasSelectedOption = interactions
+        .resolveControlledListboxes(first)
+        .some((listbox) =>
+          listbox.querySelector?.(
+            '[role="option"][aria-selected="true"], option:checked'
+          )
+        );
       if (hasSelectedOption) {
         return true;
       }
@@ -563,6 +563,15 @@
   }
 
   function questionRemainsReady(question) {
+    const answered =
+      !state.fillIssues.has(question.key) &&
+      (question.kind === "check-many"
+        ? isCheckManyAnswered(
+            question.elements,
+            question.matchedValue,
+            question.match?.definition?.key
+          )
+        : isAnswered(question.elements));
     if (
       question.elements.some(
         (element) => !element.isConnected || !isCandidateControl(element)
@@ -571,7 +580,7 @@
         (snapshot, index) =>
           snapshot !== inputSnapshot([question.elements[index]])[0]
       ) ||
-      isAnswered(question.elements)
+      answered
     ) {
       return false;
     }
@@ -583,6 +592,15 @@
     return isRequiredQuestion(
       question.elements,
       signalsForQuestion(question.elements, grouped, question.adapterDetails)
+    );
+  }
+
+  function shouldAttemptQuestion(question) {
+    return (
+      question.status === "ready" ||
+      (question.status === "failed" &&
+        !question.answered &&
+        state.fillIssues.has(question.key))
     );
   }
 
@@ -604,10 +622,28 @@
       if (inputType(element) === "file") {
         return element.files?.[0]?.name === filledValue;
       }
+      if (
+        elementRole(element) === "combobox" &&
+        filledValue?.kind === "combobox-commit"
+      ) {
+        return interactions
+          .comboboxCommitEvidence(element, {
+            includeUnassociatedHidden: true
+          })
+          .some(
+            (evidence) =>
+              evidence.source === filledValue.source &&
+              text(evidence.value) === text(filledValue.value)
+          );
+      }
       if (isContentEditable(element)) {
         return text(element.textContent) === text(filledValue);
       }
-      return text(element.value) === text(filledValue);
+      return (
+        text(element.value) === text(filledValue) ||
+        (elementRole(element) === "combobox" &&
+          text(interactions.committedControlValue(element)) === text(filledValue))
+      );
     });
   }
 
@@ -741,6 +777,88 @@
     return roleGroup
       ? `role:${elementIdentity(roleGroup)}`
       : `element:${elementIdentity(control)}`;
+  }
+
+  function identityValue(value) {
+    return encodeURIComponent(text(value));
+  }
+
+  function stableDomPath(element, ignoreElementId = false) {
+    const segments = [];
+    let current = element;
+    for (let depth = 0; current && depth < 10; depth += 1) {
+      if (current.id && (!ignoreElementId || current !== element)) {
+        segments.unshift(`#${identityValue(current.id)}`);
+        break;
+      }
+      const parent = current.parentElement;
+      const tag = tagName(current).toLowerCase() || "element";
+      if (!parent) {
+        segments.unshift(tag);
+        break;
+      }
+      const siblings = Array.from(parent.children).filter(
+        (candidate) => tagName(candidate) === tagName(current)
+      );
+      segments.unshift(`${tag}:${siblings.indexOf(current) + 1}`);
+      current = parent;
+    }
+    return segments.join("/");
+  }
+
+  function semanticControlIdentity(element) {
+    const attributes = [
+      ["data-automation-id", element?.getAttribute?.("data-automation-id")],
+      ["data-testid", element?.getAttribute?.("data-testid")],
+      ["data-field-name", element?.getAttribute?.("data-field-name")],
+      ["name", element?.getAttribute?.("name")],
+      ["autocomplete", element?.getAttribute?.("autocomplete")],
+      ["aria-label", element?.getAttribute?.("aria-label")]
+    ];
+    const explicit = attributes.find(([, value]) => text(value));
+    const path = stableDomPath(element, true);
+    if (explicit) {
+      return `${explicit[0]}:${identityValue(explicit[1])}@${path}`;
+    }
+    return `path:${path}`;
+  }
+
+  function stableRootIdentity(element) {
+    const rootNode = element?.getRootNode?.();
+    if (rootNode?.host) {
+      return `shadow:${semanticControlIdentity(rootNode.host)}`;
+    }
+    let frameElement = null;
+    try {
+      frameElement = element?.ownerDocument?.defaultView?.frameElement || null;
+    } catch {
+      frameElement = null;
+    }
+    const documentUrl = element?.ownerDocument?.URL || location.href;
+    return frameElement
+      ? `frame:${identityValue(documentUrl)}:${semanticControlIdentity(
+          frameElement
+        )}`
+      : `document:${identityValue(documentUrl)}`;
+  }
+
+  function stableQuestionIdentity(elements, kind, label, match) {
+    const first = elements[0];
+    const roleGroup = first.closest?.(
+      '[role="radiogroup"], [role="group"], fieldset'
+    );
+    const anchors = roleGroup ? [roleGroup] : elements;
+    const controls = anchors
+      .map(semanticControlIdentity)
+      .sort()
+      .join("|");
+    return [
+      stableRootIdentity(first),
+      kind,
+      match?.definition?.key || "unmatched",
+      identityValue(label),
+      controls
+    ].join("::");
   }
 
   function resolveMatchedValue(
@@ -916,7 +1034,7 @@
     );
     const questions = [];
 
-    for (const [key, elements] of groups) {
+    for (const [groupKey, elements] of groups) {
       const grouped =
         elements.length > 1 ||
         inputType(elements[0]) === "radio" ||
@@ -939,7 +1057,10 @@
         },
         state.page?.scanOnly ? [] : state.definitions
       );
-      const match = analysis.status === "confident" ? analysis.match : null;
+      const match =
+        analysis.status === "confident"
+          ? analysis.match
+          : matcher.equivalentCandidateMatch(analysis, effectiveProfile);
       const resolved = resolveMatchedValue(
         match,
         kind,
@@ -948,27 +1069,38 @@
         inputType(elements[0]),
         adapterDetails
       );
+      const key =
+        stableQuestionIdentity(elements, kind, label, match) || groupKey;
       const matchedValue = resolved.value;
       const answered =
-        kind === "check-many"
+        !state.fillIssues.has(key) &&
+        (kind === "check-many"
           ? isCheckManyAnswered(
               elements,
               matchedValue,
               match?.definition?.key
             )
-          : isAnswered(elements);
+          : isAnswered(elements));
       const required = isRequiredQuestion(elements, signals);
       const filledByExtension = answered && wasFilledByExtension(elements);
-      const safeSingleCheckbox = state.adapter?.allowsSingleCheckbox?.(
-        adapterDetails,
-        match?.definition?.key,
-        matchedValue
-      );
+      const safeSingleCheckbox =
+        state.adapter?.allowsSingleCheckbox?.(
+          adapterDetails,
+          match?.definition?.key,
+          matchedValue
+        ) ||
+        (["canPerformEssentialFunctions", "isAtLeast18"].includes(
+          match?.definition?.key
+        ) &&
+          matcher.canonicalChoice(matchedValue, match.definition.key) === "yes");
 
       let status = "unknown";
       let reason = "The field was not recognized.";
 
-      if (answered) {
+      if (state.fillIssues.has(key)) {
+        status = "failed";
+        reason = state.fillIssues.get(key);
+      } else if (answered) {
         status = "answered";
         reason = "";
       } else if (!required) {
@@ -982,10 +1114,7 @@
       ) {
         status = "manual";
         reason = "Review this checkbox manually.";
-      } else if (state.fillIssues.has(key)) {
-        status = "failed";
-        reason = state.fillIssues.get(key);
-      } else if (analysis.status === "uncertain") {
+      } else if (analysis.status === "uncertain" && !match) {
         status = "uncertain";
         reason = analysis.reason;
       } else if (match && !resolved.safe) {
@@ -1356,6 +1485,7 @@
         registration.observer.disconnect();
         rootNode.removeEventListener?.("input", handleFieldChange, true);
         rootNode.removeEventListener?.("change", handleFieldChange, true);
+        rootNode.removeEventListener?.("click", handleFieldClick, true);
         state.observers.delete(rootNode);
       }
     }
@@ -1378,23 +1508,32 @@
       );
       rootNode.addEventListener?.("input", handleFieldChange, true);
       rootNode.addEventListener?.("change", handleFieldChange, true);
+      rootNode.addEventListener?.("click", handleFieldClick, true);
       state.observers.set(rootNode, { key: observerKey, observer });
     }
   }
 
   function setNativeProperty(element, property, value) {
-    const prototype = Object.getPrototypeOf(element);
-    const descriptor = Object.getOwnPropertyDescriptor(prototype, property);
-    if (descriptor?.set) {
-      descriptor.set.call(element, value);
-    } else {
-      element[property] = value;
-    }
+    interactions.setNativeProperty(element, property, value);
   }
 
   function dispatchValueEvents(element) {
     const EventConstructor = element.ownerDocument?.defaultView?.Event || Event;
     element.dispatchEvent(new EventConstructor("input", { bubbles: true }));
+    element.dispatchEvent(new EventConstructor("change", { bubbles: true }));
+    if (element.ownerDocument?.activeElement === element && element.blur) {
+      element.blur();
+    } else {
+      const FocusEventConstructor =
+        element.ownerDocument?.defaultView?.FocusEvent || FocusEvent;
+      element.dispatchEvent(
+        new FocusEventConstructor("blur", { bubbles: true })
+      );
+    }
+  }
+
+  function dispatchCommittedChoiceEvents(element) {
+    const EventConstructor = element.ownerDocument?.defaultView?.Event || Event;
     element.dispatchEvent(new EventConstructor("change", { bubbles: true }));
     if (element.ownerDocument?.activeElement === element && element.blur) {
       element.blur();
@@ -1417,6 +1556,41 @@
         view: element.ownerDocument?.defaultView
       })
     );
+  }
+
+  function dispatchPointerClick(element) {
+    const ownerWindow = element.ownerDocument?.defaultView || root;
+    const PointerEventConstructor = ownerWindow.PointerEvent;
+    const MouseEventConstructor = ownerWindow.MouseEvent || MouseEvent;
+    const eventInit = {
+      bubbles: true,
+      cancelable: true,
+      view: ownerWindow
+    };
+    if (PointerEventConstructor) {
+      element.dispatchEvent(
+        new PointerEventConstructor("pointerdown", eventInit)
+      );
+    }
+    element.dispatchEvent(new MouseEventConstructor("mousedown", eventInit));
+    if (PointerEventConstructor) {
+      element.dispatchEvent(new PointerEventConstructor("pointerup", eventInit));
+    }
+    element.dispatchEvent(new MouseEventConstructor("mouseup", eventInit));
+    element.click();
+  }
+
+  function fillFailure(question, reason) {
+    question.failureReason = reason;
+    return false;
+  }
+
+  function committedElement(question, reference) {
+    const element = interactions.resolveControl(reference);
+    if (element) {
+      question.committedElements = [element];
+    }
+    return element;
   }
 
   function optionText(element) {
@@ -1445,30 +1619,18 @@
     } else if (["choice", "check-many"].includes(kind)) {
       options = elements;
     } else if (kind === "combobox") {
-      const controlledIds = [
-        first.getAttribute("aria-controls"),
-        first.getAttribute("aria-owns")
-      ]
-        .filter(Boolean)
-        .flatMap((value) => String(value).split(/\s+/));
-      options = controlledIds.flatMap((id) =>
-        Array.from(
-          first.ownerDocument
-            ?.getElementById(id)
-            ?.querySelectorAll(ats.optionSelectorFor(state.adapter)) || []
+      options = Array.from(
+        new Set(
+          interactions.resolveControlledListboxes(first).flatMap((listbox) =>
+            Array.from(
+              listbox.querySelectorAll(ats.optionSelectorFor(state.adapter)) || []
+            )
+          )
         )
       );
     }
     return Array.from(
       new Set(options.map((option) => optionText(option)).filter(Boolean))
-    );
-  }
-
-  function selectedControlText(element) {
-    return (
-      text(element.getAttribute("aria-valuetext")) ||
-      (isInput(element) ? text(element.value) : text(element.textContent)) ||
-      optionText(element)
     );
   }
 
@@ -1567,27 +1729,8 @@
     );
   }
 
-  function visibleComboOptions(element) {
+  function visibleListboxes(element) {
     const ownerDocument = element.ownerDocument;
-    const optionsFrom = (container) =>
-      Array.from(
-        container?.querySelectorAll?.(ats.optionSelectorFor(state.adapter)) || []
-      ).filter(isVisible);
-    const controlledIds = [
-      element.getAttribute("aria-controls"),
-      element.getAttribute("aria-owns")
-    ]
-      .filter(Boolean)
-      .flatMap((value) => String(value).split(/\s+/));
-
-    for (const id of controlledIds) {
-      const controlled = ownerDocument.getElementById(id);
-      const controlledOptions = optionsFrom(controlled);
-      if (controlledOptions.length) {
-        return controlledOptions;
-      }
-    }
-
     const listboxes = [];
     for (const rootNode of collectRoots()) {
       if (
@@ -1603,10 +1746,37 @@
         }
       }
     }
-    if (listboxes.length === 1) {
-      return optionsFrom(listboxes[0]);
+    return listboxes;
+  }
+
+  function visibleComboOptions(element, initiallyVisible = []) {
+    const optionsFrom = (container) =>
+      Array.from(
+        container?.querySelectorAll?.(ats.optionSelectorFor(state.adapter)) || []
+      ).filter(isVisible);
+    const controlledIds = interactions.controlledListboxIds(element);
+
+    if (controlledIds.length) {
+      return Array.from(
+        new Set(
+          interactions
+            .resolveControlledListboxes(element, { initiallyVisible })
+            .flatMap(optionsFrom)
+        )
+      );
     }
-    return [];
+
+    return Array.from(
+      new Set(
+        interactions
+          .scopedListboxes(
+            element,
+            visibleListboxes(element),
+            initiallyVisible
+          )
+          .flatMap(optionsFrom)
+      )
+    );
   }
 
   function wait(milliseconds) {
@@ -1614,139 +1784,237 @@
   }
 
   async function waitForComboboxOptions(
-    element,
-    value,
-    fieldKey,
-    assertActive
-  ) {
-    const deadline = Date.now() + 1_500;
-    let ranked = [];
-    do {
-      assertActive();
-      ranked = rankOptions(visibleComboOptions(element), value, fieldKey);
-      if (hasUniqueChoice(ranked)) {
-        return ranked;
-      }
-      await wait(75);
-      assertActive();
-    } while (Date.now() < deadline);
-    return ranked;
-  }
-
-  async function waitForComboboxFallbackOptions(
-    element,
+    reference,
     value,
     fieldKey,
     assertActive,
-    ownsValue
+    ownedState,
+    initiallyVisible,
+    ranker = rankOptions
   ) {
     const deadline = Date.now() + 1_500;
-    let ranked = [];
     do {
       assertActive();
-      if (!ownsValue()) {
-        return null;
+      const current = interactions.resolveOwnedControl(reference, ownedState);
+      if (!current) {
+        return false;
       }
-      ranked = rankFallbackOptions(
-        visibleComboOptions(element),
+      const ranked = ranker(
+        visibleComboOptions(current, initiallyVisible),
         value,
         fieldKey
       );
       if (hasUniqueChoice(ranked)) {
-        return ranked;
+        return true;
       }
       await wait(75);
       assertActive();
     } while (Date.now() < deadline);
-    return ranked;
+    return Boolean(interactions.resolveOwnedControl(reference, ownedState));
   }
 
   async function fillCombobox(question, value, assertActive) {
-    const element = question.elements[0];
-    const originalValue = isInput(element) ? element.value : "";
-    let ownedValue = null;
+    const reference = interactions.controlReference(question.elements[0]);
+    const originalValue = isInput(question.elements[0])
+      ? String(question.elements[0].value)
+      : "";
+    let ownedValue = isInput(question.elements[0]) ? originalValue : null;
+    let ownedState = interactions.controlOwnershipState(question.elements[0]);
+    let initiallyVisible = [];
+    const commitStateFor = (control) =>
+      interactions.componentCommitState(control, {
+        initiallyVisible,
+        visibleListboxes: visibleListboxes(control)
+      });
+    let ownedCommitState = commitStateFor(question.elements[0]);
+    let committed = false;
+    const restoreTypedValue = () => {
+      const liveControl = interactions.resolveControl(reference);
+      const restored = interactions.restoreOwnedControlValue(
+        reference,
+        ownedValue,
+        originalValue,
+        ownedCommitState,
+        {
+          initiallyVisible,
+          visibleListboxes: liveControl ? visibleListboxes(liveControl) : []
+        }
+      );
+      if (restored) {
+        dispatchValueEvents(restored);
+      }
+    };
     try {
       assertActive();
-      element.focus?.();
-      element.click?.();
+      let current = interactions.resolveOwnedControl(reference, ownedState);
+      if (!current) {
+        return fillFailure(
+          question,
+          "The field was replaced before the extension could open it."
+        );
+      }
+      initiallyVisible = visibleListboxes(current);
+      current.focus?.();
+      dispatchPointerClick(current);
       await wait(60);
       assertActive();
 
       const fieldKey = question.match?.definition.key;
-      const initialOptions = visibleComboOptions(element);
-      let options = initialOptions;
-      let ranked = rankOptions(options, value, fieldKey);
+      current = interactions.resolveOwnedControl(reference, ownedState);
+      if (!current) {
+        return fillFailure(
+          question,
+          "The field was replaced while its options were opening."
+        );
+      }
+      let ranked = rankOptions(
+        visibleComboOptions(current, initiallyVisible),
+        value,
+        fieldKey
+      );
       let usedFallback = false;
-      if (!hasUniqueChoice(ranked) && isInput(element) && !element.readOnly) {
-        if (element.value !== originalValue) {
-          return false;
+      if (!hasUniqueChoice(ranked) && isInput(current) && !current.readOnly) {
+        current = interactions.resolveOwnedControl(reference, ownedState);
+        if (!isInput(current) || String(current.value) !== originalValue) {
+          return fillFailure(
+            question,
+            "The field changed before the extension could choose an option."
+          );
         }
         assertActive();
-        setNativeProperty(element, "value", value);
+        current = interactions.resolveOwnedControl(reference, ownedState);
+        if (!isInput(current) || String(current.value) !== originalValue) {
+          return fillFailure(
+            question,
+            "The field changed before the extension could enter its search."
+          );
+        }
+        setNativeProperty(current, "value", value);
+        ownedValue = String(current.value);
+        ownedState = interactions.controlOwnershipState(current);
+        ownedCommitState = commitStateFor(current);
         const EventConstructor =
-          element.ownerDocument?.defaultView?.Event || Event;
-        element.dispatchEvent(new EventConstructor("input", { bubbles: true }));
-        ownedValue = String(element.value);
-        ranked = await waitForComboboxOptions(
-          element,
+          current.ownerDocument?.defaultView?.Event || Event;
+        current.dispatchEvent(new EventConstructor("input", { bubbles: true }));
+        current = interactions.resolveOwnedControl(reference, ownedState);
+        if (!current) {
+          return fillFailure(
+            question,
+            "The field changed while the extension entered its search."
+          );
+        }
+        await waitForComboboxOptions(
+          reference,
           value,
           fieldKey,
-          assertActive
+          assertActive,
+          ownedState,
+          initiallyVisible
         );
       } else if (!hasUniqueChoice(ranked)) {
-        ranked = await waitForComboboxOptions(
-          element,
+        await waitForComboboxOptions(
+          reference,
           value,
           fieldKey,
-          assertActive
+          assertActive,
+          ownedState,
+          initiallyVisible
         );
       }
 
-      options = visibleComboOptions(element);
-      if (
-        isInput(element) &&
-        ownedValue !== null &&
-        element.value !== ownedValue
-      ) {
-        return false;
+      current = interactions.resolveOwnedControl(reference, ownedState);
+      if (!current) {
+        return fillFailure(
+          question,
+          "The field changed or was replaced while its options were loading."
+        );
       }
+      ranked = rankOptions(
+        visibleComboOptions(current, initiallyVisible),
+        value,
+        fieldKey
+      );
       if (!hasUniqueChoice(ranked) && supportsSafeFallback(fieldKey)) {
+        current = interactions.resolveOwnedControl(reference, ownedState);
+        if (!current) {
+          return fillFailure(
+            question,
+            "The field changed before the extension could choose a fallback option."
+          );
+        }
         let fallbackRanked = [];
         if (
-          isInput(element) &&
+          isInput(current) &&
           ownedValue !== null &&
-          element.value === ownedValue &&
-          element.value !== originalValue
+          String(current.value) === ownedValue &&
+          String(current.value) !== originalValue
         ) {
           assertActive();
-          setNativeProperty(element, "value", originalValue);
+          current = interactions.restoreOwnedControlValue(
+            reference,
+            ownedValue,
+            originalValue,
+            ownedCommitState,
+            {
+              initiallyVisible,
+              visibleListboxes: visibleListboxes(current)
+            }
+          );
+          if (!isInput(current)) {
+            return fillFailure(
+              question,
+              "The field changed before the extension could prepare fallback options."
+            );
+          }
+          ownedValue = String(current.value);
+          ownedState = interactions.controlOwnershipState(current);
+          ownedCommitState = commitStateFor(current);
           const EventConstructor =
-            element.ownerDocument?.defaultView?.Event || Event;
-          element.dispatchEvent(
+            current.ownerDocument?.defaultView?.Event || Event;
+          current.dispatchEvent(
             new EventConstructor("input", { bubbles: true })
           );
-          ownedValue = String(element.value);
-          fallbackRanked = await waitForComboboxFallbackOptions(
-            element,
+          current = interactions.resolveOwnedControl(reference, ownedState);
+          if (!current) {
+            return fillFailure(
+              question,
+              "The field changed while the extension prepared fallback options."
+            );
+          }
+          await waitForComboboxOptions(
+            reference,
             value,
             fieldKey,
             assertActive,
-            () => element.value === ownedValue
+            ownedState,
+            initiallyVisible,
+            rankFallbackOptions
           );
-          if (fallbackRanked === null) {
-            return false;
+          current = interactions.resolveOwnedControl(reference, ownedState);
+          if (!current) {
+            return fillFailure(
+              question,
+              "The field changed before the extension could choose a fallback option."
+            );
           }
-        } else {
           fallbackRanked = rankFallbackOptions(
-            visibleComboOptions(element),
+            visibleComboOptions(current, initiallyVisible),
             value,
             fieldKey
           );
-        }
-        options = visibleComboOptions(element);
-        if (!hasUniqueChoice(fallbackRanked) && !options.length) {
-          options = initialOptions.filter((option) => option.isConnected);
-          fallbackRanked = rankFallbackOptions(options, value, fieldKey);
+        } else {
+          current = interactions.resolveOwnedControl(reference, ownedState);
+          if (!current) {
+            return fillFailure(
+              question,
+              "The field changed before the extension could rank fallback options."
+            );
+          }
+          fallbackRanked = rankFallbackOptions(
+            visibleComboOptions(current, initiallyVisible),
+            value,
+            fieldKey
+          );
         }
         if (hasUniqueChoice(fallbackRanked)) {
           ranked = fallbackRanked;
@@ -1755,100 +2023,192 @@
       }
 
       if (!hasUniqueChoice(ranked)) {
-        if (
-          isInput(element) &&
-          ownedValue !== null &&
-          element.value === ownedValue &&
-          element.value !== originalValue
-        ) {
-          assertActive();
-          setNativeProperty(element, "value", originalValue);
-          dispatchValueEvents(element);
-        }
-        return false;
+        return fillFailure(
+          question,
+          "No unique option owned by this field matched the saved answer."
+        );
       }
 
       assertActive();
-      if (
-        isInput(element) &&
-        ownedValue !== null &&
-        element.value !== ownedValue
-      ) {
-        return false;
-      }
-      ranked[0].option.click();
-      if (isInput(element)) {
-        ownedValue = String(element.value);
-      }
-      await wait(60);
-      assertActive();
-      dispatchValueEvents(element);
-      const selected =
-        ranked[0].option.getAttribute("aria-selected") === "true" ||
-        matcher.scoreChoice(
-          value,
-          element.value || element.getAttribute("data-value"),
-          selectedControlText(element),
-          fieldKey
-        ) >= matcher.MINIMUM_SCORE ||
-        (usedFallback &&
-          matcher.scoreSafeFallback(
-            fieldKey,
-            element.value || element.getAttribute("data-value"),
-            selectedControlText(element)
-          ) >= matcher.MINIMUM_SCORE);
-      if (selected) {
-        state.extensionValues.set(
-          element,
-          String(element.value || element.getAttribute("data-value") || value)
+      current = interactions.resolveOwnedControl(reference, ownedState);
+      if (!current) {
+        return fillFailure(
+          question,
+          "The field changed before the extension could click its option."
         );
       }
-      return selected;
-    } catch (error) {
-      if (
-        isInput(element) &&
-        ownedValue !== null &&
-        element.value === ownedValue &&
-        element.value !== originalValue
-      ) {
-        setNativeProperty(element, "value", originalValue);
-        dispatchValueEvents(element);
+      ranked = (usedFallback ? rankFallbackOptions : rankOptions)(
+        visibleComboOptions(current, initiallyVisible),
+        value,
+        fieldKey
+      );
+      if (!hasUniqueChoice(ranked) || !ranked[0].option.isConnected) {
+        return fillFailure(
+          question,
+          "The matching option was replaced before the extension could click it."
+        );
       }
-      throw error;
+      const commitEvidenceBeforeClick = new Set(
+        interactions
+          .comboboxCommitEvidence(current, {
+            initiallyVisible,
+            includeUnassociatedHidden: true,
+            visibleListboxes: visibleListboxes(current)
+          })
+          .map(
+            (evidence) => `${evidence.source}\u0000${evidence.value}`
+          )
+      );
+      assertActive();
+      current = interactions.resolveOwnedControl(reference, ownedState);
+      if (!current) {
+        return fillFailure(
+          question,
+          "The field changed before the extension could commit its option."
+        );
+      }
+      ranked = (usedFallback ? rankFallbackOptions : rankOptions)(
+        visibleComboOptions(current, initiallyVisible),
+        value,
+        fieldKey
+      );
+      if (!hasUniqueChoice(ranked) || !ranked[0].option.isConnected) {
+        return fillFailure(
+          question,
+          "The matching option changed before the extension could commit it."
+        );
+      }
+      dispatchPointerClick(ranked[0].option);
+      await wait(0);
+      assertActive();
+      current = committedElement(question, reference);
+      if (!current) {
+        return fillFailure(
+          question,
+          "The field was replaced before its selected value could be verified."
+        );
+      }
+      dispatchCommittedChoiceEvents(current);
+
+      const commitDeadline = Date.now() + 750;
+      do {
+        await wait(50);
+        assertActive();
+        current = committedElement(question, reference);
+        if (!current) {
+          continue;
+        }
+        const committedEvidence = interactions
+          .comboboxCommitEvidence(current, {
+            initiallyVisible,
+            includeUnassociatedHidden: true,
+            visibleListboxes: visibleListboxes(current)
+          })
+          .filter(
+            (evidence) =>
+              !commitEvidenceBeforeClick.has(
+                `${evidence.source}\u0000${evidence.value}`
+              )
+          )
+          .find(
+            (evidence) =>
+              matcher.scoreChoice(
+                value,
+                evidence.value,
+                evidence.value,
+                fieldKey
+              ) >= matcher.MINIMUM_SCORE ||
+              (usedFallback &&
+                matcher.scoreSafeFallback(
+                  fieldKey,
+                  evidence.value,
+                  evidence.value
+                ) >= matcher.MINIMUM_SCORE)
+          );
+        const popupClosed =
+          current.getAttribute("aria-expanded") !== "true" &&
+          visibleComboOptions(current, initiallyVisible).length === 0;
+        if (committedEvidence && popupClosed) {
+          state.extensionValues.set(current, {
+            kind: "combobox-commit",
+            source: committedEvidence.source,
+            value: committedEvidence.value
+          });
+          committed = true;
+          return true;
+        }
+      } while (Date.now() < commitDeadline);
+
+      return fillFailure(
+        question,
+        "The field matched, but the selected value did not remain committed after the form updated."
+      );
+    } finally {
+      if (!committed) {
+        restoreTypedValue();
+      }
     }
   }
 
-  function fillCheckMany(question, value) {
+  async function fillCheckMany(question, value, assertActive) {
     const matches = matchingChoiceElements(
       question.elements,
       value,
       question.match?.definition.key
     );
     if (!matches.length) {
-      return false;
+      return fillFailure(
+        question,
+        "No explicit saved checkbox option matched this group."
+      );
     }
 
+    const committed = [];
     for (const element of matches) {
+      const reference = interactions.controlReference(element);
       const selected =
         Boolean(element.checked) ||
         element.getAttribute("aria-checked") === "true";
       if (!selected) {
-        element.click();
+        assertActive();
+        dispatchPointerClick(element);
       }
-      if (isInput(element) && !element.checked) {
-        setNativeProperty(element, "checked", true);
-        dispatchValueEvents(element);
+      await wait(25);
+      assertActive();
+      let current = interactions.resolveControl(reference);
+      if (!current) {
+        return fillFailure(
+          question,
+          "A checkbox was replaced before its saved selection could be verified."
+        );
       }
-      state.extensionValues.set(
-        element,
-        String(element.value || optionText(element))
-      );
+      if (isInput(current) && !current.checked) {
+        setNativeProperty(current, "checked", true);
+        dispatchValueEvents(current);
+        await wait(25);
+        assertActive();
+        current = interactions.resolveControl(reference);
+      }
+      if (
+        !current ||
+        (!current.checked &&
+          current.getAttribute("aria-checked") !== "true")
+      ) {
+        return fillFailure(
+          question,
+          "A matched checkbox did not remain selected after the form updated."
+        );
+      }
+      committed.push(current);
+      if (!selected) {
+        state.extensionValues.set(
+          current,
+          String(current.value || optionText(current))
+        );
+      }
     }
-    return matches.every(
-      (element) =>
-        Boolean(element.checked) ||
-        element.getAttribute("aria-checked") === "true"
-    );
+    question.committedElements = committed;
+    return true;
   }
 
   async function fillChoice(question, value, assertActive) {
@@ -1859,6 +2219,7 @@
     }
 
     if (isSelect(first)) {
+      const reference = interactions.controlReference(first);
       const options = Array.from(first.options);
       const fieldKey = question.match?.definition.key;
       let ranked = rankOptions(options, value, fieldKey);
@@ -1869,18 +2230,33 @@
         }
       }
       if (!hasUniqueChoice(ranked)) {
-        return false;
+        return fillFailure(
+          question,
+          "No unique option in this select matched the saved answer."
+        );
       }
+      const expectedValue = String(ranked[0].option.value);
       assertActive();
       first.focus?.();
-      setNativeProperty(first, "value", ranked[0].option.value);
       dispatchClickEvent(first);
+      setNativeProperty(first, "value", expectedValue);
       dispatchValueEvents(first);
-      const selected = String(first.value) === String(ranked[0].option.value);
+      await wait(50);
+      assertActive();
+      const current = committedElement(question, reference);
+      const selected =
+        isSelect(current) &&
+        String(current.value) === expectedValue &&
+        Boolean(current.options[current.selectedIndex]) &&
+        !current.options[current.selectedIndex].disabled;
       if (selected) {
-        state.extensionValues.set(first, String(first.value));
+        state.extensionValues.set(current, String(current.value));
+        return true;
       }
-      return selected;
+      return fillFailure(
+        question,
+        "The field matched, but the selected value did not remain committed after the form updated."
+      );
     }
 
     if (inputType(first) === "radio" || elementRole(first) === "radio") {
@@ -1890,29 +2266,44 @@
         question.match?.definition.key
       );
       if (!hasUniqueChoice(ranked)) {
-        return false;
-      }
-      const selectedElement = ranked[0].option;
-      assertActive();
-      selectedElement.click();
-      if (
-        isInput(selectedElement) &&
-        !selectedElement.checked
-      ) {
-        setNativeProperty(selectedElement, "checked", true);
-        dispatchValueEvents(selectedElement);
-      }
-      const selected =
-        Boolean(selectedElement.checked) ||
-        selectedElement.getAttribute("aria-checked") === "true";
-      if (selected) {
-        state.extensionValues.set(
-          selectedElement,
-          String(selectedElement.value || optionText(selectedElement))
+        return fillFailure(
+          question,
+          "No unique radio option matched the explicit saved answer."
         );
       }
-      selectedElement.blur?.();
-      return selected;
+      const selectedElement = ranked[0].option;
+      const reference = interactions.controlReference(selectedElement);
+      assertActive();
+      dispatchPointerClick(selectedElement);
+      await wait(25);
+      assertActive();
+      let current = interactions.resolveControl(reference);
+      if (
+        isInput(current) &&
+        !current.checked
+      ) {
+        setNativeProperty(current, "checked", true);
+        dispatchValueEvents(current);
+        await wait(25);
+        assertActive();
+        current = interactions.resolveControl(reference);
+      }
+      const selected =
+        Boolean(current?.checked) ||
+        current?.getAttribute("aria-checked") === "true";
+      if (selected) {
+        state.extensionValues.set(
+          current,
+          String(current.value || optionText(current))
+        );
+        question.committedElements = [current];
+        current.blur?.();
+        return true;
+      }
+      return fillFailure(
+        question,
+        "The matched radio option did not remain selected after the form updated."
+      );
     }
 
     if (
@@ -1922,58 +2313,87 @@
       if (
         matcher.canonicalChoice(value, question.match?.definition.key) !== "yes"
       ) {
-        return false;
+        return fillFailure(
+          question,
+          "This checkbox requires an explicit saved affirmative answer."
+        );
       }
+      const reference = interactions.controlReference(first);
       assertActive();
       const selectedBefore =
         Boolean(first.checked) || first.getAttribute("aria-checked") === "true";
       if (!selectedBefore) {
-        first.click();
+        dispatchPointerClick(first);
       }
-      if (isInput(first) && !first.checked) {
-        setNativeProperty(first, "checked", true);
-        dispatchValueEvents(first);
+      await wait(25);
+      assertActive();
+      let current = interactions.resolveControl(reference);
+      if (isInput(current) && !current.checked) {
+        setNativeProperty(current, "checked", true);
+        dispatchValueEvents(current);
+        await wait(25);
+        assertActive();
+        current = interactions.resolveControl(reference);
       }
       const selected =
-        Boolean(first.checked) || first.getAttribute("aria-checked") === "true";
+        Boolean(current?.checked) ||
+        current?.getAttribute("aria-checked") === "true";
       if (selected) {
         state.extensionValues.set(
-          first,
-          String(first.value || optionText(first) || "yes")
+          current,
+          String(current.value || optionText(current) || "yes")
         );
+        question.committedElements = [current];
+        return true;
       }
-      return selected;
+      return fillFailure(
+        question,
+        "The matched checkbox did not remain selected after the form updated."
+      );
     }
 
-    return false;
+    return fillFailure(question, "This choice control could not be committed.");
   }
 
-  function fillText(question, value) {
+  async function fillText(question, value, assertActive) {
     const element = question.elements[0];
+    const reference = interactions.controlReference(element);
     if (
       isInput(element) &&
       inputType(element) === "number" &&
       !Number.isFinite(Number(value))
     ) {
-      return false;
+      return fillFailure(question, "The saved value is not a valid number.");
     }
 
     if (isContentEditable(element)) {
       element.focus?.();
       element.textContent = value;
       dispatchValueEvents(element);
-      state.extensionValues.set(element, String(element.textContent));
-      return text(element.textContent) === text(value);
+    } else {
+      element.focus?.();
+      setNativeProperty(element, "value", value);
+      dispatchValueEvents(element);
     }
-    element.focus?.();
-    setNativeProperty(element, "value", value);
-    dispatchValueEvents(element);
-    state.extensionValues.set(element, String(element.value));
-    return text(element.value) === text(value);
+    await wait(50);
+    assertActive();
+    const current = committedElement(question, reference);
+    const committedValue = isContentEditable(current)
+      ? current.textContent
+      : current?.value;
+    if (current && text(committedValue) === text(value)) {
+      state.extensionValues.set(current, String(committedValue));
+      return true;
+    }
+    return fillFailure(
+      question,
+      "The field matched, but the value did not remain committed after the form updated."
+    );
   }
 
-  function fillFile(question, savedFile) {
+  async function fillFile(question, savedFile, assertActive) {
     const element = question.elements[0];
+    const reference = interactions.controlReference(element);
     if (
       !isInput(element) ||
       inputType(element) !== "file" ||
@@ -1981,9 +2401,13 @@
       savedFile.mimeType !== "application/pdf" ||
       typeof savedFile.base64 !== "string"
     ) {
-      return false;
+      return fillFailure(
+        question,
+        "Only the saved resume PDF can be attached to this field."
+      );
     }
 
+    let file;
     try {
       const binary = atob(savedFile.base64);
       const bytes = new Uint8Array(binary.length);
@@ -1991,7 +2415,7 @@
         bytes[index] = binary.charCodeAt(index);
       }
       const frameWindow = element.ownerDocument?.defaultView || root;
-      const file = new frameWindow.File([bytes], savedFile.fileName || "resume.pdf", {
+      file = new frameWindow.File([bytes], savedFile.fileName || "resume.pdf", {
         type: "application/pdf",
         lastModified: Date.now()
       });
@@ -2000,11 +2424,23 @@
       element.focus?.();
       setNativeProperty(element, "files", transfer.files);
       dispatchValueEvents(element);
-      state.extensionValues.set(element, file.name);
-      return element.files?.[0]?.name === file.name;
     } catch {
-      return false;
+      return fillFailure(
+        question,
+        "The saved resume PDF could not be attached to this field."
+      );
     }
+    await wait(50);
+    assertActive();
+    const current = committedElement(question, reference);
+    if (current?.files?.[0]?.name === file.name) {
+      state.extensionValues.set(current, file.name);
+      return true;
+    }
+    return fillFailure(
+      question,
+      "The resume field matched, but the PDF attachment did not remain committed."
+    );
   }
 
   function highlight(elements) {
@@ -2060,7 +2496,6 @@
       state.adapter?.augmentDefinitions?.(profileSchema.fields) ||
       profileSchema.fields;
 
-    state.fillIssues.clear();
     if (state.page?.scanOnly) {
       const status = state.shadow?.querySelector("[data-status]");
       if (status) {
@@ -2076,38 +2511,62 @@
       wait
     });
     assertActive();
-    const questions = collectQuestions();
     let filled = 0;
+    for (let pass = 0; pass < 4; pass += 1) {
+      const questions = collectQuestions();
+      let passFilled = 0;
+      let staleSkipped = false;
 
-    for (const question of questions) {
-      assertActive();
-      if (
-        !question.required ||
-        question.status !== "ready" ||
-        !questionRemainsReady(question)
-      ) {
-        continue;
+      for (const question of questions) {
+        assertActive();
+        if (!question.required || !shouldAttemptQuestion(question)) {
+          continue;
+        }
+        if (!questionRemainsReady(question)) {
+          staleSkipped = true;
+          continue;
+        }
+
+        const succeeded =
+          question.kind === "file"
+            ? await fillFile(question, question.matchedValue, assertActive)
+            : question.kind === "check-many"
+              ? await fillCheckMany(
+                  question,
+                  question.matchedValue,
+                  assertActive
+                )
+              : ["choice", "select", "combobox"].includes(question.kind)
+                ? await fillChoice(
+                    question,
+                    question.matchedValue,
+                    assertActive
+                  )
+                : await fillText(
+                    question,
+                    question.matchedValue,
+                    assertActive
+                  );
+        assertActive();
+
+        if (succeeded) {
+          filled += 1;
+          passFilled += 1;
+          state.fillIssues.delete(question.key);
+          highlight(question.committedElements || question.elements);
+        } else {
+          state.fillIssues.set(
+            question.key,
+            question.failureReason ||
+              `The field matched ${question.match.definition.label.toLowerCase()}, but its value could not be committed.`
+          );
+        }
       }
 
-      const succeeded =
-        question.kind === "file"
-          ? fillFile(question, question.matchedValue)
-          : question.kind === "check-many"
-            ? fillCheckMany(question, question.matchedValue)
-          : ["choice", "select", "combobox"].includes(question.kind)
-          ? await fillChoice(question, question.matchedValue, assertActive)
-          : fillText(question, question.matchedValue);
+      await wait(75);
       assertActive();
-
-      if (succeeded) {
-        filled += 1;
-        state.fillIssues.delete(question.key);
-        highlight(question.elements);
-      } else {
-        state.fillIssues.set(
-          question.key,
-          `Saved ${question.match.definition.label.toLowerCase()} did not match this control.`
-        );
+      if (passFilled === 0 && !staleSkipped) {
+        break;
       }
     }
 
@@ -2401,8 +2860,58 @@
     refreshObservers();
   }
 
-  function handleFieldChange() {
+  function questionForEditTarget(target) {
+    const selectedOption = target.closest?.("[role='option']");
+    const listbox = selectedOption?.closest?.("[role='listbox']");
+    return collectQuestions().find((question) => {
+      if (
+        question.elements.some(
+          (element) =>
+            element === target ||
+            element.contains?.(target) ||
+            ats.questionContainer(element, state.adapter, question.elements)
+              ?.contains?.(target)
+        )
+      ) {
+        return true;
+      }
+      return Boolean(
+        listbox?.id &&
+          question.elements.some((element) =>
+            interactions.controlledListboxIds(element).includes(listbox.id)
+          )
+      );
+    });
+  }
+
+  function clearFillIssueForTrustedEdit(event) {
+    if (!event.isTrusted || !state.fillIssues.size || !event.target?.closest) {
+      return false;
+    }
+    const question = questionForEditTarget(event.target);
+    if (!question || !state.fillIssues.delete(question.key)) {
+      return false;
+    }
+    state.progressSignature = "";
+    return true;
+  }
+
+  function handleFieldChange(event) {
+    clearFillIssueForTrustedEdit(event);
     scheduleScan();
+  }
+
+  function handleFieldClick(event) {
+    if (
+      !event.target?.closest?.(
+        "[role='option'], input[type='radio'], input[type='checkbox'], [role='radio'], [role='checkbox']"
+      )
+    ) {
+      return;
+    }
+    if (clearFillIssueForTrustedEdit(event)) {
+      scheduleScan();
+    }
   }
 
   function unmountPanel() {
@@ -2411,6 +2920,7 @@
       registration.observer.disconnect();
       rootNode.removeEventListener?.("input", handleFieldChange, true);
       rootNode.removeEventListener?.("change", handleFieldChange, true);
+      rootNode.removeEventListener?.("click", handleFieldClick, true);
     }
     state.observers.clear();
     clearReviewMarkers(true);

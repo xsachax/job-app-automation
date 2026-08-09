@@ -904,9 +904,10 @@
         normalized
       );
     const asksForUnmodeledStatus =
-      /\b(?:obtain|already have|currently have|visa status|immigration status|type of visa|which visa)\b/.test(
+      /\b(?:obtain|already have|currently have|immigration status|type of visa|which visa)\b/.test(
         normalized
-      );
+      ) ||
+      (/\bvisa status\b/.test(normalized) && !mentionsSponsorship);
     const asksIfAuthorizationIsNeeded =
       /\b(?:need|require|requires|required)\b.{0,20}\b(?:work (?:authorization|authorisation|permit)|(?:authorization|authorisation|permission|permit)\b.{0,12}\bto work)\b/.test(
         normalized
@@ -1369,6 +1370,57 @@
       .sort((left, right) => right.score - left.score);
   }
 
+  const equivalentDefinitionGroups = [
+    new Set(["location", "city", "homeCity"]),
+    new Set(["country", "homeCountry"])
+  ];
+
+  function equivalentValueFingerprint(group, value) {
+    const normalized = normalizeText(value);
+    if (!normalized) {
+      return "";
+    }
+    if (group.has("location")) {
+      return normalizeText(String(value).split(",")[0]);
+    }
+    return normalized;
+  }
+
+  function equivalentCandidateMatch(analysis, profile) {
+    if (
+      analysis?.status !== "uncertain" ||
+      !Array.isArray(analysis.candidates) ||
+      analysis.candidates.length < 2
+    ) {
+      return null;
+    }
+    const best = analysis.candidates[0];
+    if (!best || best.score < MINIMUM_SCORE) {
+      return null;
+    }
+    const closeCandidates = analysis.candidates.filter(
+      (candidate) => best.score - candidate.score < MINIMUM_MARGIN
+    );
+    const group = equivalentDefinitionGroups.find((candidateGroup) =>
+      closeCandidates.every((candidate) =>
+        candidateGroup.has(candidate.definition.key)
+      )
+    );
+    if (!group) {
+      return null;
+    }
+    const fingerprints = closeCandidates.map((candidate) =>
+      equivalentValueFingerprint(group, profile?.[candidate.definition.key])
+    );
+    if (
+      fingerprints.some((value) => !value) ||
+      new Set(fingerprints).size !== 1
+    ) {
+      return null;
+    }
+    return best;
+  }
+
   function analyzeDefinition(context, definitions) {
     const ranked = rankDefinitions(context, definitions);
     if (!ranked.length) {
@@ -1645,6 +1697,7 @@
     analyzeDefinition,
     findBestDefinition,
     eligibilityIntent,
+    equivalentCandidateMatch,
     resolveEligibilityAnswer,
     resolvePreviousEmployerAnswer,
     canonicalChoice,

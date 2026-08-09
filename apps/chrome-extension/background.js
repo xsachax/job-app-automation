@@ -20,6 +20,7 @@ const PANEL_FILES = [
   "lib/session-scope.js",
   "lib/profile-schema.js",
   "lib/field-matcher.js",
+  "lib/control-interactions.js",
   "lib/workday-adapter.js",
   "lib/ats-adapter.js",
   "content/application-panel.js"
@@ -980,10 +981,13 @@ async function handleInternalMessage(message, sender) {
       const state = await chrome.storage.local.get(STORAGE_DEFAULTS);
       const tabId = Number.isInteger(message.tabId) ? message.tabId : sender.tab?.id;
       const session = Number.isInteger(tabId) ? await findSessionByTab(tabId) : null;
+      const activeProfile = session
+        ? await profileForSession(session.id)
+        : state.profile || {};
       return {
         ok: true,
         enabled: state.enabled,
-        profileConfigured: Object.values(state.profile || {}).some(
+        profileConfigured: Object.values(activeProfile).some(
           (value) => String(value || "").trim().length > 0
         ),
         session,

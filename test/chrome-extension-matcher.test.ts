@@ -47,6 +47,13 @@ interface Matcher {
     candidates: MatchDefinition[];
     reason: string;
   };
+  equivalentCandidateMatch(
+    analysis: {
+      status: "none" | "uncertain" | "confident";
+      candidates: MatchDefinition[];
+    },
+    profile: Record<string, string>,
+  ): MatchDefinition | null;
   resolveEligibilityAnswer(
     definitionKey: string,
     signals: { text: string; weight: number; source?: string }[],
@@ -808,6 +815,42 @@ describe("Chrome extension field matching", () => {
     ).toBe("city");
   });
 
+  it("coalesces only equivalent saved current-location candidates", () => {
+    const analysis = matcher.analyzeDefinition(
+      {
+        signals: [
+          {
+            text: "Current city / location",
+            weight: 1,
+            source: "label",
+          },
+        ],
+        controlKind: "select",
+        optionTexts: ["New York, NY", "Toronto, ON"],
+      },
+      profileSchema.fields,
+    );
+
+    expect(analysis.status).toBe("uncertain");
+    expect([
+      "location",
+      "city",
+    ]).toContain(
+      matcher.equivalentCandidateMatch(analysis, {
+        location: "New York, NY",
+        city: "New York",
+        homeCity: "New York",
+      })?.definition.key,
+    );
+    expect(
+      matcher.equivalentCandidateMatch(analysis, {
+        location: "Toronto, ON",
+        city: "New York",
+        homeCity: "New York",
+      }),
+    ).toBeNull();
+  });
+
   it("leaves generic follow-ups and reversed accommodation questions unanswered", () => {
     for (const label of [
       "Please specify",
@@ -1066,6 +1109,12 @@ describe("Chrome extension field matching", () => {
       },
       {
         prompt:
+          "If working in the US, will you now, or in the future, require sponsorship for employment visa status (e.g., H-1B visa) to legally work in the US?",
+        key: "requiresSponsorship",
+        answer: "no",
+      },
+      {
+        prompt:
           "Are you legally authorized to work in the United States without sponsorship?",
         key: "workAuthorization",
         answer: "yes",
@@ -1222,6 +1271,7 @@ describe("Chrome extension field matching", () => {
       "Are you not legally authorized to work?",
       "Can you obtain visa sponsorship?",
       "Do you already have visa sponsorship?",
+      "What is your visa sponsorship status?",
       "Do you need work authorization?",
       "What days can you work?",
       "How many hours per week can you work?",
