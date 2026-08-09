@@ -187,6 +187,38 @@ describe("runJudgeScoring", () => {
     expect(mocks.scoreExternalJudgeBatch).not.toHaveBeenCalled();
   });
 
+  it("skips provider resolution in deterministic-only mode", async () => {
+    mocks.resolveJudgeProvider.mockResolvedValue({
+      provider: "openai",
+      external: {
+        provider: "openai",
+        model: "gpt-test",
+        apiKey: "sk-test-secret",
+      },
+      status: "OpenAI selected.",
+    });
+    mocks.scoreAllJobs.mockResolvedValue(BASELINE_RESULT);
+
+    const result = await runJudgeScoring({
+      onlyUnscored: true,
+      providerMode: "deterministic-only",
+    });
+
+    expect(result).toMatchObject({
+      provider: "deterministic",
+      enhancedScored: 0,
+      enhancedStatus: "unavailable",
+      message:
+        "Judge complete with deterministic scoring only; enhanced provider scoring was not requested.",
+    });
+    expect(mocks.resolveJudgeProvider).not.toHaveBeenCalled();
+    expect(mocks.buildJudgeBatch).not.toHaveBeenCalled();
+    expect(mocks.scoreExternalJudgeBatch).not.toHaveBeenCalled();
+    expect(mocks.scoreAllJobs).toHaveBeenCalledWith(
+      expect.objectContaining({ onlyUnscored: true }),
+    );
+  });
+
   it("scores and applies the selected external provider after the baseline", async () => {
     mocks.resolveJudgeProvider.mockResolvedValue({
       provider: "openai",

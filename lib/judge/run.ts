@@ -40,6 +40,13 @@ export interface JudgeRunCoordination {
   waitForActive?: boolean;
 }
 
+export type JudgeProviderMode = "resolve" | "deterministic-only";
+
+export interface JudgeRunOptions
+  extends Omit<ScoreAllJobsOptions, "onProgress"> {
+  providerMode?: JudgeProviderMode;
+}
+
 export interface JudgeRunResult {
   scanned: number;
   scored: number;
@@ -83,7 +90,7 @@ function updateProgress(patch: Partial<JudgeRunProgress>) {
 }
 
 export async function runJudgeScoring(
-  options: Omit<ScoreAllJobsOptions, "onProgress"> = {},
+  options: JudgeRunOptions = {},
   coordination: JudgeRunCoordination = {},
 ): Promise<JudgeRunResult> {
   if (activeRun) {
@@ -113,7 +120,18 @@ export async function runJudgeScoring(
   };
 
   const run = (async () => {
-    const resolution = await resolveJudgeProvider();
+    const {
+      providerMode = "resolve",
+      ...scoreOptions
+    } = options;
+    const resolution: JudgeProviderResolution =
+      providerMode === "deterministic-only"
+        ? {
+            provider: "deterministic",
+            external: null,
+            status: "Enhanced provider scoring was not requested by this run.",
+          }
+        : await resolveJudgeProvider();
     updateProgress({
       provider: resolution.provider,
       message: `Preparing ${
@@ -122,7 +140,7 @@ export async function runJudgeScoring(
           : resolution.provider
       } Judge path...`,
     });
-    return runResolvedJudge(resolution, options);
+    return runResolvedJudge(resolution, scoreOptions, providerMode);
   })();
   activeRun = run;
 
@@ -159,6 +177,7 @@ export async function runJudgeScoring(
 async function runResolvedJudge(
   resolution: JudgeProviderResolution,
   options: Omit<ScoreAllJobsOptions, "onProgress">,
+  providerMode: JudgeProviderMode,
 ): Promise<JudgeRunResult> {
   const baselineJobIds: string[] = [];
   const baseline = await scoreAllJobs({
@@ -208,7 +227,9 @@ async function runResolvedJudge(
       enhancedScored: 0,
       enhancedStatus: "unavailable",
       message:
-        "Judge complete with deterministic scoring only; enhanced provider scoring is unavailable.",
+        providerMode === "deterministic-only"
+          ? "Judge complete with deterministic scoring only; enhanced provider scoring was not requested."
+          : "Judge complete with deterministic scoring only; enhanced provider scoring is unavailable.",
     };
   }
 

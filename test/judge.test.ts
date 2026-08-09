@@ -331,7 +331,7 @@ describe("scoreAllJobs", () => {
     });
   });
 
-  it("preserves external enhanced evidence even during a forced baseline refresh", async () => {
+  it("preserves external enhanced evidence during a normal baseline refresh", async () => {
     const job = await makeJob({
       key: "external-evidence",
       title: "Software Engineer I",
@@ -340,7 +340,7 @@ describe("scoreAllJobs", () => {
       fitProvider: "openai",
     });
 
-    const result = await scoreAllJobs({ force: true });
+    const result = await scoreAllJobs();
 
     expect(result.preservedEnhanced).toBe(1);
     const after = await prisma.job.findUniqueOrThrow({
@@ -348,6 +348,55 @@ describe("scoreAllJobs", () => {
     });
     expect(after.fitProvider).toBe("openai");
     expect(after.fitBaseScore).toBe(86);
+  });
+
+  it("replaces external evidence during a forced baseline refresh", async () => {
+    const job = await makeJob({
+      key: "forced-external-evidence",
+      title: "Software Engineer I",
+      description: "Build TypeScript services.",
+      fitScore: 86,
+      fitProvider: "anthropic",
+    });
+
+    const result = await scoreAllJobs({ force: true });
+
+    expect(result.preservedEnhanced).toBe(0);
+    expect(result.scored).toBe(1);
+    const after = await prisma.job.findUniqueOrThrow({
+      where: { id: job.id },
+    });
+    expect(after.fitProvider).toBe("deterministic");
+  });
+
+  it("preserves current and legacy Copilot evidence during forced runs and external batching", async () => {
+    const current = await makeJob({
+      key: "forced-current-copilot",
+      title: "Frontend Engineer",
+      fitScore: 92,
+      fitProvider: "copilot",
+    });
+    const legacy = await makeJob({
+      key: "forced-legacy-copilot",
+      title: "Backend Engineer",
+      fitScore: 91,
+      fitProvider: "agent",
+    });
+
+    const result = await scoreAllJobs({ force: true });
+    const batch = await buildJudgeBatch({ topN: 10, write: false });
+
+    expect(result.preservedEnhanced).toBe(2);
+    expect(
+      (await prisma.job.findUniqueOrThrow({ where: { id: current.id } }))
+        .fitProvider,
+    ).toBe("copilot");
+    expect(
+      (await prisma.job.findUniqueOrThrow({ where: { id: legacy.id } }))
+        .fitProvider,
+    ).toBe("agent");
+    expect(batch.items.map((item) => item.id)).not.toContain(current.id);
+    expect(batch.items.map((item) => item.id)).not.toContain(legacy.id);
   });
 });
 

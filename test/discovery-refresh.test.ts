@@ -1,15 +1,26 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "../lib/db";
+import { saveProfile } from "../lib/settings";
+import { saveJudgeProviderSettings } from "../lib/judge/provider-settings";
 import {
   calculateDiscoveryRefreshAvailability,
   DISCOVERY_REFRESH_COOLDOWN_MS,
   DiscoveryRefreshCooldownError,
   getDiscoveryRefreshAvailability,
   reserveDiscoveryRefreshStart,
+  scoreNewDiscoveryJobs,
 } from "../lib/discovery/refresh";
 
 beforeEach(async () => {
+  await prisma.discoveryJobSighting.deleteMany();
+  await prisma.job.deleteMany();
+  await prisma.profile.deleteMany();
+  await prisma.judgeProviderSettings.deleteMany();
   await prisma.discoveryRunState.deleteMany();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe("discovery refresh cooldown", () => {
@@ -26,6 +37,7 @@ describe("discovery refresh cooldown", () => {
       lastStartedAt: startedAt.toISOString(),
       nextAllowedAt: "2026-08-08T03:00:00.000Z",
     });
+
     expect(
       calculateDiscoveryRefreshAvailability(
         startedAt,
@@ -57,6 +69,50 @@ describe("discovery refresh cooldown", () => {
     ).resolves.toMatchObject({
       canRun: false,
       cooldownRemainingMs: DISCOVERY_REFRESH_COOLDOWN_MS,
+    });
+  });
+});
+
+describe("discovery refresh Judge mode", () => {
+  it("scores new jobs deterministically without calling a configured external provider", async () => {
+    await saveProfile({
+      skills: ["TypeScript"],
+      targetRoles: ["Software Engineer"],
+    });
+    await saveJudgeProviderSettings({
+      provider: "openai",
+      model: "gpt-test",
+      apiKey: "sk-openai-discovery-test",
+    });
+    const job = await prisma.job.create({
+      data: {
+        dedupeKey: "discovery-judge-mode",
+        title: "Software Engineer I",
+        company: "Acme",
+        applyUrl: "https://example.test/jobs/1",
+        description: "Build TypeScript services.",
+        skills: JSON.stringify(["TypeScript"]),
+        country: "US",
+        isEntryLevel: true,
+      },
+    });
+    const fetchMock = vi.fn(async () => {
+      throw new Error("external provider should not be called");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await scoreNewDiscoveryJobs();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      provider: "deterministic",
+      scored: 1,
+      enhancedScored: 0,
+    });
+    expect(
+      await prisma.job.findUniqueOrThrow({ where: { id: job.id } }),
+    ).toMatchObject({
+      fitProvider: "deterministic",
     });
   });
 });

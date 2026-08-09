@@ -20,7 +20,10 @@ import {
 } from "./scoring";
 import { minRequiredBachelorYoE } from "../discovery/entryLevel";
 import { canonicalSkill } from "../discovery/enrich";
-import { isEnhancedJudgeProvider } from "./provider";
+import {
+  isCopilotJudgeProvider,
+  isEnhancedJudgeProvider,
+} from "./provider";
 
 export interface ScoreAllJobsOptions {
   onlyUnscored?: boolean;
@@ -404,7 +407,10 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
       locationMod + salary.delta + freshness.delta + experience.delta;
     const companySignal = companyBandSignal(job.company, tier);
 
-    if (isEnhancedJudgeProvider(job.fitProvider)) {
+    if (
+      isEnhancedJudgeProvider(job.fitProvider) &&
+      (!opts.force || isCopilotJudgeProvider(job.fitProvider))
+    ) {
       const baseScore = job.fitBaseScore ?? job.fitScore ?? 0;
       const adjustedScore = tierFirstJudgeScore(
         baseScore,

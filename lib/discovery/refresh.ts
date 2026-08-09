@@ -96,6 +96,16 @@ export interface DiscoveryRefreshProgress {
   finishedAt: string | null;
 }
 
+export function scoreNewDiscoveryJobs(): Promise<JudgeRunResult> {
+  return runJudgeScoring(
+    {
+      onlyUnscored: true,
+      providerMode: "deterministic-only",
+    },
+    { waitForActive: true },
+  );
+}
+
 export interface DiscoveryRefreshAvailability {
   canRun: boolean;
   cooldownMs: number;
@@ -378,10 +388,7 @@ async function executeRefresh(started: number): Promise<DiscoveryRefreshResult> 
     currentSource: null,
     message: "Scoring newly discovered jobs…",
   });
-  const judge = await runJudgeScoring(
-    { onlyUnscored: true },
-    { waitForActive: true },
-  );
+  const judge = await scoreNewDiscoveryJobs();
   const finished = Date.now();
   const browserCreated = browser.reduce((sum, result) => sum + result.created, 0);
   const browserUpdated = browser.reduce((sum, result) => sum + result.updated, 0);

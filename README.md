@@ -437,6 +437,11 @@ npm run judge:export              # writes .match/judge-review.json: top jobs + 
 npm run judge:apply -- <scores.json>   # persists Copilot scores (fitProvider = "copilot")
 ```
 
+`--force` replaces existing OpenAI/Anthropic evidence with a fresh deterministic
+baseline. It never replaces current `copilot` or legacy `agent` evidence. Dashboard
+and API Judge runs may then apply the selected fallback to eligible non-Copilot rows;
+Copilot evidence remains excluded from every external batch.
+
 Job cards truthfully label **Baseline**, **Copilot**, **OpenAI**, or **Anthropic** provenance.
 Legacy `fitProvider = "agent"` rows are treated as Copilot. Copilot evidence always wins:
 external runs cannot overwrite it, while a later Copilot apply can replace external evidence.
