@@ -10,7 +10,9 @@ import { detectAts, normalizeUrl } from "../sources/normalize";
 import {
   JOB_AVAILABILITY,
   beginDiscoverySourceRun,
+  classifyDiscoverySourceOutcome,
   completeDiscoverySourceRun,
+  countDiscoverySourceOutcomes,
   describeApiSource,
   failDiscoverySourceRun,
   reconcileDiscoverySourceRuns,
@@ -18,6 +20,8 @@ import {
   type AvailabilityReconciliationResult,
   type CompletedDiscoverySourceRun,
   type DiscoverySourceDescriptor,
+  type DiscoverySourceOutcome,
+  type DiscoverySourceOutcomeCounts,
   type DiscoverySourceRunContext,
   type PostingVerifier,
 } from "./lifecycle";
@@ -37,9 +41,10 @@ export interface CompanyRunResult {
   created: number;
   updated: number;
   sourceRunId?: string;
-  sourceComplete?: boolean;
-  warning?: string;
-  error?: string;
+  sourceComplete: boolean;
+  observedCount: number;
+  outcome: DiscoverySourceOutcome;
+  reason: string;
 }
 
 export interface DiscoveryRunResult {
@@ -48,8 +53,7 @@ export interface DiscoveryRunResult {
   updated: number;
   usEntry: number;
   caEntry: number;
-  errors: number;
-  warnings: number;
+  outcomes: DiscoverySourceOutcomeCounts;
   lifecycle: AvailabilityReconciliationResult;
 }
 
@@ -365,8 +369,17 @@ async function runCompany(
   opts: IngestOptions,
   ctx: FetchContext,
 ): Promise<CompanyRunResult> {
-  const res: CompanyRunResult = { company: c.name, system: c.system, ...zeroCounts() };
-  const sourceRun = await beginDiscoverySourceRun(describeApiSource(c));
+  const descriptor = describeApiSource(c);
+  const res: CompanyRunResult = {
+    company: c.name,
+    system: c.system,
+    ...zeroCounts(),
+    sourceComplete: false,
+    observedCount: 0,
+    outcome: "failed",
+    reason: "source did not finish",
+  };
+  const sourceRun = await beginDiscoverySourceRun(descriptor);
   let warningCount = 0;
   const warningSamples: string[] = [];
   const onWarning = (message: string) => {
@@ -396,20 +409,33 @@ async function runCompany(
     );
     res.sourceRunId = completed.runId;
     res.sourceComplete = completed.complete;
-    res.warning = completed.complete ? undefined : completed.message;
+    res.observedCount = completed.observedCount;
+    res.outcome = completed.outcome;
+    res.reason = completed.reason;
   } catch (e) {
     const warning = warningSummary();
     const error = e instanceof Error ? e.message : String(e);
-    res.warning = undefined;
-    res.error = warning ? `${error}; ${warning}` : error;
+    const failure = classifyDiscoverySourceOutcome({
+      authoritative: descriptor.authoritative,
+      expectedComplete: descriptor.expectedComplete,
+      error: warning ? `${error}; ${warning}` : error,
+    });
+    res.outcome = failure.outcome;
+    res.reason = failure.reason;
     try {
-      await failDiscoverySourceRun(sourceRun, res.error);
+      await failDiscoverySourceRun(sourceRun, res.reason);
     } catch (lifecycleError) {
-      res.error += `; could not record source failure: ${
-        lifecycleError instanceof Error
-          ? lifecycleError.message
-          : String(lifecycleError)
-      }`;
+      res.reason = classifyDiscoverySourceOutcome({
+        authoritative: descriptor.authoritative,
+        expectedComplete: descriptor.expectedComplete,
+        error:
+          `${res.reason}; could not record source failure: ` +
+          `${
+            lifecycleError instanceof Error
+              ? lifecycleError.message
+              : String(lifecycleError)
+          }`,
+      }).reason;
     }
   }
   return res;
@@ -501,8 +527,9 @@ export async function runDiscovery(opts?: {
     updated: results.reduce((a, r) => a + r.updated, 0),
     usEntry: results.reduce((a, r) => a + r.usEntry, 0),
     caEntry: results.reduce((a, r) => a + r.caEntry, 0),
-    errors: results.filter((r) => r.error).length,
-    warnings: results.filter((r) => !r.error && r.sourceComplete === false).length,
+    outcomes: countDiscoverySourceOutcomes(
+      results.map((result) => result.outcome),
+    ),
     lifecycle,
   };
 }

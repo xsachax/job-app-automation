@@ -114,6 +114,116 @@ describe("microsoft adapter (pcsx)", () => {
   });
 });
 
+describe("uber careers adapter", () => {
+  it("uses the current one-shot jobs API and maps its response", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      jsonResponse({
+        jobs: [
+          {
+            Id: "301184",
+            Title: "iOS Engineer II",
+            Description: "<p>Build rider experiences.</p>",
+            DisplayDate: "2026-08-09T06:10:02Z",
+            Locations: [
+              {
+                City: "San Francisco",
+                Region: "California",
+                Country: "United States",
+              },
+            ],
+            Urls: [
+              {
+                Url: "/en/jobs/301184/",
+                IsDefault: true,
+              },
+            ],
+          },
+          {
+            Id: "301185",
+            Title: "Software Engineer II",
+            Locations: [
+              {
+                City: "Toronto",
+                Region: "Ontario",
+                Country: "Canada",
+              },
+            ],
+            Urls: [],
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const company = API_COMPANIES.find(
+      (candidate) => candidate.name === "Uber",
+    )!;
+
+    const posts = await fetchCompanyPostings(company);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "https://jobs.uber.com/api/jobs/search?query=software%20engineer",
+    );
+    expect(posts).toMatchObject([
+      {
+        externalId: "301184",
+        country: "US",
+        applyUrl: "https://jobs.uber.com/en/jobs/301184/",
+        description: "Build rider experiences.",
+      },
+      {
+        externalId: "301185",
+        country: "CA",
+        applyUrl: "https://jobs.uber.com/en/jobs/301185/",
+      },
+    ]);
+  });
+
+  it("retries one transient response but not endpoint drift", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response("", {
+            status: 503,
+            headers: { "Retry-After": "0" },
+          }),
+        )
+        .mockResolvedValueOnce(jsonResponse({ jobs: [] }));
+      vi.stubGlobal("fetch", fetchMock);
+      const company = API_COMPANIES.find(
+        (candidate) => candidate.name === "Uber",
+      )!;
+
+      const pending = fetchCompanyPostings(company);
+      await vi.advanceTimersByTimeAsync(999);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(pending).resolves.toEqual([]);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+
+      fetchMock.mockReset();
+      fetchMock.mockResolvedValue(new Response("", { status: 404 }));
+      await expect(fetchCompanyPostings(company)).rejects.toThrow("HTTP 404");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rejects malformed success responses instead of faking an empty run", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ jobs: null })));
+    const company = API_COMPANIES.find(
+      (candidate) => candidate.name === "Uber",
+    )!;
+
+    await expect(fetchCompanyPostings(company)).rejects.toThrow(
+      "Uber response did not contain a jobs array",
+    );
+  });
+});
+
 describe("talentbrew adapter (Radancy HTML fragments)", () => {
   it("parses job tiles into postings and classifies country", async () => {
     const html = `

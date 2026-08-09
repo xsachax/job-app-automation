@@ -5,44 +5,50 @@ import { useRouter } from "next/navigation";
 import { api } from "./api";
 import { cls } from "./ui";
 
+type DiscoverySourceOutcome = "complete" | "degraded" | "limited" | "failed";
+type DiscoverySourceOutcomeCounts = Record<DiscoverySourceOutcome, number>;
+
 interface ScanTotals {
   sources: number;
   created: number;
   updated: number;
   usEntry: number;
   caEntry: number;
-  errors: number;
-  warnings: number;
+  outcomes: DiscoverySourceOutcomeCounts;
   suspect: number;
   closed: number;
+}
+
+interface SourceResult {
+  company: string;
+  observedCount: number;
+  outcome: DiscoverySourceOutcome;
+  reason: string;
 }
 
 interface DiscoveryRefresh {
   totals: ScanTotals;
   durationMs: number;
   api: {
-    companies: Array<{
-      company: string;
-      sourceComplete?: boolean;
-      warning?: string;
-      error?: string;
-    }>;
+    companies: SourceResult[];
   };
-  browser: Array<{
-    company: string;
-    sourceComplete?: boolean;
-    warning?: string;
-    error?: string;
-  }>;
+  browser: SourceResult[];
   judge: {
     scored: number;
   };
 }
 
+interface NoticeGroup {
+  outcome: Exclude<DiscoverySourceOutcome, "complete">;
+  label: string;
+  sources: SourceResult[];
+  omitted: number;
+}
+
 interface Notice {
   tone: "success" | "warning" | "error";
   text: string;
-  details?: string[];
+  details?: NoticeGroup[];
 }
 
 interface DiscoveryProgress {
@@ -62,9 +68,80 @@ interface DiscoveryProgress {
   totalSources: number;
   currentSource: string | null;
   message: string;
-  errors: number;
-  warnings: number;
+  outcomes: DiscoverySourceOutcomeCounts;
   nextAllowedAt: string | null;
+}
+
+const EMPTY_OUTCOMES: DiscoverySourceOutcomeCounts = {
+  complete: 0,
+  degraded: 0,
+  limited: 0,
+  failed: 0,
+};
+const OUTCOME_KEYS = [
+  "complete",
+  "degraded",
+  "limited",
+  "failed",
+] as const;
+const MAX_SUMMARY_NAMES = 6;
+const MAX_DETAIL_SOURCES = 20;
+const MAX_DISPLAY_REASON_LENGTH = 300;
+
+function formatSourceNames(sources: SourceResult[]): string {
+  const shown = sources
+    .slice(0, MAX_SUMMARY_NAMES)
+    .map((source) => source.company)
+    .join(", ");
+  const omitted = sources.length - MAX_SUMMARY_NAMES;
+  return omitted > 0 ? `${shown}, +${omitted} more` : shown;
+}
+
+function displayReason(reason: string): string {
+  const normalized = reason
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return normalized.length > MAX_DISPLAY_REASON_LENGTH
+    ? `${normalized.slice(0, MAX_DISPLAY_REASON_LENGTH - 3)}...`
+    : normalized;
+}
+
+function groupSourceOutcomes(sources: SourceResult[]): NoticeGroup[] {
+  const definitions = [
+    { outcome: "failed", label: "Failed" },
+    { outcome: "degraded", label: "Degraded" },
+    { outcome: "limited", label: "Limited by design" },
+  ] as const;
+  return definitions.flatMap(({ outcome, label }) => {
+    const matching = sources.filter((source) => source.outcome === outcome);
+    return matching.length
+      ? [
+          {
+            outcome,
+            label,
+            sources: matching.slice(0, MAX_DETAIL_SOURCES),
+            omitted: Math.max(0, matching.length - MAX_DETAIL_SOURCES),
+          },
+        ]
+      : [];
+  });
+}
+
+function validateOutcomeTotals(
+  sources: SourceResult[],
+  totals: ScanTotals,
+): void {
+  const actual: DiscoverySourceOutcomeCounts = { ...EMPTY_OUTCOMES };
+  for (const source of sources) actual[source.outcome]++;
+  const mismatch =
+    sources.length !== totals.sources ||
+    OUTCOME_KEYS.some(
+      (outcome) => actual[outcome] !== totals.outcomes[outcome],
+    );
+  if (mismatch) {
+    throw new Error("Scrape returned inconsistent source outcome totals.");
+  }
 }
 
 function formatRemainingTime(milliseconds: number): string {
@@ -137,8 +214,7 @@ export function ScanButton({ onComplete }: { onComplete?: () => void }) {
       totalSources: 0,
       currentSource: null,
       message: "Preparing discovery sources…",
-      errors: 0,
-      warnings: 0,
+      outcomes: { ...EMPTY_OUTCOMES },
       nextAllowedAt: progress?.nextAllowedAt ?? null,
     });
     const request = api<DiscoveryRefresh>("/api/discovery/run", {
@@ -151,38 +227,41 @@ export function ScanButton({ onComplete }: { onComplete?: () => void }) {
       const totals = result.totals;
       const duration = Math.round(result.durationMs / 1000);
       const sources = [...result.api.companies, ...result.browser];
-      const failedSources = sources.filter((source) => source.error);
-      const failureSummary = failedSources.length
-        ? ` · failed: ${failedSources.map((source) => source.company).join(", ")}`
-        : "";
-      const partialSources = sources.filter(
-        (source) =>
-          !source.error &&
-          (source.warning || source.sourceComplete === false),
+      validateOutcomeTotals(sources, totals);
+      const failedSources = sources.filter(
+        (source) => source.outcome === "failed",
       );
-      const partialSummary = partialSources.length
-        ? ` · partial: ${partialSources.map((source) => source.company).join(", ")}`
-        : "";
-      const details = [
-        ...failedSources.map(
-          (source) => `${source.company}: ${source.error}`,
-        ),
-        ...partialSources.map(
-          (source) =>
-            `${source.company} (partial): ${
-              source.warning ??
-              "Source is search-limited or partial; absence is not authoritative."
-            }`,
-        ),
-      ];
+      const degradedSources = sources.filter(
+        (source) => source.outcome === "degraded",
+      );
+      const limitedSources = sources.filter(
+        (source) => source.outcome === "limited",
+      );
+      const outcomeSummary = [
+        `${totals.outcomes.complete} complete`,
+        failedSources.length
+          ? `failed ${failedSources.length}: ${formatSourceNames(failedSources)}`
+          : "",
+        degradedSources.length
+          ? `degraded ${degradedSources.length}: ${formatSourceNames(degradedSources)}`
+          : "",
+        limitedSources.length
+          ? `limited ${limitedSources.length}: ${formatSourceNames(limitedSources)}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      const details = groupSourceOutcomes(sources);
       setNotice({
-        tone: totals.errors || totals.warnings ? "warning" : "success",
+        tone:
+          totals.outcomes.failed || totals.outcomes.degraded
+            ? "warning"
+            : "success",
         text:
           `Scraped ${totals.sources} sources: ${totals.created} new, ${totals.updated} refreshed, ` +
           `${totals.closed} archived, ${totals.suspect} rechecking, ` +
           `${result.judge.scored} newly scored in ${duration}s` +
-          failureSummary +
-          partialSummary,
+          (outcomeSummary ? ` · ${outcomeSummary}` : ""),
         ...(details.length ? { details } : {}),
       });
       router.refresh();
@@ -244,8 +323,18 @@ export function ScanButton({ onComplete }: { onComplete?: () => void }) {
           <div className="mb-1 flex items-center justify-between gap-3 text-xs text-gray-500 dark:text-gray-400">
             <span className="truncate">
               {progress.message}
-              {progress.errors > 0 ? ` · ${progress.errors} failed` : ""}
-              {progress.warnings > 0 ? ` · ${progress.warnings} partial` : ""}
+              {progress.outcomes.complete > 0
+                ? ` · ${progress.outcomes.complete} complete`
+                : ""}
+              {progress.outcomes.failed > 0
+                ? ` · ${progress.outcomes.failed} failed`
+                : ""}
+              {progress.outcomes.degraded > 0
+                ? ` · ${progress.outcomes.degraded} degraded`
+                : ""}
+              {progress.outcomes.limited > 0
+                ? ` · ${progress.outcomes.limited} limited`
+                : ""}
             </span>
             <span className="shrink-0 tabular-nums">
               {progress.totalSteps
@@ -287,12 +376,27 @@ export function ScanButton({ onComplete }: { onComplete?: () => void }) {
           </p>
           {notice.details && (
             <details className="mt-1 text-xs">
-              <summary className="cursor-pointer">Source issue details</summary>
-              <ul className="mt-1 space-y-1">
-                {notice.details.map((detail) => (
-                  <li key={detail}>{detail}</li>
+              <summary className="cursor-pointer">Source outcome details</summary>
+              <div className="mt-2 space-y-2">
+                {notice.details.map((group) => (
+                  <section key={group.outcome}>
+                    <p className="font-medium">
+                      {group.label} ({group.sources.length + group.omitted})
+                    </p>
+                    <ul className="mt-1 space-y-1">
+                      {group.sources.map((source) => (
+                        <li key={`${group.outcome}:${source.company}`}>
+                          {source.company} ({source.observedCount} observed):{" "}
+                          {displayReason(source.reason)}
+                        </li>
+                      ))}
+                      {group.omitted > 0 && (
+                        <li>+{group.omitted} additional sources</li>
+                      )}
+                    </ul>
+                  </section>
                 ))}
-              </ul>
+              </div>
             </details>
           )}
         </div>

@@ -3,8 +3,10 @@ import { scrapeBrowserCompanies } from "../lib/discovery/browser";
 import { prisma } from "../lib/db";
 import { BROWSER_COMPANIES } from "../lib/discovery/companies";
 import {
+  countDiscoverySourceOutcomes,
   describeBrowserSource,
   recordDiscoverySourceFailure,
+  type DiscoverySourceOutcome,
 } from "../lib/discovery/lifecycle";
 
 // CLI entry point for the discovery pipeline. Fetches fresh entry-level US/CA
@@ -16,6 +18,19 @@ import {
 //   npm run discover:browser               # Playwright scrape the client-rendered sites
 //   npm run discover:browser -- Apple      # only this browser company
 
+function outcomeIcon(outcome: DiscoverySourceOutcome): string {
+  switch (outcome) {
+    case "complete":
+      return "✓";
+    case "degraded":
+      return "⚠";
+    case "limited":
+      return "○";
+    case "failed":
+      return "✗";
+  }
+}
+
 async function runApi(companies: string[], onlyEntryLevel: boolean) {
   console.log(
     `Discovering ${companies.length ? companies.join(", ") : "all API companies"} ` +
@@ -25,19 +40,22 @@ async function runApi(companies: string[], onlyEntryLevel: boolean) {
     companies: companies.length ? companies : undefined,
     onlyEntryLevel,
     onProgress: (r) => {
-      const flag = r.error
-        ? `✗ ${r.error}`
-        : `${r.warning ? `⚠ ${r.warning} · ` : ""}` +
-          `US ${r.usEntry}/${r.usTotal} · CA ${r.caEntry}/${r.caTotal}`;
+      const outcome =
+        r.outcome === "complete"
+          ? ""
+          : `${r.outcome}: ${r.reason} · `;
       console.log(
-        `  ${r.error ? "✗" : r.warning ? "⚠" : "✓"} ${r.company.padEnd(18)} ${flag}`,
+        `  ${outcomeIcon(r.outcome)} ${r.company.padEnd(18)} ${outcome}` +
+          `US ${r.usEntry}/${r.usTotal} · CA ${r.caEntry}/${r.caTotal}`,
       );
     },
   });
   console.log(
     `\nDone. ${result.created} new, ${result.updated} updated · ` +
       `${result.usEntry} US + ${result.caEntry} CA entry-level roles · ` +
-      `${result.errors} errors, ${result.warnings} partial · ` +
+      `${result.outcomes.complete} complete, ${result.outcomes.failed} failed, ` +
+      `${result.outcomes.degraded} degraded, ` +
+      `${result.outcomes.limited} limited · ` +
       `${result.lifecycle.closed} closed, ${result.lifecycle.suspect} rechecking.`,
   );
 }
@@ -51,6 +69,7 @@ async function runBrowser(companies: string[], onlyEntryLevel: boolean) {
   let updated = 0;
   let usEntry = 0;
   let caEntry = 0;
+  const outcomes: DiscoverySourceOutcome[] = [];
   const results = await scrapeBrowserCompanies({
     companies: companies.length ? companies : undefined,
     onResult: () => {},
@@ -61,6 +80,7 @@ async function runBrowser(companies: string[], onlyEntryLevel: boolean) {
     const descriptor = describeBrowserSource(company);
     if (r.error) {
       await recordDiscoverySourceFailure(descriptor, r.error);
+      outcomes.push("failed");
       console.log(`  ✗ ${r.company.padEnd(14)} ${r.error}`);
       continue;
     }
@@ -75,15 +95,21 @@ async function runBrowser(companies: string[], onlyEntryLevel: boolean) {
     updated += counts.updated;
     usEntry += counts.usEntry;
     caEntry += counts.caEntry;
-    const warning = sourceRun.complete ? undefined : sourceRun.message;
+    outcomes.push(sourceRun.outcome);
     console.log(
-      `  ${warning ? "⚠" : "✓"} ${r.company.padEnd(14)} scraped US ${r.usFound} / CA ${r.caFound} → ` +
+      `  ${outcomeIcon(sourceRun.outcome)} ${r.company.padEnd(14)} scraped US ${r.usFound} / CA ${r.caFound} → ` +
         `kept US ${counts.usEntry} · CA ${counts.caEntry}`,
     );
-    if (warning) console.log(`    partial: ${warning}`);
+    if (sourceRun.outcome !== "complete") {
+      console.log(`    ${sourceRun.outcome}: ${sourceRun.reason}`);
+    }
   }
+  const outcomeCounts = countDiscoverySourceOutcomes(outcomes);
   console.log(
-    `\nDone. ${created} new, ${updated} updated · ${usEntry} US + ${caEntry} CA entry-level roles.`,
+    `\nDone. ${created} new, ${updated} updated · ${usEntry} US + ${caEntry} CA entry-level roles · ` +
+      `${outcomeCounts.complete} complete, ${outcomeCounts.failed} failed, ` +
+      `${outcomeCounts.degraded} degraded, ` +
+      `${outcomeCounts.limited} limited.`,
   );
 }
 

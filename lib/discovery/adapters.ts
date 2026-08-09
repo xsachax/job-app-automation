@@ -83,6 +83,10 @@ async function fetchJson(url: string, init?: RequestInit, timeoutMs = 20000): Pr
   }
 }
 
+function wait(milliseconds: number) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
@@ -379,38 +383,82 @@ async function amazon(c: ApiCompany): Promise<DiscoveryPosting[]> {
 
 // ------------------------------------ Uber ------------------------------------
 
+interface UberJob {
+  Id?: string;
+  Title?: string;
+  Description?: string;
+  DisplayDate?: string;
+  Locations?: {
+    City?: string;
+    Region?: string;
+    Country?: string;
+  }[];
+  Urls?: {
+    Url?: string;
+    IsDefault?: boolean;
+  }[];
+}
+
 async function uber(c: ApiCompany): Promise<DiscoveryPosting[]> {
+  const base = "https://jobs.uber.com";
   const out: DiscoveryPosting[] = [];
   const q = c.queryTerms[0];
-  for (const country of ["USA", "CAN"] as const) {
-    const data = (await fetchJson("https://www.uber.com/api/loadSearchJobsResults?localeCode=en", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-csrf-token": "x" },
-      body: JSON.stringify({ params: { query: q, location: [{ country }] }, page: 0, limit: 100 }),
-    })) as {
-      data?: {
-        results?: {
-          id?: number;
-          title?: string;
-          location?: { city?: string; region?: string; countryName?: string };
-          description?: string;
-          creationDate?: string;
-        }[];
-      };
-    };
-    for (const j of data.data?.results ?? []) {
-      const loc = [j.location?.city, j.location?.region, j.location?.countryName].filter(Boolean).join(", ");
-      out.push(
-        mk("uber", c.name, {
-          title: j.title ?? "",
-          location: loc,
-          applyUrl: j.id ? `https://www.uber.com/careers/list/${j.id}/` : "",
-          externalId: String(j.id ?? ""),
-          description: stripHtml(j.description),
-          postedAt: toDate(j.creationDate),
-        }),
-      );
+  const url = `${base}/api/jobs/search?query=${encodeURIComponent(q)}`;
+  let raw: unknown;
+  try {
+    raw = await fetchJson(url);
+  } catch (error) {
+    if (
+      !(error instanceof FetchHttpError) ||
+      (error.status !== 429 && error.status < 500)
+    ) {
+      throw error;
     }
+    await wait(
+      Math.min(10_000, Math.max(1_000, error.retryAfterMs ?? 3_000)),
+    );
+    raw = await fetchJson(url);
+  }
+
+  const jobs =
+    raw && typeof raw === "object" && "jobs" in raw
+      ? (raw as { jobs?: unknown }).jobs
+      : undefined;
+  if (!Array.isArray(jobs)) {
+    throw new Error("Uber response did not contain a jobs array");
+  }
+  const validJobs = requireValidPostingRows(
+    "Uber",
+    jobs as UberJob[],
+    (job) => isNonEmptyString(job.Id) && isNonEmptyString(job.Title),
+  );
+  for (const job of validJobs) {
+    const location = job.Locations?.[0];
+    const locationText = [
+      location?.City,
+      location?.Region,
+      location?.Country,
+    ]
+      .filter(Boolean)
+      .join(", ");
+    const path = job.Urls?.find((candidate) => candidate.IsDefault)?.Url;
+    const applyUrl = path && /^https?:\/\//i.test(path)
+      ? path
+      : path?.startsWith("/")
+        ? `${base}${path}`
+        : job.Id
+          ? `${base}/en/jobs/${job.Id}/`
+          : "";
+    out.push(
+      mk("uber", c.name, {
+        title: job.Title ?? "",
+        location: locationText,
+        applyUrl,
+        externalId: String(job.Id ?? ""),
+        description: stripHtml(job.Description),
+        postedAt: toDate(job.DisplayDate),
+      }),
+    );
   }
   return out;
 }
@@ -688,10 +736,6 @@ async function spotify(c: ApiCompany): Promise<DiscoveryPosting[]> {
 // directly fetchable server-side. It filters by country natively via the
 // `location` param (verified US/CA-clean), paginates by `start` in steps of 10,
 // and returns a real apply URL + posted timestamp.
-
-function wait(milliseconds: number) {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
 
 async function microsoft(
   c: ApiCompany,
