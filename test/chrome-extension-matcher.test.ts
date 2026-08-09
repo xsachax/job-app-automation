@@ -64,6 +64,14 @@ interface Matcher {
     signals: { text: string; weight: number; source?: string }[],
     profile: Record<string, string>,
   ): string;
+  workplaceIntent(
+    signals: { text: string; weight: number; source?: string }[],
+  ): { kind: "office" | "relocation"; negative: boolean } | null;
+  resolveWorkplaceAnswer(
+    definitionKey: string,
+    signals: { text: string; weight: number; source?: string }[],
+    profile: Record<string, string>,
+  ): string;
   resolvePreviousEmployerAnswer(
     signals: { text: string; weight: number; source?: string }[],
     savedEmployers: string,
@@ -105,6 +113,7 @@ describe("Chrome extension profile storage", () => {
       satScore: "9999",
       actScore: "36",
       graduationDate: "2025-05",
+      graduationDateExact: "2024-02-29",
       canPerformEssentialFunctions: "yes",
       pronouns: "They/them",
       pronounsOther: "Ze/hir",
@@ -138,6 +147,7 @@ describe("Chrome extension profile storage", () => {
     expect(profile.satScore).toBe("");
     expect(profile.actScore).toBe("36");
     expect(profile.graduationDate).toBe("2025-05");
+    expect(profile.graduationDateExact).toBe("2024-02-29");
     expect(profile.canPerformEssentialFunctions).toBe("yes");
     expect(profile.pronouns).toBe("They/them");
     expect(profile.pronounsOther).toBe("Ze/hir");
@@ -159,6 +169,15 @@ describe("Chrome extension profile storage", () => {
     expect(profile.coverLetter).toHaveLength(20_000);
     expect(profile).not.toHaveProperty("unexpectedSecret");
     expect(profile).not.toHaveProperty("spacexEmploymentHistory");
+    expect(
+      profileSchema.sanitizeStoredProfile({
+        graduationDate: "2025-05",
+        graduationDateExact: "2023-02-29",
+      }),
+    ).toMatchObject({
+      graduationDate: "2025-05",
+      graduationDateExact: "",
+    });
     expect(() => profileSchema.sanitizeStoredProfile(null)).toThrow(
       "The autofill profile is invalid.",
     );
@@ -245,6 +264,30 @@ describe("Chrome extension profile storage", () => {
       graduationDateInput: "2025-05",
       graduationMonth: "May",
       graduationYear: "2025",
+    });
+    expect(
+      profileSchema.buildEffectiveProfile({
+        graduationDate: "2025-05",
+        graduationDateExact: "2024-02-29",
+      }),
+    ).toMatchObject({
+      graduationDate: "February 2024",
+      graduationDateInput: "2024-02",
+      graduationDateExact: "2024-02-29",
+      graduationDateExactText: "02/29/2024",
+      graduationMonth: "February",
+      graduationYear: "2024",
+    });
+    expect(
+      profileSchema.buildEffectiveProfile({
+        graduationDate: "2025-05",
+        graduationDateExact: "2023-02-29",
+      }),
+    ).toMatchObject({
+      graduationDate: "May 2025",
+      graduationDateInput: "2025-05",
+      graduationDateExact: "",
+      graduationDateExactText: "",
     });
   });
 
@@ -401,7 +444,7 @@ describe("Chrome extension field matching", () => {
     ).toBeNull();
   });
 
-  it("uses radio option shape without reversing negated saved choices", () => {
+  it("uses radio option shape and resolves explicit relocation polarity", () => {
     const positive = matcher.findBestDefinition(
       {
         signals: [
@@ -432,7 +475,20 @@ describe("Chrome extension field matching", () => {
     );
 
     expect(positive?.definition.key).toBe("willingToTravel");
-    expect(negated).toBeNull();
+    expect(negated?.definition.key).toBe("willingToRelocate");
+    expect(
+      matcher.resolveWorkplaceAnswer(
+        "willingToRelocate",
+        [
+          {
+            text: "Are you not willing to relocate?",
+            weight: 1,
+            source: "prompt",
+          },
+        ],
+        { willingToRelocate: "yes" },
+      ),
+    ).toBe("no");
   });
 
   it("keeps negated consequential identity choices manual", () => {
@@ -541,6 +597,7 @@ describe("Chrome extension field matching", () => {
       ["Location (City)", "select", "city"],
       ["School* Required", "text", "school"],
       ["Degree* Required", "select", "degree"],
+      ["Highest level of education", "choice", "degree"],
       ["How did you hear about this job?", "select", "heardAboutJob"],
       ["GPA (Undergraduate)", "text", "undergraduateGpa"],
       ["GPA (Graduate)", "text", "graduateGpa"],
@@ -562,6 +619,13 @@ describe("Chrome extension field matching", () => {
       ["Citizenship Status* Required", "select", "citizenshipStatus"],
       ["Discipline", "text", "fieldOfStudy"],
       ["Pronouns (optional)", "select", "pronouns"],
+      ["What are your pronouns?", "choice", "pronouns"],
+      ["Can you relocate if needed?", "choice", "willingToRelocate"],
+      [
+        "Can you work on-site 3 days per week?",
+        "choice",
+        "officeWorkWillingness",
+      ],
       ["Gender identity* Required", "choice", "gender"],
       ["Race / Ethnicity (Optional)", "select", "raceEthnicity"],
       ["Disability status Required", "choice", "disabilityStatus"],
@@ -731,6 +795,46 @@ describe("Chrome extension field matching", () => {
         "degree",
       ),
     ).toBe(100);
+    expect(
+      matcher.scoreChoice(
+        "Bachelor of Science",
+        "opaque-ba",
+        "Bachelor of Arts",
+        "degree",
+      ),
+    ).toBe(0);
+    expect(
+      matcher.scoreChoice(
+        "Bachelor of Science",
+        "opaque-bs",
+        "BSc",
+        "degree",
+      ),
+    ).toBe(100);
+    expect(
+      matcher.scoreChoice(
+        "Bachelor of Science",
+        "opaque-bs",
+        "Bachelor of Science (B.S.)",
+        "degree",
+      ),
+    ).toBe(100);
+    expect(
+      matcher.scoreChoice(
+        "They/them",
+        "opaque-they",
+        "I use they / them / theirs pronouns",
+        "pronouns",
+      ),
+    ).toBe(100);
+    expect(
+      matcher.scoreChoice(
+        "They/them",
+        "opaque-she",
+        "She / her / hers",
+        "pronouns",
+      ),
+    ).toBe(0);
     expect(
       matcher.scoreChoice(
         "White",
@@ -1196,19 +1300,19 @@ describe("Chrome extension field matching", () => {
     ).toBeNull();
   });
 
-  it("allows conservative Other fallbacks only for benign fields", () => {
+  it("allows conservative Other fallbacks only for non-consequential benign fields", () => {
     expect(
       matcher.scoreSafeFallback(
-        "heardAboutJob",
+        "school",
         "not-listed",
         "Not listed above",
       ),
     ).toBe(100);
-    expect(matcher.scoreSafeFallback("degree", "other", "Other")).toBeGreaterThan(
-      68,
-    );
 
     for (const fieldKey of [
+      "degree",
+      "heardAboutJob",
+      "pronouns",
       "workAuthorization",
       "requiresSponsorship",
       "citizenshipStatus",
@@ -1586,6 +1690,80 @@ describe("Chrome extension field matching", () => {
         matcher.resolveEligibilityAnswer(key, signals, profile),
         prompt,
       ).toBe(answer);
+    }
+  });
+
+  it("derives only explicit office and relocation capability answers", () => {
+    const cases = [
+      ["Are you willing to relocate?", "willingToRelocate", "yes"],
+      ["Can you relocate if needed?", "willingToRelocate", "yes"],
+      [
+        "Are you able to work from our office?",
+        "officeWorkWillingness",
+        "yes",
+      ],
+      [
+        "Can you work on-site 3 days per week?",
+        "officeWorkWillingness",
+        "yes",
+      ],
+      [
+        "Are you willing to work a hybrid schedule?",
+        "officeWorkWillingness",
+        "yes",
+      ],
+      ["Are you not willing to relocate?", "willingToRelocate", "no"],
+      ["Can you not relocate if needed?", "willingToRelocate", "no"],
+      [
+        "Are you unable to work from our office?",
+        "officeWorkWillingness",
+        "no",
+      ],
+      [
+        "Can you not work from our office?",
+        "officeWorkWillingness",
+        "no",
+      ],
+    ] as const;
+    for (const [prompt, key, answer] of cases) {
+      const signals = [{ text: prompt, weight: 1, source: "prompt" }];
+      expect(
+        matcher.findBestDefinition(
+          { signals, controlKind: "choice", optionTexts: ["Yes", "No"] },
+          profileSchema.fields,
+        )?.definition.key,
+        prompt,
+      ).toBe(key);
+      expect(
+        matcher.resolveWorkplaceAnswer(key, signals, {
+          willingToRelocate: "yes",
+        }),
+        prompt,
+      ).toBe(answer);
+    }
+
+    for (const prompt of [
+      "Where are you willing to relocate?",
+      "Preferred office location",
+      "Are you available weekends?",
+      "Can you travel?",
+      "Where do you currently work?",
+      "Do you prefer remote work?",
+      "I certify that I reviewed the hybrid work policy.",
+      "Our hybrid policy requires three office days.",
+      "Are you willing or unwilling to relocate?",
+    ]) {
+      expect(
+        matcher.findBestDefinition(
+          {
+            signals: [{ text: prompt, weight: 1, source: "prompt" }],
+            controlKind: "choice",
+            optionTexts: ["Yes", "No"],
+          },
+          profileSchema.fields,
+        ),
+        prompt,
+      ).toBeNull();
     }
   });
 

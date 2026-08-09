@@ -890,7 +890,8 @@
     signals,
     effectiveProfile,
     nativeInputType,
-    adapterDetails
+    adapterDetails,
+    nativePattern
   ) {
     if (!match) {
       return { value: "", safe: false };
@@ -947,6 +948,28 @@
         reason: intent
           ? ""
           : "The eligibility wording needs manual review."
+      };
+    }
+    if (
+      ["officeWorkWillingness", "willingToRelocate"].includes(
+        match.definition.key
+      )
+    ) {
+      const intent = matcher.workplaceIntent(signals);
+      const resolution = matcher.resolveWorkplaceAnswer(
+        match.definition.key,
+        signals,
+        effectiveProfile
+      );
+      return {
+        value: resolution
+          ? profileSchema.formatControlValue(resolution, kind)
+          : "",
+        safe: Boolean(intent && resolution),
+        available: Boolean(intent),
+        reason: intent
+          ? ""
+          : "The workplace or relocation wording needs manual review."
       };
     }
     if (match.definition.key === "previousEmployers") {
@@ -1028,16 +1051,47 @@
       };
     }
     if (
-      match.definition.key === "graduationDate" &&
-      nativeInputType === "month"
+      match.definition.key === "graduationDate" ||
+      (match.definition.key === "graduationMonth" &&
+        nativeInputType === "month")
     ) {
+      const exactEvidence = [...signals, {
+        text: nativePattern || "",
+        source: "pattern"
+      }]
+        .filter((signal) =>
+          ["aria", "label", "nearby", "pattern", "placeholder", "prompt"].includes(
+            signal.source
+          )
+        )
+        .map((signal) => String(signal.text || ""))
+        .join(" ");
+      const expectsSlashDate =
+        /\bmm\s*[/.-]\s*dd\s*[/.-]\s*yyyy\b/i.test(exactEvidence) ||
+        /\b(?:example|e\.?g\.?)?[\s:,(]*\d{1,2}\/\d{1,2}\/\d{4}\b/i.test(
+          exactEvidence
+        ) ||
+        /\\d\{2\}.{0,12}\\d\{2\}.{0,12}\\d\{4\}/.test(nativePattern || "");
+      const exactRequired =
+        nativeInputType === "date" ||
+        (nativeInputType !== "month" && expectsSlashDate);
+      const value =
+        nativeInputType === "month"
+          ? effectiveProfile.graduationDateInput
+          : exactRequired
+            ? nativeInputType === "date"
+              ? effectiveProfile.graduationDateExact
+              : effectiveProfile.graduationDateExactText
+            : effectiveProfile.graduationDate;
       return {
-        value: profileSchema.formatControlValue(
-          effectiveProfile.graduationDateInput,
-          kind
-        ),
+        value: profileSchema.formatControlValue(value, kind),
         safe: true,
-        available: state.profileAvailability.has("graduationDate")
+        available: exactRequired
+          ? state.profileAvailability.has("graduationDateExact")
+          : state.profileAvailability.has("graduationDate"),
+        reason: exactRequired
+          ? "Save an exact graduation date before filling this day-specific control."
+          : ""
       };
     }
     return {
@@ -1107,7 +1161,8 @@
         signals,
         effectiveProfile,
         inputType(elements[0]),
-        adapterDetails
+        adapterDetails,
+        elements[0].getAttribute("pattern")
       );
       const key =
         stableQuestionIdentity(elements, kind, label, match) || groupKey;
@@ -1177,7 +1232,9 @@
         reason =
           kind === "file"
             ? "Save a resume PDF in your profile."
-            : match.definition.key === "preferredOfficeLocations"
+            : resolved.reason
+              ? resolved.reason
+              : match.definition.key === "preferredOfficeLocations"
               ? "Rank acceptable locations S–C on the location tier board."
             : `Add ${match.definition.label.toLowerCase()} to your profile.`;
       } else if (kind === "file") {
@@ -1721,6 +1778,62 @@
       .sort((left, right) => right.score - left.score);
   }
 
+  function firstSubstantiveFallbackOptions(options, value, fieldKey) {
+    if (fieldKey !== "heardAboutJob" || !text(value)) {
+      return [];
+    }
+    const option = options.find((candidate) => {
+      if (
+        candidate.disabled ||
+        candidate.getAttribute?.("aria-disabled") === "true" ||
+        candidate.hidden ||
+        candidate.hasAttribute?.("hidden") ||
+        candidate.closest?.("[hidden], [aria-hidden='true']")
+      ) {
+        return false;
+      }
+      if (tagName(candidate) !== "OPTION" && !isVisible(candidate)) {
+        return false;
+      }
+      const valueText = text(
+        candidate.value ||
+          candidate.getAttribute?.("data-value") ||
+          candidate.id
+      );
+      const labelText = optionText(candidate);
+      if (!valueText && !labelText) {
+        return false;
+      }
+      if (tagName(candidate) === "OPTION" && !valueText) {
+        return false;
+      }
+      return !/^(?:(?:please )?(?:select|choose)(?: (?:a|an|one|the|your))?(?: (?:option|answer|source|response))?|none|n a|not selected|--+)$/.test(
+        matcher.normalizeText(labelText)
+      );
+    });
+    return option ? [{ option, score: 100 }] : [];
+  }
+
+  function fallbackRanker(fieldKey) {
+    if (fieldKey === "heardAboutJob") {
+      return firstSubstantiveFallbackOptions;
+    }
+    return supportsSafeFallback(fieldKey) ? rankFallbackOptions : null;
+  }
+
+  function exactOptionEvidence(option) {
+    return new Set(
+      [
+        option?.value,
+        option?.getAttribute?.("data-value"),
+        option?.id,
+        optionText(option)
+      ]
+        .map(matcher.normalizeText)
+        .filter(Boolean)
+    );
+  }
+
   function supportsSafeFallback(fieldKey) {
     return (
       matcher.scoreSafeFallback(fieldKey, "other", "Other") >=
@@ -1919,6 +2032,7 @@
       assertActive();
 
       const fieldKey = question.match?.definition.key;
+      const fallback = fallbackRanker(fieldKey);
       const searchQueries = matcher.choiceSearchQueries(
         question.matchedSearchValue || value,
         fieldKey
@@ -2057,7 +2171,7 @@
         value,
         fieldKey
       );
-      if (!hasUniqueChoice(ranked) && supportsSafeFallback(fieldKey)) {
+      if (!hasUniqueChoice(ranked) && fallback) {
         current = interactions.resolveOwnedControl(reference, ownedState);
         if (!current) {
           return fillFailure(
@@ -2112,7 +2226,7 @@
             assertActive,
             ownedState,
             initiallyVisible,
-            rankFallbackOptions
+            fallback
           );
           current = interactions.resolveOwnedControl(reference, ownedState);
           if (!current) {
@@ -2121,7 +2235,7 @@
               "The field changed before the extension could choose a fallback option."
             );
           }
-          fallbackRanked = rankFallbackOptions(
+          fallbackRanked = fallback(
             visibleComboOptions(current, initiallyVisible),
             value,
             fieldKey
@@ -2134,7 +2248,7 @@
               "The field changed before the extension could rank fallback options."
             );
           }
-          fallbackRanked = rankFallbackOptions(
+          fallbackRanked = fallback(
             visibleComboOptions(current, initiallyVisible),
             value,
             fieldKey
@@ -2161,7 +2275,7 @@
           "The field changed before the extension could click its option."
         );
       }
-      ranked = (usedFallback ? rankFallbackOptions : rankOptions)(
+      ranked = (usedFallback ? fallback : rankOptions)(
         visibleComboOptions(current, initiallyVisible),
         value,
         fieldKey
@@ -2191,7 +2305,7 @@
           "The field changed before the extension could commit its option."
         );
       }
-      ranked = (usedFallback ? rankFallbackOptions : rankOptions)(
+      ranked = (usedFallback ? fallback : rankOptions)(
         visibleComboOptions(current, initiallyVisible),
         value,
         fieldKey
@@ -2202,6 +2316,9 @@
           "The matching option changed before the extension could commit it."
         );
       }
+      const fallbackEvidence = usedFallback
+        ? exactOptionEvidence(ranked[0].option)
+        : new Set();
       dispatchPointerClick(ranked[0].option);
       await wait(0);
       assertActive();
@@ -2243,11 +2360,12 @@
                 fieldKey
               ) >= matcher.MINIMUM_SCORE ||
               (usedFallback &&
-                matcher.scoreSafeFallback(
-                  fieldKey,
-                  evidence.value,
-                  evidence.value
-                ) >= matcher.MINIMUM_SCORE)
+               (fallbackEvidence.has(matcher.normalizeText(evidence.value)) ||
+                 matcher.scoreSafeFallback(
+                   fieldKey,
+                   evidence.value,
+                   evidence.value
+                 ) >= matcher.MINIMUM_SCORE))
           );
         const popupClosed =
           current.getAttribute("aria-expanded") !== "true" &&
@@ -2349,7 +2467,8 @@
       const fieldKey = question.match?.definition.key;
       let ranked = rankOptions(options, value, fieldKey);
       if (!hasUniqueChoice(ranked)) {
-        const fallbackRanked = rankFallbackOptions(options, value, fieldKey);
+        const ranker = fallbackRanker(fieldKey);
+        const fallbackRanked = ranker ? ranker(options, value, fieldKey) : [];
         if (hasUniqueChoice(fallbackRanked)) {
           ranked = fallbackRanked;
         }
@@ -2385,11 +2504,24 @@
     }
 
     if (inputType(first) === "radio" || elementRole(first) === "radio") {
-      const ranked = rankOptions(
+      let ranked = rankOptions(
         question.elements,
         value,
         question.match?.definition.key
       );
+      if (!hasUniqueChoice(ranked)) {
+        const ranker = fallbackRanker(question.match?.definition.key);
+        const fallbackRanked = ranker
+          ? ranker(
+              question.elements,
+              value,
+              question.match?.definition.key
+            )
+          : [];
+        if (hasUniqueChoice(fallbackRanked)) {
+          ranked = fallbackRanked;
+        }
+      }
       if (!hasUniqueChoice(ranked)) {
         return fillFailure(
           question,

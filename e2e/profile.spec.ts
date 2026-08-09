@@ -189,6 +189,65 @@ test.describe("profile page", () => {
     await expect(page.getByText(/never influence fit scores/i)).toBeVisible();
   });
 
+  test("persists exact graduation dates while preserving month-only records", async ({
+    page,
+  }) => {
+    await page.goto("/profile");
+    const originalProfile = await page.evaluate(async () =>
+      fetch("/api/profile").then((response) => response.json()),
+    );
+
+    try {
+      await page.evaluate(async (profile) => {
+        await fetch("/api/profile", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...profile,
+            graduationDate: "2024-02",
+            graduationDateExact: "",
+          }),
+        });
+      }, originalProfile);
+      await page.reload();
+
+      await expect(page.getByLabel("Graduation month", { exact: true })).toHaveValue(
+        "2024-02",
+      );
+      await expect(page.getByLabel("Exact graduation date")).toHaveValue("");
+
+      await page.getByLabel("Exact graduation date").fill("2024-02-29");
+      await page.getByRole("button", { name: "Save profile", exact: true }).click();
+      await expect(page.getByText(/Profile saved/)).toBeVisible();
+      await page.reload();
+
+      await expect(page.getByLabel("Exact graduation date")).toHaveValue(
+        "2024-02-29",
+      );
+      await expect(page.getByLabel("Graduation month", { exact: true })).toHaveValue(
+        "2024-02",
+      );
+
+      await page.getByLabel("Exact graduation date").fill("");
+      await page.getByRole("button", { name: "Save profile", exact: true }).click();
+      await expect(page.getByText(/Profile saved/)).toBeVisible();
+      await page.reload();
+
+      await expect(page.getByLabel("Exact graduation date")).toHaveValue("");
+      await expect(page.getByLabel("Graduation month", { exact: true })).toHaveValue(
+        "2024-02",
+      );
+    } finally {
+      await page.evaluate(async (profile) => {
+        await fetch("/api/profile", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(profile),
+        });
+      }, originalProfile);
+    }
+  });
+
   test("persists contextual Other answers without showing stale companion fields", async ({
     page,
   }) => {
@@ -336,7 +395,7 @@ test.describe("profile page", () => {
       await page
         .getByLabel("Field of study / discipline")
         .fill("Computer Engineering");
-      await page.getByLabel("Graduation date").fill("2027-06");
+      await page.getByLabel("Graduation month", { exact: true }).fill("2027-06");
       await page.getByLabel("Relevant experience").fill("1.5");
       await page
         .getByLabel("Software engineering industry experience")
@@ -381,7 +440,9 @@ test.describe("profile page", () => {
       await expect(page.getByLabel("Field of study / discipline")).toHaveValue(
         "Computer Engineering",
       );
-      await expect(page.getByLabel("Graduation date")).toHaveValue("2027-06");
+      await expect(
+        page.getByLabel("Graduation month", { exact: true }),
+      ).toHaveValue("2027-06");
       await expect(page.getByLabel("Relevant experience")).toHaveValue("1.5");
       await expect(
         page.getByLabel("Software engineering industry experience"),

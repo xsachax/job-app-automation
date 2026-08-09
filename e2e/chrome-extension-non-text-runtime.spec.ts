@@ -616,6 +616,223 @@ test.describe("unpacked extension non-text runtime", () => {
     }
   });
 
+  test("fills Layer 5 profile fields through the actual unpacked extension", async () => {
+    const fixture = await startFixtureServer();
+    const runtime = await launchUnpackedExtension([
+      "--host-resolver-rules=MAP ats.test 127.0.0.1",
+    ]);
+    try {
+      const applicationUrl = `${fixture.origin}/application?mode=layer5`;
+      const application = await launchFromDashboard(runtime, applicationUrl, {
+        ...profile,
+        degree: "Bachelor of Science",
+        graduationDate: "2024-02",
+        graduationDateExact: "2024-02-29",
+        heardAboutJob: "An unlisted conference",
+        pronouns: "she/her/hers",
+        relocationPreference: "",
+      });
+      const popup = await openPopupForPage(runtime, application);
+
+      await popup.locator("[data-fill]").click();
+
+      await expect(application.locator("#layer5-graduation-exact")).toHaveValue(
+        "2024-02-29",
+      );
+      await expect(application.locator("#layer5-graduation-text")).toHaveValue(
+        "02/29/2024",
+      );
+      await expect(application.locator("#layer5-graduation-month")).toHaveValue(
+        "2024-02",
+      );
+      await expect(application.locator("#layer5-optional-graduation")).toHaveValue("");
+      await expect(application.locator("#layer5-preserved-graduation")).toHaveValue(
+        "2020-01-15",
+      );
+
+      await expect(application.locator("#layer5-pronouns-she")).toBeChecked();
+      await expect(application.locator("#layer5-pronouns-they")).not.toBeChecked();
+      await expect(application.locator("#layer5-pronouns-decline")).not.toBeChecked();
+      await expect(application.locator("#layer5-degree")).toHaveValue("opaque-bs");
+      await expect(application.locator("#layer5-optional-degree")).toHaveValue("");
+
+      await expect(application.locator("#layer5-office")).toHaveValue("opaque-yes");
+      await expect(application.locator("#layer5-relocate-yes")).toBeChecked();
+      await expect(application.locator("#layer5-relocate-no")).not.toBeChecked();
+      await expect(application.locator("#layer5-not-relocate-no")).toBeChecked();
+      await expect(application.locator("#layer5-not-relocate-yes")).not.toBeChecked();
+      await expect(application.locator("#layer5-office-location-guard")).toHaveValue(
+        "",
+      );
+
+      await expect(application.locator("#layer5-native-source")).toHaveValue("campus");
+      await expect(
+        application
+          .locator("#layer5-portal-source")
+          .locator("xpath=ancestor::*[contains(@class, 'select__value-container')]")
+          .locator(".select__single-value"),
+      ).toHaveText("Community event");
+      await expect(application.locator("#layer5-portal-source")).toHaveValue("");
+      await expect(application.locator("#layer5-portal-source")).toHaveAttribute(
+        "aria-expanded",
+        "false",
+      );
+      await expect(application.locator("#layer5-optional-source")).toHaveValue("");
+      await expect(application.locator("#layer5-preserved-source")).toHaveValue(
+        "referral",
+      );
+
+      const state = await application.evaluate(
+        () =>
+          (globalThis as unknown as { __atsHarness: FixtureState }).__atsHarness,
+      );
+      expect(state.model).toMatchObject({
+        "layer5-graduation-exact": "2024-02-29",
+        "layer5-graduation-text": "02/29/2024",
+        "layer5-graduation-month": "2024-02",
+        layer5_pronouns: "opaque-she",
+        "layer5-degree": "opaque-bs",
+        "layer5-office": "opaque-yes",
+        layer5_relocate: "opaque-yes",
+        layer5_not_relocate: "opaque-no",
+        "layer5-native-source": "campus",
+        "layer5-portal-source": "community",
+      });
+      expect(state.replacements).toMatchObject({
+        "layer5-degree": 1,
+        "layer5-native-source": 1,
+        "layer5-portal-source": 1,
+      });
+      for (const control of [
+        "layer5-graduation-exact",
+        "layer5-graduation-text",
+        "layer5-graduation-month",
+        "layer5-degree",
+        "layer5-office",
+        "layer5-native-source",
+      ]) {
+        expect(eventsFor(state, control)).toEqual(
+          expect.arrayContaining(["input", "change", "blur"]),
+        );
+      }
+      expect(eventsFor(state, "layer5-pronouns-she")).toEqual(
+        expect.arrayContaining(["click", "input", "change"]),
+      );
+      expect(eventsFor(state, "layer5-relocate-yes")).toEqual(
+        expect.arrayContaining(["click", "input", "change"]),
+      );
+      expect(eventsFor(state, "layer5-not-relocate-no")).toEqual(
+        expect.arrayContaining(["click", "input", "change"]),
+      );
+      expect(
+        eventsFor(state, "react-select-layer5-portal-source-option-2"),
+      ).toContain("click");
+      expect(
+        eventsFor(state, "react-select-layer5-portal-source-option-0"),
+      ).not.toContain("click");
+      expect(
+        eventsFor(state, "react-select-layer5-portal-source-option-1"),
+      ).not.toContain("click");
+      expect(state.unrelatedOptionClicks).toBe(0);
+      expect(state.submitClicks).toBe(0);
+
+      await expect
+        .poll(() => extensionState(popup, applicationUrl))
+        .toMatchObject({
+          session: {
+            progress: {
+              filledByExtension: 10,
+              needsAttention: 1,
+              unknownFields: [
+                expect.objectContaining({
+                  label: expect.stringMatching(/preferred office location/i),
+                  status: "unknown",
+                }),
+              ],
+            },
+          },
+        });
+    } finally {
+      await runtime.close();
+      await closeServer(fixture.server);
+    }
+  });
+
+  test("keeps blank consequential Layer 5 answers manual without inventing a date", async () => {
+    const fixture = await startFixtureServer();
+    const runtime = await launchUnpackedExtension([
+      "--host-resolver-rules=MAP ats.test 127.0.0.1",
+    ]);
+    try {
+      const applicationUrl = `${fixture.origin}/application?mode=layer5`;
+      const application = await launchFromDashboard(runtime, applicationUrl, {
+        ...profile,
+        degree: "",
+        graduationDate: "2024-02",
+        graduationDateExact: "",
+        heardAboutJob: "",
+        pronouns: "",
+        relocationPreference: "",
+      });
+      const popup = await openPopupForPage(runtime, application);
+
+      await popup.locator("[data-fill]").click();
+
+      await expect(application.locator("#layer5-graduation-exact")).toHaveValue("");
+      await expect(application.locator("#layer5-graduation-text")).toHaveValue("");
+      await expect(application.locator("#layer5-graduation-month")).toHaveValue(
+        "2024-02",
+      );
+      await expect(application.locator('[name="layer5_pronouns"]:checked')).toHaveCount(
+        0,
+      );
+      await expect(application.locator("#layer5-degree")).toHaveValue("");
+      await expect(application.locator("#layer5-native-source")).toHaveValue("");
+      await expect(
+        application
+          .locator("#layer5-portal-source")
+          .locator("xpath=ancestor::*[contains(@class, 'select__value-container')]")
+          .locator(".select__single-value"),
+      ).toHaveCount(0);
+      await expect(application.locator("#layer5-optional-source")).toHaveValue("");
+      await expect(application.locator("#layer5-preserved-source")).toHaveValue(
+        "referral",
+      );
+      await expect(application.locator("#layer5-office")).toHaveValue("opaque-yes");
+      await expect(application.locator("#layer5-relocate-yes")).toBeChecked();
+      await expect(application.locator("#layer5-not-relocate-no")).toBeChecked();
+
+      const state = await application.evaluate(
+        () =>
+          (globalThis as unknown as { __atsHarness: FixtureState }).__atsHarness,
+      );
+      expect(eventsFor(state, "layer5-pronouns-she")).not.toContain("click");
+      expect(eventsFor(state, "layer5-degree")).not.toContain("change");
+      expect(eventsFor(state, "layer5-native-source")).not.toContain("change");
+      expect(
+        eventsFor(state, "react-select-layer5-portal-source-option-2"),
+      ).not.toContain("click");
+      expect(state.model["layer5-graduation-exact"]).toBeUndefined();
+      expect(state.model["layer5-graduation-text"]).toBeUndefined();
+      expect(state.unrelatedOptionClicks).toBe(0);
+      expect(state.submitClicks).toBe(0);
+
+      const backgroundState = await extensionState(popup, applicationUrl);
+      const consequential = backgroundState.session?.progress.unknownFields.filter(
+        (field) => /pronouns|degree|hear about|graduation date/i.test(field.label),
+      );
+      expect(consequential?.length).toBeGreaterThanOrEqual(6);
+      expect(
+        consequential?.every((field) =>
+          ["manual", "missing-profile"].includes(field.status || ""),
+        ),
+      ).toBe(true);
+    } finally {
+      await runtime.close();
+      await closeServer(fixture.server);
+    }
+  });
+
   test("leaves blank race and veteran answers manual in the real extension path", async () => {
     const fixture = await startFixtureServer();
     const runtime = await launchUnpackedExtension([

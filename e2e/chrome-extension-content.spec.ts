@@ -478,7 +478,7 @@ test("fills required native radio groups from parent and member metadata", async
   ).toEqual(expect.arrayContaining(["click", "input", "change"]));
 });
 
-test("fills required ARIA radios while leaving negated choices manual", async ({
+test("fills required ARIA radios and safely inverts explicit relocation polarity", async ({
   page,
 }) => {
   await installContentPanel(page, {
@@ -520,13 +520,13 @@ test("fills required ARIA radios while leaving negated choices manual", async ({
     requiredByDefault: false,
   });
 
-  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 1 });
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 2 });
   await expect(
     page.locator('[role="radiogroup"] [role="radio"][data-value="true"]'),
   ).toHaveAttribute("aria-checked", "true");
   await expect(
-    page.locator('fieldset [role="radio"][aria-checked="true"]'),
-  ).toHaveCount(0);
+    page.locator('fieldset [role="radio"][data-value="no"]'),
+  ).toHaveAttribute("aria-checked", "true");
 });
 
 test("answers standard negated sponsorship questions safely", async ({ page }) => {
@@ -806,7 +806,7 @@ test("fills only controls marked mandatory by semantic or ATS signals", async ({
   );
   await expect(page.locator("#required-city")).toHaveValue("nyc");
   await expect(page.locator("#required-school")).toHaveValue("uottawa");
-  await expect(page.locator("#required-source")).toHaveValue("not-listed");
+  await expect(page.locator("#required-source")).toHaveValue("agency");
   await expect(
     page.locator('input[name="required-authorization"][value="yes"]'),
   ).toBeChecked();
@@ -898,7 +898,7 @@ test("matches city variants in native and custom selects and dispatches ATS even
   );
 });
 
-test("uses benign select fallbacks without guessing consequential answers", async ({
+test("uses heard-about DOM-order fallbacks without guessing other answers", async ({
   page,
 }) => {
   await installContentPanel(page, {
@@ -914,6 +914,40 @@ test("uses benign select fallbacks without guessing consequential answers", asyn
           <option value="">Select</option>
           <option value="high-school">High school diploma</option>
           <option value="other">Other</option>
+        </select>
+      </label>
+      <label>How did you hear about this opportunity?
+        <select id="native-source-fallback" required>
+          <option value="">Select a source</option>
+          <option value="hidden" hidden>Hidden source</option>
+          <option value="disabled" disabled>Disabled source</option>
+          <option value="campus">Campus event</option>
+          <option value="fair">Career fair</option>
+        </select>
+      </label>
+      <fieldset>
+        <legend>How did you hear about this job? *</legend>
+        <label hidden>
+          <input type="radio" name="radio-source" value="hidden" required>
+          Hidden source
+        </label>
+        <label>
+          <input type="radio" name="radio-source" value="disabled" disabled>
+          Disabled source
+        </label>
+        <label>
+          <input type="radio" name="radio-source" value="career-fair">
+          Career fair
+        </label>
+        <label>
+          <input type="radio" name="radio-source" value="conference">
+          Conference
+        </label>
+      </fieldset>
+      <label>How did you hear about us? (optional)
+        <select id="optional-source-fallback">
+          <option value="">Select a source</option>
+          <option value="campus">Campus event</option>
         </select>
       </label>
       <label>Citizenship status
@@ -978,7 +1012,7 @@ test("uses benign select fallbacks without guessing consequential answers", asyn
       </script>
     `,
     profile: {
-      heardAboutJob: "LinkedIn",
+      heardAboutJob: "A source that is not listed",
       degree: "Doctorate",
       citizenshipStatus: "Permanent resident",
       gender: "Non-binary",
@@ -987,9 +1021,14 @@ test("uses benign select fallbacks without guessing consequential answers", asyn
     requiredByDefault: false,
   });
 
-  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 2 });
-  await expect(page.locator("#source")).toHaveValue("Other");
-  await expect(page.locator("#degree")).toHaveValue("other");
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 3 });
+  await expect(page.locator("#source")).toHaveValue("Staffing agency");
+  await expect(page.locator("#native-source-fallback")).toHaveValue("campus");
+  await expect(
+    page.locator('input[name="radio-source"][value="career-fair"]'),
+  ).toBeChecked();
+  await expect(page.locator("#optional-source-fallback")).toHaveValue("");
+  await expect(page.locator("#degree")).toHaveValue("");
   await expect(page.locator("#citizenship")).toHaveValue("");
   await expect(page.locator("#gender")).toHaveValue("");
   await expect(page.locator("#authorization")).toHaveValue("");
@@ -997,6 +1036,126 @@ test("uses benign select fallbacks without guessing consequential answers", asyn
     "data-job-autofill-review",
     "failed",
   );
+});
+
+test("keeps blank explicit degree, pronoun, and heard-about answers manual", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `
+      <fieldset>
+        <legend>Degree level *</legend>
+        <label><input type="radio" name="degree" value="opaque-bs" required> Bachelor of Science</label>
+        <label><input type="radio" name="degree" value="opaque-ms"> Master of Science</label>
+      </fieldset>
+      <fieldset>
+        <legend>What are your pronouns? *</legend>
+        <div role="radio" aria-checked="false" data-value="opaque-they">They / Them / Theirs</div>
+        <div role="radio" aria-checked="false" data-value="opaque-she">She / Her / Hers</div>
+      </fieldset>
+      <label>How did you hear about us?
+        <select id="blank-source" required>
+          <option value="">Select a source</option>
+          <option value="first">First source</option>
+        </select>
+      </label>
+    `,
+    profile: { degree: "", pronouns: "", heardAboutJob: "" },
+    requiredByDefault: false,
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 0 });
+  await expect(page.locator('input[name="degree"]:checked')).toHaveCount(0);
+  await expect(page.locator('[role="radio"][aria-checked="true"]')).toHaveCount(0);
+  await expect(page.locator("#blank-source")).toHaveValue("");
+});
+
+test("uses the shared semantic ranker for degree and pronoun radio groups", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `
+      <fieldset>
+        <legend>Highest level of education *</legend>
+        <label><input id="degree-ba" type="radio" name="degree-level" value="opaque-ba" required> Bachelor of Arts</label>
+        <label><input id="degree-bs" type="radio" name="degree-level" value="opaque-bs"> Bachelor of Science</label>
+        <label><input id="degree-ms" type="radio" name="degree-level" value="opaque-ms"> Master of Science</label>
+      </fieldset>
+      <fieldset>
+        <legend>What are your pronouns? *</legend>
+        <label><input id="pronoun-she" type="radio" name="pronouns" value="opaque-she" required> She / Her / Hers</label>
+        <label><input id="pronoun-they" type="radio" name="pronouns" value="opaque-they"> I use they / them / theirs pronouns</label>
+      </fieldset>
+      <fieldset>
+        <legend>Highest level of education (optional)</legend>
+        <label><input id="optional-degree" type="radio" name="optional-degree" value="opaque-bs"> Bachelor of Science</label>
+      </fieldset>
+    `,
+    profile: {
+      degree: "Bachelor of Science",
+      pronouns: "They/them",
+    },
+    requiredByDefault: false,
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 2 });
+  await expect(page.locator("#degree-bs")).toBeChecked();
+  await expect(page.locator("#degree-ba")).not.toBeChecked();
+  await expect(page.locator("#degree-ms")).not.toBeChecked();
+  await expect(page.locator("#pronoun-they")).toBeChecked();
+  await expect(page.locator("#pronoun-she")).not.toBeChecked();
+  await expect(page.locator("#optional-degree")).not.toBeChecked();
+});
+
+test("answers only explicit office and relocation capability questions", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `
+      <fieldset>
+        <legend>Are you willing to relocate? *</legend>
+        <label><input id="relocate-yes" type="radio" name="relocate" value="yes" required> Yes</label>
+        <label><input id="relocate-no" type="radio" name="relocate" value="no"> No</label>
+      </fieldset>
+      <label>Can you work on-site 3 days per week?
+        <select id="onsite" required>
+          <option value="">Select</option>
+          <option value="yes">Yes</option>
+          <option value="no">No</option>
+        </select>
+      </label>
+      <fieldset>
+        <legend>Are you willing to work a hybrid schedule? *</legend>
+        <label><input id="hybrid-yes" type="radio" name="hybrid" value="yes" required> Yes</label>
+        <label><input id="hybrid-no" type="radio" name="hybrid" value="no"> No</label>
+      </fieldset>
+      <fieldset>
+        <legend>Are you not willing to relocate? *</legend>
+        <label><input id="negative-relocate-yes" type="radio" name="negative-relocate" value="yes" required> Yes</label>
+        <label><input id="negative-relocate-no" type="radio" name="negative-relocate" value="no"> No</label>
+      </fieldset>
+      <label>Where are you willing to relocate?
+        <select id="relocation-place" required><option value="">Select</option><option>Boston</option></select>
+      </label>
+      <fieldset>
+        <legend>Are you available weekends? *</legend>
+        <label><input type="radio" name="weekends" value="yes" required> Yes</label>
+        <label><input type="radio" name="weekends" value="no"> No</label>
+      </fieldset>
+      <label><input id="hybrid-certification" type="checkbox" required> I certify that I reviewed the hybrid work policy. *</label>
+    `,
+    profile: { willingToRelocate: "" },
+    requiredByDefault: false,
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 4 });
+  await expect(page.locator("#relocate-yes")).toBeChecked();
+  await expect(page.locator("#onsite")).toHaveValue("yes");
+  await expect(page.locator("#hybrid-yes")).toBeChecked();
+  await expect(page.locator("#negative-relocate-no")).toBeChecked();
+  await expect(page.locator("#relocation-place")).toHaveValue("");
+  await expect(page.locator('input[name="weekends"]:checked')).toHaveCount(0);
+  await expect(page.locator("#hybrid-certification")).not.toBeChecked();
 });
 
 test("fills structured education and recurring application questions", async ({
@@ -1014,6 +1173,15 @@ test("fills structured education and recurring application questions", async ({
       </label>
       <label>Discipline <input id="discipline"></label>
       <label>Graduation date <input id="graduation-date" type="month"></label>
+      <label>Exact graduation date <input id="exact-graduation-date" type="date"></label>
+      <label>Graduation date <input id="text-graduation-date" placeholder="MM/DD/YYYY"></label>
+      <label>Graduation month and year <input id="human-graduation-date"></label>
+      <label>Graduation month
+        <select id="graduation-month"><option value="">Select</option><option value="May">May</option></select>
+      </label>
+      <label>Graduation year
+        <select id="graduation-year"><option value="">Select</option><option value="2026">2026</option></select>
+      </label>
       <label>GPA (Undergraduate) <input id="undergraduate-gpa"></label>
       <label>GPA (Graduate) <input id="graduate-gpa"></label>
       <label>GPA (Doctorate) <input id="doctorate-gpa"></label>
@@ -1087,6 +1255,7 @@ test("fills structured education and recurring application questions", async ({
       degree: "Bachelor's degree",
       fieldOfStudy: "Computer Science",
       graduationDate: "2026-05",
+      graduationDateExact: "2026-05-31",
       undergraduateGpa: "3.8",
       graduateGpa: "3.9",
       doctorateGpa: "4.0",
@@ -1105,11 +1274,16 @@ test("fills structured education and recurring application questions", async ({
     },
   });
 
-  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 19 });
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 24 });
   await expect(page.locator("#school")).toHaveValue("University of Ottawa");
   await expect(page.locator("#degree")).toHaveValue("BS");
   await expect(page.locator("#discipline")).toHaveValue("Computer Science");
   await expect(page.locator("#graduation-date")).toHaveValue("2026-05");
+  await expect(page.locator("#exact-graduation-date")).toHaveValue("2026-05-31");
+  await expect(page.locator("#text-graduation-date")).toHaveValue("05/31/2026");
+  await expect(page.locator("#human-graduation-date")).toHaveValue("May 2026");
+  await expect(page.locator("#graduation-month")).toHaveValue("May");
+  await expect(page.locator("#graduation-year")).toHaveValue("2026");
   await expect(page.locator("#undergraduate-gpa")).toHaveValue("3.8");
   await expect(page.locator("#graduate-gpa")).toHaveValue("3.9");
   await expect(page.locator("#doctorate-gpa")).toHaveValue("4.0");
@@ -1127,6 +1301,23 @@ test("fills structured education and recurring application questions", async ({
   await expect(page.locator("#race-ethnicity")).toHaveValue("black");
   await expect(page.locator("#disability")).toHaveValue("no");
   await expect(page.locator("#veteran")).toHaveValue("not-protected");
+});
+
+test("never invents a graduation day for month-only profiles", async ({ page }) => {
+  await installContentPanel(page, {
+    html: `
+      <label>Graduation date <input id="month-only-graduation" type="month" required></label>
+      <label>Exact graduation date <input id="missing-exact-graduation" type="date" required></label>
+      <label>Graduation date <input id="missing-text-graduation" placeholder="MM/DD/YYYY" required></label>
+    `,
+    profile: { graduationDate: "2026-05" },
+    requiredByDefault: false,
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 1 });
+  await expect(page.locator("#month-only-graduation")).toHaveValue("2026-05");
+  await expect(page.locator("#missing-exact-graduation")).toHaveValue("");
+  await expect(page.locator("#missing-text-graduation")).toHaveValue("");
 });
 
 test("fills generic Other details only when nearby context identifies them", async ({

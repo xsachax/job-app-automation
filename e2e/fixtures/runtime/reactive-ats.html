@@ -908,6 +908,257 @@
         </label>
       </section>
 
+      <section id="layer5-controls" hidden>
+        <h2>Expanded profile autofill coverage</h2>
+
+        <label>
+          Exact graduation date *
+          <input
+            id="layer5-graduation-exact"
+            type="date"
+            name="graduation_exact"
+            required
+          >
+        </label>
+
+        <label>
+          Graduation date *
+          <input
+            id="layer5-graduation-text"
+            type="text"
+            name="graduation_text"
+            placeholder="MM/DD/YYYY"
+            pattern="\d{2}/\d{2}/\d{4}"
+            required
+          >
+        </label>
+
+        <label>
+          Graduation month *
+          <input
+            id="layer5-graduation-month"
+            type="month"
+            name="graduation_month"
+            required
+          >
+        </label>
+
+        <label>
+          Optional exact graduation date
+          <input
+            id="layer5-optional-graduation"
+            type="date"
+            name="optional_graduation_exact"
+          >
+        </label>
+
+        <label>
+          Graduation date already entered *
+          <input
+            id="layer5-preserved-graduation"
+            type="date"
+            name="preserved_graduation"
+            value="2020-01-15"
+            required
+          >
+        </label>
+
+        <fieldset class="application-question">
+          <legend>Pronouns *</legend>
+          <label class="styled-choice">
+            <input
+              id="layer5-pronouns-she"
+              type="radio"
+              name="layer5_pronouns"
+              value="opaque-she"
+              required
+            >
+            <span>She / her / hers (please use these pronouns)</span>
+          </label>
+          <label class="styled-choice">
+            <input
+              id="layer5-pronouns-they"
+              type="radio"
+              name="layer5_pronouns"
+              value="opaque-they"
+            >
+            <span>They / them / theirs</span>
+          </label>
+          <label class="styled-choice">
+            <input
+              id="layer5-pronouns-decline"
+              type="radio"
+              name="layer5_pronouns"
+              value="opaque-decline"
+            >
+            <span>Prefer not to answer</span>
+          </label>
+        </fieldset>
+
+        <label>
+          Degree type *
+          <select id="layer5-degree" name="layer5_degree" required>
+            <option value="">Select a degree</option>
+            <option value="opaque-bs">Bachelor of Science (B.S.)</option>
+            <option value="opaque-ba">Bachelor of Arts (B.A.)</option>
+            <option value="opaque-ms">Master of Science (M.S.)</option>
+          </select>
+        </label>
+
+        <label>
+          Optional degree type
+          <select id="layer5-optional-degree" name="layer5_optional_degree">
+            <option value="">Select a degree</option>
+            <option value="opaque-bs">Bachelor of Science (B.S.)</option>
+          </select>
+        </label>
+
+        <label>
+          Are you able to work from our office? *
+          <select id="layer5-office" name="layer5_office" required>
+            <option value="">Select an answer</option>
+            <option value="opaque-no">No</option>
+            <option value="opaque-yes">Yes</option>
+          </select>
+        </label>
+
+        <fieldset class="application-question">
+          <legend>Are you willing to relocate? *</legend>
+          <label>
+            <input
+              id="layer5-relocate-yes"
+              type="radio"
+              name="layer5_relocate"
+              value="opaque-yes"
+              required
+            >
+            Yes
+          </label>
+          <label>
+            <input
+              id="layer5-relocate-no"
+              type="radio"
+              name="layer5_relocate"
+              value="opaque-no"
+            >
+            No
+          </label>
+        </fieldset>
+
+        <fieldset class="application-question">
+          <legend>Are you not willing to relocate? *</legend>
+          <label>
+            <input
+              id="layer5-not-relocate-yes"
+              type="radio"
+              name="layer5_not_relocate"
+              value="opaque-yes"
+              required
+            >
+            Yes
+          </label>
+          <label>
+            <input
+              id="layer5-not-relocate-no"
+              type="radio"
+              name="layer5_not_relocate"
+              value="opaque-no"
+            >
+            No
+          </label>
+        </fieldset>
+
+        <label>
+          Preferred office location *
+          <select id="layer5-office-location-guard" name="layer5_office_location" required>
+            <option value="">Select a location</option>
+            <option value="nyc">New York</option>
+            <option value="toronto">Toronto</option>
+          </select>
+        </label>
+
+        <label>
+          How did you hear about this opportunity? *
+          <select id="layer5-native-source" name="layer5_native_source" required>
+            <option value="">Select a source</option>
+            <option value="disabled" disabled>Unavailable source</option>
+            <option value="hidden" hidden>Hidden source</option>
+            <option value="campus">Campus fair</option>
+            <option value="agency">Recruiting agency</option>
+          </select>
+        </label>
+
+        <div class="field-wrapper">
+          <div class="select">
+            <div class="select__container">
+              <label
+                id="layer5-portal-source-label"
+                for="layer5-portal-source"
+                class="label select__label"
+              >How did you hear about this job?<span aria-hidden="true">*</span></label>
+              <div class="select-shell">
+                <span id="react-select-layer5-portal-source-live-region"></span>
+                <span aria-live="polite" role="log"></span>
+                <div class="select__control">
+                  <div class="select__value-container">
+                    <div
+                      id="react-select-layer5-portal-source-placeholder"
+                      class="select__placeholder"
+                    >Select...</div>
+                    <div class="select__input-container" data-value="">
+                      <input
+                        id="layer5-portal-source"
+                        class="select__input"
+                        type="text"
+                        role="combobox"
+                        aria-autocomplete="list"
+                        aria-expanded="false"
+                        aria-haspopup="true"
+                        aria-labelledby="layer5-portal-source-label"
+                        aria-required="true"
+                        aria-describedby="react-select-layer5-portal-source-placeholder"
+                        autocomplete="off"
+                        value=""
+                      >
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label="Toggle flyout"
+                    tabindex="-1"
+                    data-greenhouse-toggle="layer5-portal-source"
+                  >Open</button>
+                </div>
+                <input
+                  required
+                  tabindex="-1"
+                  aria-hidden="true"
+                  class="greenhouse-required-input"
+                  value=""
+                >
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <label>
+          Optional: How did you hear about this job?
+          <select id="layer5-optional-source" name="layer5_optional_source">
+            <option value="">Select a source</option>
+            <option value="campus">Campus fair</option>
+          </select>
+        </label>
+
+        <label>
+          How did you hear about us? (already entered) *
+          <select id="layer5-preserved-source" name="layer5_preserved_source" required>
+            <option value="">Select a source</option>
+            <option value="referral" selected>Employee referral</option>
+            <option value="campus">Campus fair</option>
+          </select>
+        </label>
+      </section>
+
       <section id="failure-controls" hidden>
         <h2>Commit failure diagnostics</h2>
         <label>
@@ -1146,6 +1397,8 @@
           "native-source"
         ]);
         replaceControlledSelect("native-degree");
+        replaceControlledSelect("layer5-degree");
+        replaceControlledSelect("layer5-native-source");
 
         function installAriaRadioGroup(groupId, modelKey) {
           const group = document.getElementById(groupId);
@@ -1237,6 +1490,16 @@
               ["linkedin", "LinkedIn"],
               ["referral", "Employee referral"],
               ["other", "Other"]
+            ]
+          },
+          "layer5-portal-source": {
+            modelKey: "layer5-portal-source",
+            delay: 100,
+            options: [
+              ["placeholder", "Select...", { disabled: true }],
+              ["hidden", "Hidden source", { hidden: true }],
+              ["community", "Community event"],
+              ["newsletter", "Industry newsletter"]
             ]
           },
           "optional-greenhouse-country": {
@@ -1367,17 +1630,23 @@
             listbox.id = listboxId;
             listbox.setAttribute("role", "listbox");
             listbox.dataset.owner = trigger.id;
-            for (const [index, [value, label]] of config.options.entries()) {
+            for (const [index, [value, label, attributes]] of config.options.entries()) {
               const option = document.createElement("div");
               option.id = `react-select-${trigger.id}-option-${index}`;
               option.className = "select__option";
               option.setAttribute("role", "option");
               option.setAttribute("aria-selected", "false");
+              if (attributes?.disabled) {
+                option.setAttribute("aria-disabled", "true");
+              }
+              if (attributes?.hidden) option.hidden = true;
               option.dataset.value = value;
               option.textContent = label;
-              option.addEventListener("click", () =>
-                commitGreenhouseCombo(current, config, listbox, option)
-              );
+              if (!attributes?.disabled && !attributes?.hidden) {
+                option.addEventListener("click", () =>
+                  commitGreenhouseCombo(current, config, listbox, option)
+                );
+              }
               listbox.append(option);
             }
             document.body.append(listbox);
@@ -1548,6 +1817,12 @@
               renderModel();
             });
           });
+        }
+
+        if (mode === "layer5") {
+          for (const section of document.querySelectorAll("#application > section")) {
+            section.hidden = section.id !== "layer5-controls";
+          }
         }
 
         if (mode === "rejected-combo") {

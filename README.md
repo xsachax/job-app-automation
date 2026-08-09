@@ -253,12 +253,18 @@ native and custom controls, dynamic steps, open shadow roots, and embedded forms
 Lever, Ashby, Workday, SmartRecruiters, iCIMS, Oracle/Taleo, and SAP SuccessFactors. Uncertain
 matches are left blank and highlighted for review. City/location choices tolerate normalized
 city-state variants. The saved **How did you hear about this job?** profile answer maps to
-equivalent source options and can safely fall back to **Other** or **Not listed**; legal,
-sponsorship, demographic, disability, veteran, and identity questions never receive guessed
-fallbacks. The saved PDF is attached only to recognized required résumé fields; Greenhouse-style
-school/degree lists and delayed portal dropdowns are matched semantically. Multi-location questions
-select only locations ranked S through C on the location tier board; consent checkboxes and other
-uploads stay manual. The extension never submits an application.
+equivalent source options; when no semantic match exists, that field alone chooses the first
+enabled, visible, non-placeholder option in page order. Pronouns and degree levels require an
+explicit saved semantic match and never use that fallback. Explicit office, on-site, hybrid, and
+relocation willingness questions receive polarity-aware yes/no answers, while location, travel,
+availability, policy, and certification prose stays manual. Graduation months remain compatible
+with Workday and split month/year widgets; an optional exact graduation date additionally supports
+native date controls and clearly labeled `MM/DD/YYYY` inputs without inventing a day for month-only
+profiles. Legal, sponsorship, demographic, disability, veteran, and identity questions never
+receive guessed fallbacks. The saved PDF is attached only to recognized required résumé fields;
+Greenhouse-style school/degree lists and delayed portal dropdowns are matched semantically.
+Multi-location questions select only locations ranked S through C on the location tier board;
+consent checkboxes and other uploads stay manual. The extension never submits an application.
 Application pages receive only field-availability flags until you explicitly click autofill.
 Turn it off globally from its browser-owned popup. If it is off, disconnected, or not configured,
 dashboard job links behave as normal external links. The unpacked extension has a stable ID, so
@@ -459,12 +465,12 @@ by **Best fit** / **min fit** to surface the strongest matches.
 
 The **Profile** page is the local source of truth for both the Judge and extension. It covers
 contact information; separate US/Canada country, city, work-authorization, sponsorship, and
-citizenship answers; school, degree, discipline, graduation date, relevant and non-internship
-software-industry experience, previous employers, target total compensation, certifications,
-GPAs, SAT/ACT/GRE scores, security clearances, accommodations, "how did you hear about us,"
-explicit Hispanic/Latino and transgender answers, other voluntary demographics, and
-résumé/cover-letter data. Contact and demographic answers are autofill-only and never influence
-Judge scores.
+citizenship answers; school, degree, discipline, backward-compatible graduation month and optional
+exact graduation date, relevant and non-internship software-industry experience, previous
+employers, target total compensation, certifications, GPAs, SAT/ACT/GRE scores, security
+clearances, accommodations, pronouns, "how did you hear about us," explicit Hispanic/Latino and
+transgender answers, other voluntary demographics, and résumé/cover-letter data. Contact and
+demographic answers are autofill-only and never influence Judge scores.
 
 A **résumé PDF URL** is fetched and parsed server-side, with **pasted résumé text** as a
 fallback. **Fetch text** writes a `ResumeVersion` and non-destructively fills blank Judge

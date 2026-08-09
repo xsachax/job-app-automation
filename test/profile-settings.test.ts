@@ -41,6 +41,7 @@ describe("structured application profile", () => {
               fieldOfStudy: "Computer Science",
               startDate: "not-a-month",
               graduationDate: "2025-05",
+              graduationDateExact: "2025-05-31",
               gpa: "3.8",
             },
           ],
@@ -80,10 +81,40 @@ describe("structured application profile", () => {
           school: "University",
           startDate: "",
           graduationDate: "2025-05",
+          graduationDateExact: "2025-05-31",
         },
       ],
       availableStartDate: "",
       maxTravelPercentage: "",
+    });
+  });
+
+  it("preserves exact graduation dates without changing month-only records", async () => {
+    await saveProfile({
+      graduationDate: "2024-02",
+      graduationDateExact: "2024-02-29",
+    });
+    await expect(getProfile()).resolves.toMatchObject({
+      graduationDate: "2024-02",
+      graduationDateExact: "2024-02-29",
+    });
+
+    await saveProfile({
+      graduationDate: "2025-05",
+      graduationDateExact: "",
+    });
+    await expect(getProfile()).resolves.toMatchObject({
+      graduationDate: "2025-05",
+      graduationDateExact: "",
+    });
+
+    await saveProfile({
+      graduationDate: "2025-05",
+      graduationDateExact: "2023-02-29",
+    });
+    await expect(getProfile()).resolves.toMatchObject({
+      graduationDate: "2025-05",
+      graduationDateExact: "",
     });
   });
 
