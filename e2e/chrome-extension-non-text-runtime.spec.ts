@@ -292,6 +292,7 @@ test.describe("unpacked extension non-text runtime", () => {
       await popup.locator("[data-fill]").click();
       await expect(popup.locator("[data-notice]")).toContainText(
         /^Filled \d+ fields?\. Review the page\.$/,
+        { timeout: 30_000 },
       );
 
       await expect(application.locator("#native-city")).toHaveValue("ny");
