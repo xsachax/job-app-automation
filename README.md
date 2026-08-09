@@ -256,12 +256,14 @@ city-state variants. The saved **How did you hear about this job?** profile answ
 equivalent source options; when no semantic match exists, that field alone chooses the first
 enabled, visible, non-placeholder option in page order. Pronouns and degree levels require an
 explicit saved semantic match and never use that fallback. Explicit office, on-site, hybrid, and
-relocation willingness questions receive polarity-aware yes/no answers, while location, travel,
-availability, policy, and certification prose stays manual. Graduation months remain compatible
-with Workday and split month/year widgets; an optional exact graduation date additionally supports
-native date controls and clearly labeled `MM/DD/YYYY` inputs without inventing a day for month-only
-profiles. Legal, sponsorship, demographic, disability, veteran, and identity questions never
-receive guessed fallbacks. The saved PDF is attached only to recognized required résumé fields;
+relocation willingness questions receive clause-scoped, polarity-aware yes/no answers, so trailing
+policy or assistance caveats cannot invert the question. Relocation visibly defaults to **Yes** in
+the profile and an explicit saved **No** is honored; office capability remains a derived **Yes**
+default. Location, travel, availability, policy, and certification prose stays manual. Graduation
+months remain compatible with Workday and split month/year widgets; an optional exact graduation
+date additionally supports native date controls and clearly labeled `MM/DD/YYYY` inputs without
+inventing a day for month-only profiles. Legal, sponsorship, demographic, disability, veteran, and
+identity questions never receive guessed fallbacks. The saved PDF is attached only to recognized required résumé fields;
 Greenhouse-style school/degree lists and delayed portal dropdowns are matched semantically.
 Multi-location questions select only locations ranked S through C on the location tier board;
 consent checkboxes and other uploads stay manual. The extension never submits an application.

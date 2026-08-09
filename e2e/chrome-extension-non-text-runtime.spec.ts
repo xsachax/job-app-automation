@@ -630,7 +630,7 @@ test.describe("unpacked extension non-text runtime", () => {
         graduationDateExact: "2024-02-29",
         heardAboutJob: "An unlisted conference",
         pronouns: "she/her/hers",
-        relocationPreference: "",
+        willingToRelocate: null,
       });
       const popup = await openPopupForPage(runtime, application);
 
@@ -772,7 +772,7 @@ test.describe("unpacked extension non-text runtime", () => {
         graduationDateExact: "",
         heardAboutJob: "",
         pronouns: "",
-        relocationPreference: "",
+        willingToRelocate: false,
       });
       const popup = await openPopupForPage(runtime, application);
 
@@ -799,8 +799,8 @@ test.describe("unpacked extension non-text runtime", () => {
         "referral",
       );
       await expect(application.locator("#layer5-office")).toHaveValue("opaque-yes");
-      await expect(application.locator("#layer5-relocate-yes")).toBeChecked();
-      await expect(application.locator("#layer5-not-relocate-no")).toBeChecked();
+      await expect(application.locator("#layer5-relocate-no")).toBeChecked();
+      await expect(application.locator("#layer5-not-relocate-yes")).toBeChecked();
 
       const state = await application.evaluate(
         () =>

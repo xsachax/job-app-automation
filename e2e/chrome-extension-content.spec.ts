@@ -1113,11 +1113,11 @@ test("answers only explicit office and relocation capability questions", async (
   await installContentPanel(page, {
     html: `
       <fieldset>
-        <legend>Are you willing to relocate? *</legend>
+        <legend>Are you willing to relocate? (Relocation assistance is not available) *</legend>
         <label><input id="relocate-yes" type="radio" name="relocate" value="yes" required> Yes</label>
         <label><input id="relocate-no" type="radio" name="relocate" value="no"> No</label>
       </fieldset>
-      <label>Can you work on-site 3 days per week?
+      <label>Are you able to work from our office? Note we are unable to accommodate fully remote work.
         <select id="onsite" required>
           <option value="">Select</option>
           <option value="yes">Yes</option>
@@ -1144,7 +1144,7 @@ test("answers only explicit office and relocation capability questions", async (
       </fieldset>
       <label><input id="hybrid-certification" type="checkbox" required> I certify that I reviewed the hybrid work policy. *</label>
     `,
-    profile: { willingToRelocate: "" },
+    profile: { willingToRelocate: "yes" },
     requiredByDefault: false,
   });
 
@@ -1156,6 +1156,31 @@ test("answers only explicit office and relocation capability questions", async (
   await expect(page.locator("#relocation-place")).toHaveValue("");
   await expect(page.locator('input[name="weekends"]:checked')).toHaveCount(0);
   await expect(page.locator("#hybrid-certification")).not.toBeChecked();
+});
+
+test("honors an explicit saved No for affirmative relocation questions", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `
+      <fieldset>
+        <legend>Are you willing to relocate? *</legend>
+        <label><input id="saved-no-relocate-yes" type="radio" name="saved-no-relocate" value="yes" required> Yes</label>
+        <label><input id="saved-no-relocate-no" type="radio" name="saved-no-relocate" value="no"> No</label>
+      </fieldset>
+      <fieldset>
+        <legend>Are you not willing to relocate? *</legend>
+        <label><input id="saved-no-negative-yes" type="radio" name="saved-no-negative" value="yes" required> Yes</label>
+        <label><input id="saved-no-negative-no" type="radio" name="saved-no-negative" value="no"> No</label>
+      </fieldset>
+    `,
+    profile: { willingToRelocate: "no" },
+    requiredByDefault: false,
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 2 });
+  await expect(page.locator("#saved-no-relocate-no")).toBeChecked();
+  await expect(page.locator("#saved-no-negative-yes")).toBeChecked();
 });
 
 test("fills structured education and recurring application questions", async ({

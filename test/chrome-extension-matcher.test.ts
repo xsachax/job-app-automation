@@ -82,7 +82,7 @@ interface Matcher {
 interface ProfileSchema {
   fields: unknown[];
   buildEffectiveProfile(
-    profile: Record<string, string>,
+    profile: Record<string, unknown>,
     context?: {
       company?: string;
       jobTitle?: string;
@@ -288,6 +288,14 @@ describe("Chrome extension profile storage", () => {
       graduationDateInput: "2025-05",
       graduationDateExact: "",
       graduationDateExactText: "",
+    });
+    expect(
+      profileSchema.buildEffectiveProfile({
+        willingToRelocate: false,
+      }),
+    ).toMatchObject({
+      willingToRelocate: "no",
+      officeWorkWillingness: "yes",
     });
   });
 
@@ -1698,7 +1706,37 @@ describe("Chrome extension field matching", () => {
       ["Are you willing to relocate?", "willingToRelocate", "yes"],
       ["Can you relocate if needed?", "willingToRelocate", "yes"],
       [
+        "Are you willing to relocate? (Relocation assistance is not available)",
+        "willingToRelocate",
+        "yes",
+      ],
+      [
+        "Are you willing to relocate at your own cost? We cannot reimburse moving expenses.",
+        "willingToRelocate",
+        "yes",
+      ],
+      [
+        "Are you willing to relocate? Candidates who cannot relocate will not be considered.",
+        "willingToRelocate",
+        "yes",
+      ],
+      [
+        "Are you willing to relocate: relocation assistance is not available",
+        "willingToRelocate",
+        "yes",
+      ],
+      [
+        "Are you willing to relocate — candidates who cannot relocate will not be considered",
+        "willingToRelocate",
+        "yes",
+      ],
+      [
         "Are you able to work from our office?",
+        "officeWorkWillingness",
+        "yes",
+      ],
+      [
+        "Are you able to work from our office? Note we are unable to accommodate fully remote work.",
         "officeWorkWillingness",
         "yes",
       ],
@@ -1741,6 +1779,33 @@ describe("Chrome extension field matching", () => {
         prompt,
       ).toBe(answer);
     }
+    const affirmativeRelocation = [
+      {
+        text: "Are you willing to relocate?",
+        weight: 1,
+        source: "prompt",
+      },
+    ];
+    expect(
+      matcher.resolveWorkplaceAnswer(
+        "willingToRelocate",
+        affirmativeRelocation,
+        { willingToRelocate: "no" },
+      ),
+    ).toBe("no");
+    expect(
+      matcher.resolveWorkplaceAnswer(
+        "willingToRelocate",
+        [
+          {
+            text: "Are you not willing to relocate?",
+            weight: 1,
+            source: "prompt",
+          },
+        ],
+        { willingToRelocate: "no" },
+      ),
+    ).toBe("yes");
 
     for (const prompt of [
       "Where are you willing to relocate?",

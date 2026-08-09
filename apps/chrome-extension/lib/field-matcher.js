@@ -596,12 +596,34 @@
     return (signals || [])
       .filter((signal) => primarySources.has(signal.source))
       .sort((left, right) => Number(right.weight || 0) - Number(left.weight || 0))
-      .map((signal) => normalizeText(signal.text))
+      .map((signal) => String(signal.text || "").trim())
       .find(Boolean) || "";
   }
 
+  function interrogativeClause(value) {
+    const rawPrompt = String(value || "").trim();
+    const questionLead = rawPrompt.search(/\b(?:are|would|can|could) you\b/i);
+    const leadPrefix =
+      questionLead > 0 ? rawPrompt.slice(0, questionLead) : "";
+    const prompt =
+      questionLead >= 0 &&
+      !/\b(?:where|what|which)\b/i.test(leadPrefix)
+        ? rawPrompt.slice(questionLead)
+        : rawPrompt;
+    const questionMark = prompt.indexOf("?");
+    if (questionMark >= 0) {
+      return prompt.slice(0, questionMark + 1);
+    }
+    const boundary = prompt.search(
+      /\s*\(|[.!;:]\s+|\s+(?:—|–|-)\s+|[\r\n]+/
+    );
+    return boundary > 0 ? prompt.slice(0, boundary) : prompt;
+  }
+
   function workplaceIntent(signals) {
-    const question = primaryQuestionText(signals);
+    const question = normalizeText(
+      interrogativeClause(primaryQuestionText(signals))
+    );
     if (
       !question ||
       /\b(?:where|what|which) (?:office|location|place|city|region|country)\b/.test(
@@ -627,28 +649,29 @@
     if (contradictory) {
       return null;
     }
-    const negative =
-      /\b(?:(?:can|could|would) you not|not (?:willing|able|available|prepared|open)|unwilling|unable|cannot|can t)\b/.test(
-        question
-      );
-    const relocationQuestion =
-      /\b(?:are|would) you\b.{0,32}\b(?:willing|unwilling|open|able|unable|available)\b.{0,24}\b(?:to )?relocat/.test(
-        question
-      ) ||
-      /\bcan you\b.{0,24}\brelocat/.test(question);
-    if (relocationQuestion) {
-      return { kind: "relocation", negative };
+    const negativePattern =
+      /\b(?:(?:can|could|would) you not|not (?:willing|able|available|prepared|open)|unwilling|unable|cannot|can t)\b/;
+    const relocationEvidence =
+      question.match(
+        /\b(?:are|would) you\b.{0,32}\b(?:willing|unwilling|open|able|unable|available)\b.{0,24}\b(?:to )?relocat/
+      )?.[0] || question.match(/\bcan you\b.{0,24}\brelocat/)?.[0];
+    if (relocationEvidence) {
+      return {
+        kind: "relocation",
+        negative: negativePattern.test(relocationEvidence)
+      };
     }
 
     const officeTarget =
       /\b(?:office|on site|hybrid)\b/.test(question);
-    const officeQuestion =
+    const officeEvidence =
       officeTarget &&
-      (/\b(?:are|would) you\b.{0,32}\b(?:willing|unwilling|able|unable|available)\b.{0,24}\bwork\b/.test(
-        question
-      ) ||
-        /\bcan you\b.{0,24}\bwork\b/.test(question));
-    return officeQuestion ? { kind: "office", negative } : null;
+      (question.match(
+        /\b(?:are|would) you\b.{0,32}\b(?:willing|unwilling|able|unable|available)\b.{0,24}\bwork\b/
+      )?.[0] || question.match(/\bcan you\b.{0,24}\bwork\b/)?.[0]);
+    return officeEvidence
+      ? { kind: "office", negative: negativePattern.test(officeEvidence) }
+      : null;
   }
 
   function workplaceDefinitionMatches(definition, signals) {

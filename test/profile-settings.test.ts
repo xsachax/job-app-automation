@@ -118,6 +118,24 @@ describe("structured application profile", () => {
     });
   });
 
+  it("migrates a blank relocation preference to Yes and preserves explicit No", async () => {
+    await prisma.profile.create({
+      data: {
+        id: "me",
+        data: JSON.stringify({ willingToRelocate: null }),
+      },
+    });
+
+    await expect(getProfile()).resolves.toMatchObject({
+      willingToRelocate: true,
+    });
+
+    await saveProfile({ willingToRelocate: false });
+    await expect(getProfile()).resolves.toMatchObject({
+      willingToRelocate: false,
+    });
+  });
+
   it("versions each structured collection as one atomic profile field", async () => {
     await saveProfile(
       {

@@ -477,7 +477,10 @@ export function buildAutofillProfile(
     compensationFrequency: text(profile.compensationFrequency),
     availableStartDate: text(profile.availableStartDate),
     noticePeriod: text(profile.noticePeriod),
-    willingToRelocate: choice(profile.willingToRelocate),
+    willingToRelocate:
+      profile.willingToRelocate == null
+        ? "yes"
+        : choice(profile.willingToRelocate),
     willingToTravel: choice(profile.willingToTravel),
     maxTravelPercentage: text(profile.maxTravelPercentage),
     isAtLeast18: choice(profile.isAtLeast18),

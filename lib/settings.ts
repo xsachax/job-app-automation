@@ -233,7 +233,7 @@ export const DEFAULT_PROFILE: ProfileData = {
   compensationFrequency: "",
   availableStartDate: "",
   noticePeriod: "",
-  willingToRelocate: null,
+  willingToRelocate: true,
   willingToTravel: null,
   maxTravelPercentage: "",
   isAtLeast18: null,
@@ -445,7 +445,7 @@ function normalizeProfileData(data: ProfileData): ProfileData {
   profile.compensationFrequency = boundedText(profile.compensationFrequency, 80);
   profile.availableStartDate = dateValue(profile.availableStartDate);
   profile.noticePeriod = boundedText(profile.noticePeriod, 200);
-  profile.willingToRelocate = triState(profile.willingToRelocate);
+  profile.willingToRelocate = triState(profile.willingToRelocate) ?? true;
   profile.willingToTravel = triState(profile.willingToTravel);
   profile.maxTravelPercentage =
     profile.willingToTravel === false

@@ -561,6 +561,7 @@ test.describe("profile page", () => {
       }, originalProfile);
       await page.reload();
 
+      await expect(page.getByLabel("Willing to relocate?")).toHaveValue("yes");
       await page.getByLabel("Middle name").fill("Quinn");
       await page.getByLabel("Address line 1").fill("1 Main St");
       await page.getByLabel("Home city").fill("New York");
@@ -927,6 +928,7 @@ test.describe("profile page", () => {
           requiresSponsorship: "",
           usCountry: "United States",
           usRequiresSponsorship: "no",
+          willingToRelocate: "yes",
           preferredOfficeLocations: "San Francisco, CA",
         },
       },

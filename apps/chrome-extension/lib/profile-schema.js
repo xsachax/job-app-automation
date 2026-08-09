@@ -1583,6 +1583,16 @@
       profile.graduationDate,
       profile.graduationDateExact
     );
+    const relocationChoice =
+      profile.willingToRelocate === false
+        ? "no"
+        : profile.willingToRelocate === true
+          ? "yes"
+          : ["yes", "no"].includes(
+                String(profile.willingToRelocate || "").trim().toLowerCase()
+              )
+            ? String(profile.willingToRelocate).trim().toLowerCase()
+            : "yes";
 
     return {
       ...profile,
@@ -1614,7 +1624,7 @@
         String(profile.caCitizenshipStatus || "").trim() === "Other"
           ? String(profile.caCitizenshipStatusOther || "").trim()
           : "",
-      willingToRelocate: String(profile.willingToRelocate || "yes").trim(),
+      willingToRelocate: relocationChoice,
       officeWorkWillingness: "yes",
       graduationDate: graduationValues.date,
       graduationDateExact: graduationValues.exact,

@@ -40,15 +40,17 @@ function Field({
 
 function TriState({
   label,
+  hint,
   value,
   onChange,
 }: {
   label: string;
+  hint?: string;
   value: boolean | null | undefined;
   onChange: (value: boolean | null) => void;
 }) {
   return (
-    <Field label={label}>
+    <Field label={label} hint={hint}>
       <select
         aria-label={label}
         className={cls.input}
@@ -712,6 +714,7 @@ export function WorkdayProfileFields({ profile, onChange }: Props) {
           </Field>
           <TriState
             label="Willing to relocate?"
+            hint="Defaults to Yes for application autofill; choose No to override."
             value={profile.willingToRelocate}
             onChange={(value) => onChange("willingToRelocate", value)}
           />

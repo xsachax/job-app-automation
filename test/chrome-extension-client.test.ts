@@ -353,6 +353,11 @@ describe("Chrome extension identity and profile mapping", () => {
       workAuthorization: "",
       requiresSponsorship: "",
     });
+    expect(
+      buildAutofillProfile({ ...PROFILE, willingToRelocate: null }),
+    ).toMatchObject({
+      willingToRelocate: "yes",
+    });
   });
 
   it("sends self-described details only when the related answer is Other", () => {
