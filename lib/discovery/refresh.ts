@@ -1,5 +1,7 @@
-import type { ScoreAllJobsResult } from "../judge/judge";
-import { runJudgeScoring } from "../judge/run";
+import {
+  runJudgeScoring,
+  type JudgeRunResult,
+} from "../judge/run";
 import { prisma } from "../db";
 import {
   BROWSER_COMPANIES,
@@ -57,7 +59,7 @@ export interface DiscoveryRefreshResult {
     sources: AvailabilityReconciliationResult;
     untracked: AvailabilityReconciliationResult;
   };
-  judge: ScoreAllJobsResult;
+  judge: JudgeRunResult;
   totals: {
     sources: number;
     created: number;

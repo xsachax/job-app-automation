@@ -447,7 +447,7 @@ export default function ProfilePage() {
       const syncMessage = await syncSavedProfile(saved);
       const result = await judgeRun.runJudge();
       setMessage(
-        `Judge complete: ${result.scored} scored, ${result.preservedAgent} agent scores preserved, ${result.scanned} scanned.${syncMessage}`,
+        `${result.message} ${result.preservedEnhanced} enhanced scores preserved, ${result.scanned} scanned.${syncMessage}`,
       );
     } catch (e) {
       setError((e as Error).message);

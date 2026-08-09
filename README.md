@@ -218,11 +218,11 @@ The Chrome extension is optional and needs no build or Web Store publication. Fo
 | **Overview** | Discovery stats, US/CA entry-level counts, companies covered, by-category and by-company breakdowns. |
 | **Jobs** | Time-sorted US / CA queues of active postings plus an Archived closed view that preserves application history. Filter by category, date, skills, sponsorship, employment type, source, min salary, min fit, remote, warm intro and applied status; sort by newest / company / best fit / salary. Each active card links out or launches the optional autofill assistant, tracks its progress, and lets you mark status. |
 | **Companies** | Coverage of every API and browser-scraped source. |
-| **Judge** | Review scoring coverage and signal definitions, set a salary target, monitor exact processed/total progress, and re-score all eligible jobs. |
+| **Judge** | Review scoring coverage, provider provenance, and signal definitions; set a salary target, monitor exact processed/total progress, and re-score all eligible jobs. |
 | **Company tiers** | Drag employers from S through F. The tier is authoritative: it selects the job's final score band. Unrated companies use E. |
 | **Location tiers** | Rank places from S through F. Location preference adjusts placement only within the company band; unrated locations are neutral. |
 | **Extension** | Install the optional Chrome extension and see its live connection status. |
-| **Settings** | Edit discovery configuration — countries, max YoE, degree/internship gates, keywords, scraper query terms, per-source enable/disable. |
+| **Settings** | Edit discovery configuration and select an OpenAI or Anthropic enhanced-Judge fallback. Provider keys stay server-side in local SQLite and reload only as a masked hint. |
 | **Profile** | Manage automatically saved country-specific application details, education and qualifications, recurring application defaults, voluntary self-identification answers, a saved résumé PDF from GitHub or Google Drive, Judge signals, and your LinkedIn Connections.csv, then run the Judge. |
 | **Workday** | The legacy `/workday` route redirects to the unified, Workday-filterable Jobs queue. |
 
@@ -390,7 +390,7 @@ curated vocabulary), a normalized **salary** range (`salaryMin/Max/Currency` + t
 string), a **visa-sponsorship** signal (`offers` / `none` / `citizenship`), and
 **employment type**. These populate the filterable card shape and the Jobs facets.
 
-### Fit judge (post-scrape, powered by Copilot — no API key)
+### Fit judge (post-scrape, deterministic + enhanced providers)
 
 The Judge ranks **already-discovered** jobs. Company tier is authoritative and chooses a
 strict, non-overlapping final score band:
@@ -405,11 +405,28 @@ strict, non-overlapping final score band:
 | E or unrated | 14–27 |
 | F | 0–13 |
 
-The deterministic or Copilot-reviewed résumé assessment is retained separately as a raw
-0–100 base score. Résumé overlap plus location tier, freshness, required experience, and pay
-then position the job **inside** its company band; they cannot promote or demote it across a
-tier boundary. Final evidence is rebuilt on each run so changing tiers or context cannot
-leave stale explanations behind.
+The deterministic baseline is always available. A Copilot-, OpenAI-, or Anthropic-reviewed
+résumé assessment can be retained separately as a raw 0–100 base score. Résumé overlap plus
+location tier, freshness, required experience, and pay then position the job **inside** its
+company band; they cannot promote or demote it across a tier boundary. Final evidence is
+rebuilt on each run so changing tiers or context cannot leave stale explanations behind.
+
+Enhanced provider resolution is explicit and conservative:
+
+1. **GitHub Copilot first** — the app does not pretend to detect a live Copilot connection.
+   Set `COPILOT_JUDGE_CONNECTED=1` only when Copilot is actually connected to the server.
+   While set, external providers are never called and the existing export/apply workflow has
+   priority.
+2. **Selected fallback** — when that exact signal is absent, **Settings** can select OpenAI or
+   Anthropic, an optional model, and a provider-specific key. A dashboard re-run first
+   persists deterministic coverage, then sends bounded batches to the selected fallback.
+3. **Deterministic only** — without Copilot or a selected provider key, re-runs still succeed
+   with baseline scoring and report that enhanced scoring is unavailable.
+
+Provider keys are stored only in the server's local SQLite database. `GET
+/api/settings/judge-provider` returns provider/model, configured booleans, and a masked suffix;
+it never returns plaintext. Leaving the key field blank preserves it, entering a new key
+replaces it, and **Clear API key** explicitly removes only the selected provider's key.
 
 ```bash
 npm run judge                     # deterministic pass over every eligible job
@@ -417,14 +434,18 @@ npm run judge                     # deterministic pass over every eligible job
 npm run judge:export              # writes .match/judge-review.json: top jobs + your résumé
                                   #   flags: -- --country US --topN 25 --out <file>
 # → the Copilot agent writes {"scores":[{id,score,summary,fits:[],gaps:[]}]}
-npm run judge:apply -- <scores.json>   # persists agent scores (fitProvider = "agent")
+npm run judge:apply -- <scores.json>   # persists Copilot scores (fitProvider = "copilot")
 ```
 
-Deterministic scores show an **`auto`** fit badge; Copilot-reviewed résumé evidence shows
-**`agent`**. Applying agent evidence immediately re-bands the final score using the current
-company and contextual signals. `POST /api/judge/score`, `GET /api/judge/score`, and
-`GET /api/judge/status` back the shared progress display on Judge, Profile, and both tier
-boards. Sort/filter the queue by **Best fit** / **min fit** to surface the strongest matches.
+Job cards truthfully label **Baseline**, **Copilot**, **OpenAI**, or **Anthropic** provenance.
+Legacy `fitProvider = "agent"` rows are treated as Copilot. Copilot evidence always wins:
+external runs cannot overwrite it, while a later Copilot apply can replace external evidence.
+Applying enhanced evidence immediately re-bands the final score using the current company and
+contextual signals. `POST /api/judge/score`, `GET /api/judge/score`, and `GET
+/api/judge/status` back the shared provider-aware progress display on Judge, Profile, and both
+tier boards. External request failures remain failures (the already-persisted deterministic
+pass is retained) rather than being reported as a successful fallback. Sort/filter the queue
+by **Best fit** / **min fit** to surface the strongest matches.
 
 > **Scrape everything, then judge** — jobs are always stored and deduped first, so
 > retuning Settings or importing a new résumé can be re-scored with no re-scraping.

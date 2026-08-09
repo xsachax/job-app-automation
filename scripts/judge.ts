@@ -28,7 +28,7 @@ async function doScore() {
     force: hasFlag("force"),
   });
   console.log(
-    `Deterministic judge: ${result.scored} scored, ${result.preservedAgent} agent scores preserved ` +
+    `Deterministic judge: ${result.scored} scored, ${result.preservedEnhanced} enhanced scores preserved ` +
       `(${result.scanned} scanned).`,
   );
 }
@@ -66,7 +66,7 @@ async function doApply() {
     process.exit(1);
   }
   const result = await applyJudgeScores(scores);
-  console.log(`Applied ${result.updated} agent judge score(s).`);
+  console.log(`Applied ${result.updated} Copilot judge score(s).`);
   if (result.skipped.length) {
     console.log(`Skipped ${result.skipped.length}:`);
     for (const skipped of result.skipped) console.log(`  - ${skipped.id}: ${skipped.reason}`);

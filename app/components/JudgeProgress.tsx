@@ -6,8 +6,10 @@ import {
   useRef,
   useState,
 } from "react";
-import type { ScoreAllJobsResult } from "@/lib/judge/judge";
-import type { JudgeRunProgress } from "@/lib/judge/run";
+import type {
+  JudgeRunProgress,
+  JudgeRunResult,
+} from "@/lib/judge/run";
 import { api } from "./api";
 
 const STARTING_PROGRESS: JudgeRunProgress = {
@@ -16,8 +18,9 @@ const STARTING_PROGRESS: JudgeRunProgress = {
   processed: 0,
   total: 0,
   scored: 0,
-  preservedAgent: 0,
+  preservedEnhanced: 0,
   skipped: 0,
+  provider: "deterministic",
   currentJob: null,
   message: "Preparing eligible jobs…",
   startedAt: null,
@@ -47,6 +50,7 @@ export function useJudgeRun() {
             current?.startedAt === next.startedAt;
           if (
             sameRun &&
+            current.phase === next.phase &&
             ((!current.running && next.running) ||
               next.processed < current.processed)
           ) {
@@ -107,12 +111,12 @@ export function useJudgeRun() {
       setRequestActive(true);
       setProgress(STARTING_PROGRESS);
       setProgressError(null);
-      const request = api<ScoreAllJobsResult>("/api/judge/score", {
+      const request = api<JudgeRunResult>("/api/judge/score", {
         method: "POST",
         body: JSON.stringify(body),
       });
       startPolling();
-      let result: ScoreAllJobsResult | undefined;
+      let result: JudgeRunResult | undefined;
       let requestError: unknown;
       try {
         const completed = await request;
@@ -125,10 +129,11 @@ export function useJudgeRun() {
             processed: completed.scanned,
             total: completed.scanned,
             scored: completed.scored,
-            preservedAgent: completed.preservedAgent,
+            preservedEnhanced: completed.preservedEnhanced,
             skipped: completed.skipped,
+            provider: completed.provider,
             currentJob: null,
-            message: `Judge complete · ${completed.scored} scored`,
+            message: completed.message,
             finishedAt: new Date().toISOString(),
           }));
         }
@@ -144,7 +149,7 @@ export function useJudgeRun() {
             phase: result ? "complete" : "failed",
             currentJob: null,
             message: result
-              ? `Judge complete · ${result.scored} scored`
+              ? result.message
               : requestError instanceof Error
                 ? requestError.message
                 : String(requestError),

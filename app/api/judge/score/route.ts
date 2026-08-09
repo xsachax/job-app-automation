@@ -3,7 +3,8 @@ import {
   getJudgeRunProgress,
   JudgeRunInProgressError,
   runJudgeScoring,
-} from "@/lib/judge/run";
+  ExternalJudgeProviderError,
+} from "@/lib/judge/server";
 import {
   json,
   errorResponse,
@@ -37,6 +38,13 @@ export async function POST(req: NextRequest) {
     });
     return json(result);
   } catch (e) {
-    return errorResponse(e, e instanceof JudgeRunInProgressError ? 409 : 500);
+    return errorResponse(
+      e,
+      e instanceof JudgeRunInProgressError
+        ? 409
+        : e instanceof ExternalJudgeProviderError
+          ? 502
+          : 500,
+    );
   }
 }

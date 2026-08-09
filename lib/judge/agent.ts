@@ -2,15 +2,25 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { prisma } from "../db";
 import { getProfile } from "../settings";
-import { buildResumeContext, scoreAllJobs } from "./judge";
+import {
+  buildResumeContext,
+  scoreAllJobs,
+  updateJobScoreFromSnapshot,
+} from "./judge";
 import { fitAdvice, gapAdvice } from "./advice";
 import { ACTIVE_JOB_WHERE } from "../jobs/availability";
+import {
+  canReplaceJudgeProvider,
+  type EnhancedJudgeProvider,
+} from "./provider";
 
 export interface BuildJudgeBatchOptions {
   topN?: number;
   country?: string;
+  jobIds?: string[];
   out?: string;
   descriptionChars?: number;
+  write?: boolean;
 }
 
 export interface JudgeBatchItem {
@@ -51,6 +61,10 @@ export interface JudgeScoreInput {
 export interface ApplyJudgeScoresResult {
   updated: number;
   skipped: { id: string; reason: string }[];
+}
+
+export interface ApplyJudgeScoresOptions {
+  provider?: EnhancedJudgeProvider;
 }
 
 const DEFAULT_OUT = ".match/judge-review.json";
@@ -102,8 +116,12 @@ export async function buildJudgeBatch(opts: BuildJudgeBatchOptions = {}): Promis
     where: {
       isEntryLevel: true,
       ...ACTIVE_JOB_WHERE,
-      fitProvider: "deterministic",
       fitScore: { not: null },
+      OR: [
+        { fitProvider: null },
+        { fitProvider: { notIn: ["agent", "copilot"] } },
+      ],
+      ...(opts.jobIds ? { id: { in: opts.jobIds } } : {}),
       ...(opts.country ? { country: opts.country } : {}),
     },
     orderBy: [{ fitScore: "desc" }, { firstSeenAt: "desc" }],
@@ -139,14 +157,20 @@ export async function buildJudgeBatch(opts: BuildJudgeBatchOptions = {}): Promis
     outputPath,
   };
 
-  mkdirSync(dirname(outputPath), { recursive: true });
-  writeFileSync(outputPath, JSON.stringify(batch, null, 2));
+  if (opts.write !== false) {
+    mkdirSync(dirname(outputPath), { recursive: true });
+    writeFileSync(outputPath, JSON.stringify(batch, null, 2));
+  }
   return batch;
 }
 
-export async function applyJudgeScores(scores: JudgeScoreInput[]): Promise<ApplyJudgeScoresResult> {
+export async function applyJudgeScores(
+  scores: JudgeScoreInput[],
+  options: ApplyJudgeScoresOptions = {},
+): Promise<ApplyJudgeScoresResult> {
   const result: ApplyJudgeScoresResult = { updated: 0, skipped: [] };
   const updatedIds: string[] = [];
+  const provider = options.provider ?? "copilot";
   for (const item of scores) {
     const id = typeof item?.id === "string" ? item.id : typeof item?.jobId === "string" ? item.jobId : "";
     if (!id) {
@@ -160,7 +184,7 @@ export async function applyJudgeScores(scores: JudgeScoreInput[]): Promise<Apply
       continue;
     }
 
-    const job = await prisma.job.findUnique({ where: { id } });
+    let job = await prisma.job.findUnique({ where: { id } });
     if (!job) {
       result.skipped.push({ id, reason: "unknown job" });
       continue;
@@ -169,7 +193,6 @@ export async function applyJudgeScores(scores: JudgeScoreInput[]): Promise<Apply
       result.skipped.push({ id, reason: "closed job" });
       continue;
     }
-
     const summary = typeof item.summary === "string" ? item.summary.trim().slice(0, 300) : "";
     const fits = cleanReasons(item.fits);
     const gaps = cleanReasons(item.gaps);
@@ -179,19 +202,44 @@ export async function applyJudgeScores(scores: JudgeScoreInput[]): Promise<Apply
       ...gaps.map(gapAdvice),
       ...(fits.length || gaps.length ? [] : legacyReasons),
     ].slice(0, 8);
-    await prisma.job.update({
-      where: { id },
-      data: {
+    let updated = false;
+    let failureRecorded = false;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (!canReplaceJudgeProvider(job.fitProvider, provider)) {
+        result.skipped.push({ id, reason: "Copilot score preserved" });
+        failureRecorded = true;
+        break;
+      }
+      updated = await updateJobScoreFromSnapshot(job, {
         fitBaseScore: baseScore,
         fitBaseReasons: JSON.stringify(reasons),
         fitBaseSummary: summary || null,
         fitScore: null,
         fitReasons: JSON.stringify(reasons),
         fitSummary: summary || null,
-        fitProvider: "agent",
+        fitProvider: provider,
         fitScoredAt: null,
-      },
-    });
+      });
+      if (updated) break;
+      const current = await prisma.job.findUnique({ where: { id } });
+      if (!current) {
+        result.skipped.push({ id, reason: "job removed while applying" });
+        failureRecorded = true;
+        break;
+      }
+      if (current.availabilityStatus === "closed") {
+        result.skipped.push({ id, reason: "job closed while applying" });
+        failureRecorded = true;
+        break;
+      }
+      job = current;
+    }
+    if (!updated) {
+      if (!failureRecorded) {
+        result.skipped.push({ id, reason: "score changed while applying" });
+      }
+      continue;
+    }
     result.updated++;
     updatedIds.push(id);
   }

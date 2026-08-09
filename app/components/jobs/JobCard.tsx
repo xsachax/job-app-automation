@@ -13,6 +13,7 @@ import { ConnectionsBadge } from "../ConnectionsBadge";
 import type { ApplicationStatus, Job } from "./types";
 import { splitJudgeAdvice } from "@/lib/judge/advice";
 import { bucketScore, type FitBand } from "@/lib/judge/status";
+import { judgeProviderLabel } from "@/lib/judge/provider";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -144,7 +145,7 @@ function JudgeScore({
   tone: FitTone;
 }) {
   const providerLabel =
-    score == null ? "Run judge" : provider === "agent" ? "Agent" : "Baseline";
+    score == null ? "Run judge" : judgeProviderLabel(provider);
   return (
     <div
       aria-label={

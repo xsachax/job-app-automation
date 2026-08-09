@@ -14,7 +14,23 @@ interface JudgeStatus {
   eligible: number;
   scored: number;
   unscored: number;
-  agentScored: number;
+  providerCounts: {
+    deterministic: number;
+    copilot: number;
+    openai: number;
+    anthropic: number;
+  };
+  providerStatus: {
+    provider: "openai" | "anthropic";
+    model: string;
+    hasApiKey: boolean;
+    apiKeyHint: string | null;
+    copilotConnected: boolean;
+    copilotHasPriority: boolean;
+    effectiveProvider: "deterministic" | "copilot" | "openai" | "anthropic";
+    enhancedAvailable: boolean;
+    status: string;
+  };
   avgScore: number | null;
   lastScoredAt: string | null;
   distribution: { strong: number; possible: number; weak: number; unscored: number };
@@ -105,6 +121,13 @@ export default function JudgePage() {
       current.startedAt === observedRunningJudge.current
     ) {
       observedRunningJudge.current = null;
+      (async () => {
+        try {
+          setStatus(await api<JudgeStatus>("/api/judge/status"));
+        } catch (e) {
+          setError(`Judge failed and status refresh failed: ${(e as Error).message}`);
+        }
+      })();
       return;
     }
     if (
@@ -132,9 +155,17 @@ export default function JudgePage() {
     try {
       const result = await judgeRun.runJudge();
       await load();
-      setMsg(`Re-ran across all axes — ${result.scored} scored of ${result.scanned} eligible postings.`);
+      setMsg(result.message);
     } catch (e) {
-      setError((e as Error).message);
+      const runError = (e as Error).message;
+      try {
+        await load();
+        setError(runError);
+      } catch (statusError) {
+        setError(
+          `${runError} Status refresh failed: ${(statusError as Error).message}`,
+        );
+      }
     } finally {
       setRunning(false);
     }
@@ -168,12 +199,24 @@ export default function JudgePage() {
 
   const total = status.eligible || 1;
   const coverage = Math.round((status.scored / total) * 100);
+  const enhancedCount =
+    status.providerCounts.copilot +
+    status.providerCounts.openai +
+    status.providerCounts.anthropic;
+  const activeProvider =
+    status.providerStatus.effectiveProvider === "copilot"
+      ? "GitHub Copilot"
+      : status.providerStatus.effectiveProvider === "openai"
+        ? "OpenAI"
+        : status.providerStatus.effectiveProvider === "anthropic"
+          ? "Anthropic"
+          : "Deterministic only";
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Judge"
-        subtitle="Company tier sets each posting's score band; résumé fit, freshness, location, experience, and pay rank it within that band."
+        subtitle="Company tier sets each posting's score band; the deterministic baseline is always available and enhanced résumé evidence uses Copilot first, then your selected fallback."
       >
         <button
           className={cls.btnGreen}
@@ -206,8 +249,28 @@ export default function JudgePage() {
         <Stat label="Scored" value={`${status.scored}/${status.eligible}`} hint={`${coverage}% of eligible postings`} />
         <Stat label="Average fit" value={status.avgScore ?? "—"} hint={status.scored ? "across scored postings" : "run the judge to populate"} />
         <Stat label="Strong fits" value={status.distribution.strong} hint="score ≥ 70" />
-        <Stat label="Last run" value={timeAgo(status.lastScoredAt)} hint={status.agentScored ? `${status.agentScored} kept from agent` : "deterministic baseline"} />
+        <Stat label="Last run" value={timeAgo(status.lastScoredAt)} hint={enhancedCount ? `${enhancedCount} enhanced scores` : "deterministic baseline"} />
       </div>
+
+      <section className={cls.card}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold">Active Judge path</h2>
+            <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+              <strong>{activeProvider}</strong> — {status.providerStatus.status}
+            </p>
+            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              Stored provenance: {status.providerCounts.copilot} Copilot,{" "}
+              {status.providerCounts.openai} OpenAI,{" "}
+              {status.providerCounts.anthropic} Anthropic,{" "}
+              {status.providerCounts.deterministic} baseline.
+            </p>
+          </div>
+          <Link href="/settings" className={cls.btn}>
+            Configure fallback
+          </Link>
+        </div>
+      </section>
 
       {/* Fit distribution */}
       <section className={cls.card}>
