@@ -22,6 +22,7 @@ import {
   pingAutofillExtension,
 } from "@/lib/chromeExtension";
 import type { ProfileData } from "@/lib/settings";
+import type { DiscoveryScopeCopy } from "@/lib/discovery/scope-copy";
 
 const COUNTRIES: { value: Country; label: string }[] = [
   { value: "US", label: "United States" },
@@ -39,6 +40,8 @@ const AVAILABILITY_VIEWS: {
 // The queue can hold well over a thousand postings; rendering every card up front
 // is slow and janky. Show a page at a time and let the user reveal more.
 const PAGE_SIZE = 60;
+const GENERIC_SCOPE_SUMMARY =
+  "Open roles matching your saved discovery settings.";
 type ExtensionConnection = "none" | "checking" | "ready" | "off" | "error";
 
 function openExternal(url: string): boolean {
@@ -143,6 +146,8 @@ export default function JobsPage() {
   const [extensionConnection, setExtensionConnection] =
     useState<ExtensionConnection>("none");
   const [extensionMessage, setExtensionMessage] = useState<string | null>(null);
+  const [scopeSummary, setScopeSummary] = useState(GENERIC_SCOPE_SUMMARY);
+  const [scopeError, setScopeError] = useState<string | null>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const committedSearch = useRef(DEFAULT_FILTERS.q);
 
@@ -152,6 +157,27 @@ export default function JobsPage() {
   );
   const facetsUrl = `/api/jobs/facets?availability=${availability}`;
   const filtered = hasActiveFilters(filters);
+
+  useEffect(() => {
+    let active = true;
+    void api<DiscoveryScopeCopy>("/api/discovery/scope")
+      .then((scope) => {
+        if (!active) return;
+        setScopeSummary(scope.summary);
+        setScopeError(null);
+      })
+      .catch((caught) => {
+        if (!active) return;
+        setScopeError(
+          `Could not load the saved discovery scope: ${
+            caught instanceof Error ? caught.message : String(caught)
+          }`,
+        );
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -421,10 +447,16 @@ export default function JobsPage() {
     <div>
       <PageHeader
         title="Jobs"
-        subtitle="Currently-open entry-level software roles (≤ 2 yrs experience), with confirmed closures retained in Archived closed so saved and applied history is never lost."
+        subtitle={`${scopeSummary} Confirmed closures remain in Archived closed so saved and applied history is never lost.`}
       >
         <ScanButton onComplete={handleScrapeComplete} />
       </PageHeader>
+
+      {scopeError && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+          {scopeError}
+        </div>
+      )}
 
       <div
         className="mb-3 flex gap-1 rounded-lg border border-gray-200 bg-gray-50 p-1 dark:border-gray-800 dark:bg-gray-900"
@@ -567,7 +599,7 @@ export default function JobsPage() {
       ) : jobs.length === 0 ? (
         <div className="rounded-lg border border-gray-200 bg-white px-4 py-5 text-sm text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
           No {country === "US" ? "US" : "Canadian"}{" "}
-          {availability === "closed" ? "archived closed" : "entry-level"} roles yet.
+          {availability === "closed" ? "archived closed" : "in-scope"} roles yet.
           {availability === "active" && (
             <>
               {" "}Run{" "}

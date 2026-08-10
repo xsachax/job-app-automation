@@ -879,7 +879,7 @@ export default function ProfilePage() {
                 <TagEditor
                   label="target role"
                   items={profile.targetRoles}
-                  placeholder="Software Engineer"
+                  placeholder="Product Manager"
                   empty="No target roles yet."
                   onChange={(items) => setField("targetRoles", items)}
                 />
@@ -903,7 +903,7 @@ export default function ProfilePage() {
                   className={`${cls.input} min-h-28 placeholder:text-gray-500 dark:placeholder:text-gray-400`}
                   value={profile.summary ?? ""}
                   maxLength={400}
-                  placeholder="Entry-level software engineer focused on product engineering and reliable systems."
+                  placeholder="Experienced professional focused on customer outcomes and reliable delivery."
                   onChange={(e) => setField("summary", e.target.value)}
                 />
               </FieldShell>

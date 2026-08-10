@@ -10,6 +10,7 @@ import { cls, PageHeader, CategoryBadge } from "./components/ui";
 import { CompanyLogo } from "./components/CompanyLogo";
 import { ScanButton } from "./components/ScanButton";
 import { ACTIVE_JOB_WHERE } from "@/lib/jobs/availability";
+import { getDiscoveryScopeCopy } from "@/lib/discovery/scope";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +35,8 @@ function timeAgo(d: Date | null): string {
 
 export default async function OverviewPage() {
   const entryWhere = { isEntryLevel: true, ...ACTIVE_JOB_WHERE } as const;
-  const [usEntry, caEntry, workdayJobs, lastJob, byCompany, allByCompany] = await Promise.all([
+  const [scope, usEntry, caEntry, workdayJobs, lastJob, byCompany, allByCompany] = await Promise.all([
+    getDiscoveryScopeCopy(),
     prisma.job.count({ where: { ...entryWhere, country: "US" } }),
     prisma.job.count({ where: { ...entryWhere, country: "CA" } }),
     prisma.job.count({ where: { isWorkday: true, ...ACTIVE_JOB_WHERE } }),
@@ -70,21 +72,20 @@ export default async function OverviewPage() {
     <div>
       <PageHeader
         title="Overview"
-        subtitle="Fresh entry-level software roles across US & Canada, scraped from company career sites."
+        subtitle={`${scope.geographyNeutralHeadline}, refreshed from company career sites and job boards.`}
       >
         <ScanButton />
       </PageHeader>
 
       <div className="mb-6 rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-sm text-indigo-900 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200">
-        <b>Discovery mode.</b> This pipeline finds currently-open entry-level roles (SWE, DevOps, ML and
-        related) requiring ≤ 2 years of experience and a bachelor&apos;s degree or below. Auto-apply and
-        resume matching are paused. Use <b>Run scrape</b> to refresh API and supported browser sources,
-        including Shopify, and score newly discovered jobs.
+        <b>Discovery mode.</b> {scope.geographyNeutralSummary} Auto-apply and resume matching are
+        paused. Use <b>Run scrape</b> to refresh API and supported browser sources, including Shopify,
+        and score newly discovered jobs.
       </div>
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
-        <Stat label="US entry-level" value={usEntry} hint="open roles in queue" />
-        <Stat label="CA entry-level" value={caEntry} hint="open roles in queue" />
+        <Stat label="US queue" value={usEntry} hint="open roles" />
+        <Stat label="Canada queue" value={caEntry} hint="open roles" />
         <Stat label="Companies covered" value={companiesCovered} hint={`${API_COMPANIES.length} API · ${BROWSER_COMPANIES.length} browser`} />
         <Stat label="Last discovery" value={timeAgo(lastJob?.lastSeenAt ?? null)} hint="most recent scrape" />
         <Stat label="Workday jobs" value={workdayJobs} hint="in Jobs — assisted fill available" />
@@ -111,13 +112,13 @@ export default async function OverviewPage() {
       )}
 
       <div className="mt-8">
-        <h2 className="mb-3 text-lg font-semibold">Entry-level roles by company</h2>
+        <h2 className="mb-3 text-lg font-semibold">Open roles by company</h2>
         <div className={cls.card + " overflow-x-auto p-0"}>
           <table className="w-full text-sm">
             <thead className="border-b border-gray-200 text-left text-gray-500 dark:border-gray-800 dark:text-gray-400">
               <tr>
                 <th className="px-4 py-2 font-medium">Company</th>
-                <th className="px-4 py-2 font-medium">Open entry-level roles</th>
+                <th className="px-4 py-2 font-medium">Open in-scope roles</th>
               </tr>
             </thead>
             <tbody>

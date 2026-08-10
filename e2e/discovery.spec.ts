@@ -5,6 +5,9 @@ test.describe("US / CA discovery lists", () => {
   test("US tab shows US roles and hides Canadian ones", async ({ page }) => {
     await page.goto("/jobs");
 
+    await expect(
+      page.getByText(/Open roles matching Software Engineer in United States and Canada/),
+    ).toBeVisible();
     // Default tab is United States.
     await expect(jobCard(page, "E2E Frontend Engineer")).toBeVisible();
     await expect(page.getByRole("link", { name: "E2E Canada Engineer", exact: true })).toHaveCount(0);

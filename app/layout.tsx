@@ -9,7 +9,7 @@ const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"]
 
 export const metadata: Metadata = {
   title: "Job Pipeline",
-  description: "Entry-level software job discovery pipeline",
+  description: "Personal job discovery and application pipeline",
 };
 
 export default function RootLayout({
@@ -30,7 +30,7 @@ export default function RootLayout({
             <aside className="sticky top-0 hidden h-screen w-52 shrink-0 flex-col overflow-y-auto border-r border-gray-200 bg-white p-4 md:flex dark:border-gray-800 dark:bg-gray-950">
               <div className="mb-6 px-2">
                 <div className="text-lg font-bold tracking-tight">Job Pipeline</div>
-                <div className="text-xs text-gray-500 dark:text-gray-400">entry-level discovery</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">personal job discovery</div>
               </div>
               <Nav />
               <div className="mt-auto border-t border-gray-100 pt-2 dark:border-gray-800">
