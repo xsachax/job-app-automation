@@ -4,7 +4,10 @@ import type { DiscoveryPosting } from "../lib/discovery/adapters";
 import {
   JOB_AVAILABILITY,
   beginDiscoverySourceRun,
+  classifyDiscoverySourceOutcome,
+  classifyStoredDiscoverySourceRun,
   completeDiscoverySourceRun,
+  countDiscoverySourceOutcomes,
   failDiscoverySourceRun,
   isPublicVerificationAddress,
   reconcileDiscoverySourceRuns,
@@ -40,7 +43,7 @@ const BOARD_SOURCE: DiscoverySourceDescriptor = {
   expectedComplete: true,
 };
 
-const PARTIAL_SOURCE: DiscoverySourceDescriptor = {
+const LIMITED_SOURCE: DiscoverySourceDescriptor = {
   key: "test:browser:acme",
   name: "Acme Browser",
   system: "apple",
@@ -200,30 +203,46 @@ describe("discovery posting lifecycle", () => {
     });
   });
 
-  it("ignores failed and implausibly truncated source runs", async () => {
+  it("quarantines failed, degraded, and intentionally limited runs from closure", async () => {
     const seeded = await successfulRun(DIRECT_SOURCE, [posting()], 0, 100);
     await reconcileDiscoverySourceRuns([seeded.completed.runId], {
       cycleStartedAt: seeded.context.startedAt,
       verify: inconclusive,
     });
+    const limitedSeen = await successfulRun(
+      LIMITED_SOURCE,
+      [
+        posting({
+          system: "apple",
+          externalId: "apple-123",
+          applyUrl: "https://jobs.apple.com/details/apple-123",
+        }),
+      ],
+      1,
+    );
+    expect(limitedSeen.completed.outcome).toBe("limited");
 
-    const partial = await successfulRun(DIRECT_SOURCE, [], 1, 10);
-    expect(partial.completed.complete).toBe(false);
-    expect(partial.completed.message).toContain("implausible result drop");
+    const degraded = await successfulRun(DIRECT_SOURCE, [], 2, 10);
+    expect(degraded.completed).toMatchObject({
+      complete: false,
+      outcome: "degraded",
+    });
+    expect(degraded.completed.message).toContain("implausible result drop");
+    const limited = await successfulRun(LIMITED_SOURCE, [], 3);
+    expect(limited.completed).toMatchObject({
+      complete: false,
+      outcome: "limited",
+    });
+    const failed = await beginDiscoverySourceRun(DIRECT_SOURCE, at(4));
+    await failDiscoverySourceRun(failed, new Error("HTTP 503"), at(4, 5));
     expect(
-      await reconcileDiscoverySourceRuns([partial.completed.runId], {
-        cycleStartedAt: partial.context.startedAt,
-        verify: inconclusive,
-      }),
-    ).toMatchObject({ checkedRuns: 0, missing: 0 });
-
-    const failed = await beginDiscoverySourceRun(DIRECT_SOURCE, at(2));
-    await failDiscoverySourceRun(failed, new Error("HTTP 503"), at(2, 5));
-    expect(
-      await reconcileDiscoverySourceRuns([failed.runId], {
-        cycleStartedAt: failed.startedAt,
-        verify: inconclusive,
-      }),
+      await reconcileDiscoverySourceRuns(
+        [degraded.completed.runId, limited.completed.runId, failed.runId],
+        {
+          cycleStartedAt: failed.startedAt,
+          verify: inconclusive,
+        },
+      ),
     ).toMatchObject({ checkedRuns: 0, missing: 0 });
 
     expect(await prisma.job.findFirstOrThrow()).toMatchObject({
@@ -271,7 +290,54 @@ describe("discovery posting lifecycle", () => {
     );
   });
 
-  it("persists non-fatal source warnings and quarantines the run", async () => {
+  it("does not confirm a stale low result across a healthy limited run", async () => {
+    const nonAuthoritativeComplete = {
+      ...DIRECT_SOURCE,
+      key: "test:phenom:acme",
+      system: "phenom",
+      authoritative: false,
+    };
+    await successfulRun(nonAuthoritativeComplete, [posting()], 0, 100);
+
+    const firstLow = await successfulRun(
+      nonAuthoritativeComplete,
+      [],
+      1,
+      10,
+    );
+    expect(firstLow.completed).toMatchObject({
+      complete: false,
+      outcome: "degraded",
+    });
+
+    const recovered = await successfulRun(
+      nonAuthoritativeComplete,
+      [posting()],
+      2,
+      100,
+    );
+    expect(recovered.completed).toMatchObject({
+      complete: true,
+      outcome: "limited",
+    });
+
+    const laterLow = await successfulRun(
+      nonAuthoritativeComplete,
+      [],
+      3,
+      10,
+    );
+    expect(laterLow.completed).toMatchObject({
+      complete: false,
+      outcome: "degraded",
+    });
+    expect(laterLow.completed.message).toContain("implausible result drop");
+    expect(laterLow.completed.message).not.toContain(
+      "repeated low result confirmed",
+    );
+  });
+
+  it("persists non-fatal source warnings as degraded and quarantines the run", async () => {
     const result = await ingestSourcePostings(
       DIRECT_SOURCE,
       [posting()],
@@ -282,6 +348,7 @@ describe("discovery posting lifecycle", () => {
 
     expect(result.sourceRun).toMatchObject({
       complete: false,
+      outcome: "degraded",
       seeded: false,
     });
     expect(result.sourceRun.message).toContain("partial source response");
@@ -293,10 +360,11 @@ describe("discovery posting lifecycle", () => {
     ).toMatchObject({
       baselineAt: null,
       lastCompleteRunAt: null,
+      lastStatus: "degraded",
     });
   });
 
-  it("reports configured search-limited sources as partial", async () => {
+  it("reports configured search-limited sources as intentional limits", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(JSON.stringify({ jobs: [] }), {
         status: 200,
@@ -313,18 +381,95 @@ describe("discovery posting lifecycle", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(result).toMatchObject({
-      errors: 0,
-      warnings: 1,
+      outcomes: {
+        complete: 0,
+        degraded: 0,
+        limited: 1,
+        failed: 0,
+      },
       companies: [
         {
           company: "Amazon",
           sourceComplete: false,
+          outcome: "limited",
         },
       ],
     });
-    expect(result.companies[0]?.warning).toContain(
-      "source is search-limited or partial",
+    expect(result.companies[0]?.reason).toContain(
+      "search-limited by design",
     );
+    const sourceRunId = result.companies[0]?.sourceRunId;
+    if (!sourceRunId) throw new Error("Amazon source run was not recorded");
+    expect(
+      await prisma.discoverySourceRun.findUniqueOrThrow({
+        where: { id: sourceRunId },
+      }),
+    ).toMatchObject({ status: "limited", complete: false });
+  });
+
+  it("reconstructs the snapshot outcomes as mutually exclusive", () => {
+    const outcomes = [
+      classifyStoredDiscoverySourceRun({
+        status: "error",
+        complete: false,
+        authoritative: false,
+        expectedComplete: false,
+        message: "HTTP 404",
+      }),
+      classifyStoredDiscoverySourceRun({
+        status: "success",
+        complete: false,
+        authoritative: false,
+        expectedComplete: false,
+        message:
+          "50 postings; partial source response: Microsoft pagination stopped after 50 postings: HTTP 429",
+      }),
+      classifyStoredDiscoverySourceRun({
+        status: "success",
+        complete: false,
+        authoritative: false,
+        expectedComplete: false,
+        message:
+          "1433 postings; partial source response: 27 non-fatal subrequest warnings",
+      }),
+      classifyStoredDiscoverySourceRun({
+        status: "success",
+        complete: false,
+        authoritative: false,
+        expectedComplete: false,
+        message:
+          "409 postings; source is search-limited or partial; absence is not authoritative",
+      }),
+      classifyStoredDiscoverySourceRun({
+        status: "success",
+        complete: true,
+        authoritative: false,
+        expectedComplete: true,
+        message: "2649 postings; complete source response",
+      }),
+    ];
+
+    expect(outcomes).toEqual([
+      "failed",
+      "degraded",
+      "degraded",
+      "limited",
+      "limited",
+    ]);
+    expect(countDiscoverySourceOutcomes(outcomes)).toEqual({
+      complete: 0,
+      degraded: 2,
+      limited: 2,
+      failed: 1,
+    });
+
+    const bounded = classifyDiscoverySourceOutcome({
+      authoritative: true,
+      expectedComplete: true,
+      warning: `line one\n${"x".repeat(1_000)}`,
+    });
+    expect(bounded.reason).toHaveLength(600);
+    expect(bounded.reason).not.toContain("\n");
   });
 
   it("records a still-present role before classification removes it from the queue", async () => {
@@ -383,7 +528,11 @@ describe("discovery posting lifecycle", () => {
       externalId: "board-123",
       applyUrl: "https://example.test/jobs/123",
     });
-    await successfulRun(BOARD_SOURCE, [boardPosting], 0);
+    const initial = await successfulRun(BOARD_SOURCE, [boardPosting], 0);
+    expect(initial.completed).toMatchObject({
+      complete: true,
+      outcome: "limited",
+    });
 
     for (const slot of [1, 2, 3]) {
       const missing = await successfulRun(BOARD_SOURCE, [], slot);
@@ -539,9 +688,9 @@ describe("discovery posting lifecycle", () => {
     });
   });
 
-  it("periodically verifies jobs whose only sightings come from partial sources", async () => {
+  it("periodically verifies jobs whose only sightings come from limited sources", async () => {
     const observed = await successfulRun(
-      PARTIAL_SOURCE,
+      LIMITED_SOURCE,
       [
         posting({
           system: "apple",
@@ -551,7 +700,10 @@ describe("discovery posting lifecycle", () => {
       ],
       0,
     );
-    expect(observed.completed.complete).toBe(false);
+    expect(observed.completed).toMatchObject({
+      complete: false,
+      outcome: "limited",
+    });
     const job = await prisma.job.findFirstOrThrow();
     expect(
       await prisma.discoveryJobSighting.count({ where: { jobId: job.id } }),

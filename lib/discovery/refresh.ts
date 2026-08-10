@@ -19,12 +19,17 @@ import {
   type IngestCounts,
 } from "./run";
 import {
+  classifyDiscoverySourceOutcome,
+  countDiscoverySourceOutcomes,
   describeBrowserSource,
   reconcileDiscoverySourceRuns,
   recordDiscoverySourceFailure,
   verifyUntrackedDiscoveryJobs,
   type AvailabilityReconciliationResult,
   type CompletedDiscoverySourceRun,
+  type DiscoverySourceDescriptor,
+  type DiscoverySourceOutcomeCounts,
+  type DiscoverySourceOutcome,
 } from "./lifecycle";
 
 export interface BrowserRefreshResult {
@@ -37,8 +42,9 @@ export interface BrowserRefreshResult {
   created: number;
   updated: number;
   sourceComplete: boolean;
-  warning?: string;
-  error?: string;
+  observedCount: number;
+  outcome: DiscoverySourceOutcome;
+  reason: string;
 }
 
 export interface DiscoveryRefreshResult {
@@ -58,8 +64,7 @@ export interface DiscoveryRefreshResult {
     updated: number;
     usEntry: number;
     caEntry: number;
-    errors: number;
-    warnings: number;
+    outcomes: DiscoverySourceOutcomeCounts;
     suspect: number;
     closed: number;
   };
@@ -84,8 +89,7 @@ export interface DiscoveryRefreshProgress {
   totalSources: number;
   currentSource: string | null;
   message: string;
-  errors: number;
-  warnings: number;
+  outcomes: DiscoverySourceOutcomeCounts;
   startedAt: string | null;
   finishedAt: string | null;
 }
@@ -133,8 +137,7 @@ let refreshProgress: DiscoveryRefreshProgress = {
   totalSources: 0,
   currentSource: null,
   message: "No scrape is running.",
-  errors: 0,
-  warnings: 0,
+  outcomes: countDiscoverySourceOutcomes([]),
   startedAt: null,
   finishedAt: null,
 };
@@ -215,12 +218,19 @@ function zeroCounts(): IngestCounts {
 function browserResult(
   result: BrowserScrapeResult,
   counts: IngestCounts,
+  descriptor: DiscoverySourceDescriptor,
   sourceRun?: CompletedDiscoverySourceRun,
 ): BrowserRefreshResult {
-  const warning =
-    !result.error && sourceRun && !sourceRun.complete
-      ? sourceRun.message
-      : result.warning;
+  const classified = result.error
+    ? classifyDiscoverySourceOutcome({
+        authoritative: descriptor.authoritative,
+        expectedComplete: descriptor.expectedComplete,
+        error: result.error,
+      })
+    : sourceRun;
+  if (!classified) {
+    throw new Error(`Missing durable source run for ${result.company}`);
+  }
   return {
     company: result.company,
     system: result.system,
@@ -231,8 +241,9 @@ function browserResult(
     created: counts.created,
     updated: counts.updated,
     sourceComplete: sourceRun?.complete ?? false,
-    ...(result.error ? { error: result.error } : {}),
-    ...(warning ? { warning } : {}),
+    observedCount: sourceRun?.observedCount ?? 0,
+    outcome: classified.outcome,
+    reason: classified.reason,
   };
 }
 
@@ -250,8 +261,7 @@ async function executeRefresh(started: number): Promise<DiscoveryRefreshResult> 
   const totalSources = apiSourceCount + supportedBrowserCompanies.length;
   const totalSteps = totalSources + 2;
   let completedSources = 0;
-  let sourceErrors = 0;
-  let sourceWarnings = 0;
+  const sourceOutcomes = countDiscoverySourceOutcomes([]);
 
   updateProgress({
     phase: "api",
@@ -264,14 +274,12 @@ async function executeRefresh(started: number): Promise<DiscoveryRefreshResult> 
     reconcile: false,
     onProgress: (result) => {
       completedSources++;
-      if (result.error) sourceErrors++;
-      if (result.warning) sourceWarnings++;
+      sourceOutcomes[result.outcome]++;
       updateProgress({
         completedSources,
         completedSteps: completedSources,
         currentSource: result.company,
-        errors: sourceErrors,
-        warnings: sourceWarnings,
+        outcomes: { ...sourceOutcomes },
         message: `API sources ${completedSources}/${apiSourceCount} · ${result.company}`,
       });
     },
@@ -289,23 +297,25 @@ async function executeRefresh(started: number): Promise<DiscoveryRefreshResult> 
         companies: supportedBrowserCompanies.map((company) => company.name),
         onResult: (result) => {
           completedSources++;
-          if (result.error) sourceErrors++;
           const company = supportedBrowserCompanies.find(
             (candidate) => candidate.name === result.company,
           );
-          if (
-            !result.error &&
-            (result.warning ||
-              (company && !describeBrowserSource(company).expectedComplete))
-          ) {
-            sourceWarnings++;
+          if (!company) {
+            throw new Error(`Unknown browser source result: ${result.company}`);
           }
+          const descriptor = describeBrowserSource(company);
+          const classified = classifyDiscoverySourceOutcome({
+            authoritative: descriptor.authoritative,
+            expectedComplete: descriptor.expectedComplete,
+            ...(result.error ? { error: result.error } : {}),
+            ...(result.warning ? { warning: result.warning } : {}),
+          });
+          sourceOutcomes[classified.outcome]++;
           updateProgress({
             completedSources,
             completedSteps: completedSources,
             currentSource: result.company,
-            errors: sourceErrors,
-            warnings: sourceWarnings,
+            outcomes: { ...sourceOutcomes },
             message:
               `Browser sources ${completedSources - apiSourceCount}/` +
               `${supportedBrowserCompanies.length} · ${result.company}`,
@@ -340,7 +350,7 @@ async function executeRefresh(started: number): Promise<DiscoveryRefreshResult> 
       );
       completedSourceRun = ingested.sourceRun;
     }
-    browser.push(browserResult(result, counts, completedSourceRun));
+    browser.push(browserResult(result, counts, descriptor, completedSourceRun));
   }
 
   updateProgress({
@@ -375,10 +385,9 @@ async function executeRefresh(started: number): Promise<DiscoveryRefreshResult> 
   const browserUpdated = browser.reduce((sum, result) => sum + result.updated, 0);
   const browserUsEntry = browser.reduce((sum, result) => sum + result.usEntry, 0);
   const browserCaEntry = browser.reduce((sum, result) => sum + result.caEntry, 0);
-  const browserErrors = browser.filter((result) => result.error).length;
-  const browserWarnings = browser.filter(
-    (result) => !result.error && !result.sourceComplete,
-  ).length;
+  const browserOutcomes = countDiscoverySourceOutcomes(
+    browser.map((result) => result.outcome),
+  );
 
   return {
     startedAt: new Date(started).toISOString(),
@@ -397,8 +406,12 @@ async function executeRefresh(started: number): Promise<DiscoveryRefreshResult> 
       updated: api.updated + browserUpdated,
       usEntry: api.usEntry + browserUsEntry,
       caEntry: api.caEntry + browserCaEntry,
-      errors: api.errors + browserErrors,
-      warnings: api.warnings + browserWarnings,
+      outcomes: {
+        complete: api.outcomes.complete + browserOutcomes.complete,
+        degraded: api.outcomes.degraded + browserOutcomes.degraded,
+        limited: api.outcomes.limited + browserOutcomes.limited,
+        failed: api.outcomes.failed + browserOutcomes.failed,
+      },
       suspect: api.lifecycle.suspect + untrackedLifecycle.suspect,
       closed: api.lifecycle.closed + untrackedLifecycle.closed,
     },
@@ -423,8 +436,7 @@ export async function runDiscoveryRefresh(): Promise<DiscoveryRefreshResult> {
       totalSources: 0,
       currentSource: null,
       message: "Preparing discovery sources…",
-      errors: 0,
-      warnings: 0,
+      outcomes: countDiscoverySourceOutcomes([]),
       startedAt: new Date(started).toISOString(),
       finishedAt: null,
     };
@@ -443,8 +455,7 @@ export async function runDiscoveryRefresh(): Promise<DiscoveryRefreshResult> {
       completedSources: refreshProgress.totalSources,
       currentSource: null,
       message: "Scrape complete.",
-      errors: result.totals.errors,
-      warnings: result.totals.warnings,
+      outcomes: result.totals.outcomes,
       finishedAt: result.finishedAt,
     });
     return result;

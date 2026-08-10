@@ -73,10 +73,15 @@ npm run discover -- "Y Combinator"
 Discovery never deletes a job. Each catalog source has durable run records and per-job
 sightings. A posting moves through `open → suspect → closed` using conservative evidence:
 
-- failed, disabled, partial, or implausibly truncated source runs never count as misses;
-- hard source failures and every non-authoritative **partial** run are reported separately
-  with expandable reasons; non-fatal pagination, detail-fetch, browser, and aggregator
-  subrequest failures are retained as partial runs instead of being hidden;
+- each source run has one durable outcome: **complete**, **degraded**, **limited**, or
+  **failed**. The dashboard, live progress, final summary, and CLI use the same counts and
+  expose bounded per-source reasons;
+- failed runs have no trustworthy result. Degraded runs preserve usable postings but record
+  pagination, detail-fetch, truncation, or other warnings. Intentionally limited search APIs,
+  browser scrapes, and aggregators are reported as limited rather than mislabeled as degraded;
+- failed, degraded, disabled, or implausibly truncated runs never count as misses. A clean
+  limited feed may trigger **Rechecking** and direct URL verification, but neither degraded nor
+  limited runs can archive a posting from disappearance alone;
 - a successful full-board Greenhouse, Lever, or Ashby response is authoritative, while
   search-limited APIs, browser scrapes, YC expansion, and community boards cannot prove
   closure by disappearance alone;

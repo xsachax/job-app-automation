@@ -45,6 +45,166 @@ export interface DiscoverySourceDescriptor {
   expectedComplete: boolean;
 }
 
+export const DISCOVERY_SOURCE_OUTCOMES = [
+  "complete",
+  "degraded",
+  "limited",
+  "failed",
+] as const;
+
+export type DiscoverySourceOutcome =
+  (typeof DISCOVERY_SOURCE_OUTCOMES)[number];
+
+export type DiscoverySourceOutcomeCounts = Record<
+  DiscoverySourceOutcome,
+  number
+>;
+
+export interface ClassifiedDiscoverySourceOutcome {
+  outcome: DiscoverySourceOutcome;
+  reason: string;
+}
+
+const MAX_SOURCE_REASON_LENGTH = 600;
+
+export function boundedDiscoverySourceReason(
+  value: unknown,
+  fallback = "source did not provide a reason",
+): string {
+  const raw = value instanceof Error ? value.message : String(value ?? "");
+  const normalized = raw
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const reason = normalized || fallback;
+  return reason.length > MAX_SOURCE_REASON_LENGTH
+    ? `${reason.slice(0, MAX_SOURCE_REASON_LENGTH - 3)}...`
+    : reason;
+}
+
+export function classifyDiscoverySourceOutcome(input: {
+  authoritative: boolean;
+  expectedComplete: boolean;
+  complete?: boolean;
+  warning?: string;
+  error?: unknown;
+  reason?: string;
+}): ClassifiedDiscoverySourceOutcome {
+  if (input.error !== undefined) {
+    return {
+      outcome: "failed",
+      reason: boundedDiscoverySourceReason(input.error),
+    };
+  }
+  if (input.warning?.trim()) {
+    return {
+      outcome: "degraded",
+      reason: boundedDiscoverySourceReason(
+        `partial source response: ${input.warning}`,
+      ),
+    };
+  }
+  if (input.complete === false && input.expectedComplete) {
+    return {
+      outcome: "degraded",
+      reason: boundedDiscoverySourceReason(
+        input.reason,
+        "incomplete source response",
+      ),
+    };
+  }
+  if (!input.expectedComplete) {
+    return {
+      outcome: "limited",
+      reason: boundedDiscoverySourceReason(
+        input.reason,
+        "search-limited by design; absence is not authoritative",
+      ),
+    };
+  }
+  if (!input.authoritative) {
+    const reason =
+      input.reason && input.reason !== "complete source response"
+        ? `${input.reason}; non-authoritative by design; absence is not closure evidence`
+        : "non-authoritative by design; absence is not closure evidence";
+    return {
+      outcome: "limited",
+      reason: boundedDiscoverySourceReason(reason),
+    };
+  }
+  if (input.complete) {
+    return {
+      outcome: "complete",
+      reason: boundedDiscoverySourceReason(
+        input.reason,
+        "complete source response",
+      ),
+    };
+  }
+  return {
+    outcome: "degraded",
+    reason: boundedDiscoverySourceReason(
+      input.reason,
+      "incomplete source response",
+    ),
+  };
+}
+
+export function countDiscoverySourceOutcomes(
+  outcomes: DiscoverySourceOutcome[],
+): DiscoverySourceOutcomeCounts {
+  const counts: DiscoverySourceOutcomeCounts = {
+    complete: 0,
+    degraded: 0,
+    limited: 0,
+    failed: 0,
+  };
+  for (const outcome of outcomes) counts[outcome]++;
+  return counts;
+}
+
+export function classifyStoredDiscoverySourceRun(input: {
+  status: string;
+  complete: boolean;
+  authoritative: boolean;
+  expectedComplete: boolean;
+  message: string | null;
+}): DiscoverySourceOutcome {
+  const status = input.status.toLowerCase();
+  if (status === "error" || status === "failed" || status === "running") {
+    return "failed";
+  }
+  if (status === "degraded" || status === "partial") return "degraded";
+  if (status === "limited") return "limited";
+
+  const message = input.message?.toLowerCase() ?? "";
+  if (message.includes("partial source response")) return "degraded";
+  if (
+    message.includes("empty result after previously observing") ||
+    message.includes("implausible result drop")
+  ) {
+    return "degraded";
+  }
+  if (message.includes("search-limited")) return "limited";
+  if (!input.expectedComplete || !input.authoritative) return "limited";
+  return input.complete ? "complete" : "degraded";
+}
+
+function storedStatusForOutcome(
+  outcome: DiscoverySourceOutcome,
+): "success" | "degraded" | "limited" | "error" {
+  switch (outcome) {
+    case "complete":
+      return "success";
+    case "degraded":
+      return "degraded";
+    case "limited":
+      return "limited";
+    case "failed":
+      return "error";
+  }
+}
+
 export interface DiscoverySourceRunContext {
   descriptor: DiscoverySourceDescriptor;
   runId: string;
@@ -54,9 +214,11 @@ export interface DiscoverySourceRunContext {
 
 export interface CompletedDiscoverySourceRun {
   runId: string;
+  outcome: DiscoverySourceOutcome;
   complete: boolean;
   seeded: boolean;
   observedCount: number;
+  reason: string;
   message: string;
 }
 
@@ -205,11 +367,15 @@ function completenessDecision(
   observedCount: number,
   previousCount: number | null,
   previousLowResultAttempt: { observedCount: number } | null,
-): { complete: boolean; reason: string } {
+): ClassifiedDiscoverySourceOutcome & { complete: boolean } {
   if (!descriptor.expectedComplete) {
     return {
       complete: false,
-      reason: "source is search-limited or partial; absence is not authoritative",
+      ...classifyDiscoverySourceOutcome({
+        authoritative: descriptor.authoritative,
+        expectedComplete: false,
+        complete: false,
+      }),
     };
   }
   const emptyAfterResults =
@@ -226,17 +392,35 @@ function completenessDecision(
     ) {
       return {
         complete: true,
-        reason: `repeated low result confirmed (${previousCount} to ${observedCount})`,
+        ...classifyDiscoverySourceOutcome({
+          authoritative: descriptor.authoritative,
+          expectedComplete: true,
+          complete: true,
+          reason: `repeated low result confirmed (${previousCount} to ${observedCount})`,
+        }),
       };
     }
+    const reason = emptyAfterResults
+      ? `empty result after previously observing ${previousCount} postings`
+      : `implausible result drop (${previousCount} to ${observedCount})`;
     return {
       complete: false,
-      reason: emptyAfterResults
-        ? `empty result after previously observing ${previousCount} postings`
-        : `implausible result drop (${previousCount} to ${observedCount})`,
+      ...classifyDiscoverySourceOutcome({
+        authoritative: descriptor.authoritative,
+        expectedComplete: true,
+        complete: false,
+        reason,
+      }),
     };
   }
-  return { complete: true, reason: "complete source response" };
+  return {
+    complete: true,
+    ...classifyDiscoverySourceOutcome({
+      authoritative: descriptor.authoritative,
+      expectedComplete: true,
+      complete: true,
+    }),
+  };
 }
 
 function isLowResultAttempt(message: string | null): boolean {
@@ -301,7 +485,7 @@ export async function completeDiscoverySourceRun(
   const previousAttempt = await prisma.discoverySourceRun.findFirst({
     where: {
       sourceKey: context.descriptor.key,
-      status: "success",
+      status: { in: ["success", "degraded", "limited"] },
       id: { not: context.runId },
     },
     orderBy: { startedAt: "desc" },
@@ -315,11 +499,18 @@ export async function completeDiscoverySourceRun(
       : null;
   await saveObservedSightings(context, finishedAt);
 
-  const trimmedWarning = warning?.trim().slice(0, 1_500);
+  const trimmedWarning = warning?.trim()
+    ? boundedDiscoverySourceReason(warning)
+    : undefined;
   const decision = trimmedWarning
     ? {
         complete: false,
-        reason: `partial source response: ${trimmedWarning}`,
+        ...classifyDiscoverySourceOutcome({
+          authoritative: context.descriptor.authoritative,
+          expectedComplete: context.descriptor.expectedComplete,
+          complete: false,
+          warning: trimmedWarning,
+        }),
       }
     : completenessDecision(
         context.descriptor,
@@ -336,7 +527,7 @@ export async function completeDiscoverySourceRun(
       where: { id: context.runId },
       data: {
         finishedAt,
-        status: "success",
+        status: storedStatusForOutcome(decision.outcome),
         complete: decision.complete,
         seeded,
         observedCount,
@@ -347,7 +538,7 @@ export async function completeDiscoverySourceRun(
       where: { key: context.descriptor.key },
       data: {
         lastRunAt: finishedAt,
-        lastStatus: "success",
+        lastStatus: storedStatusForOutcome(decision.outcome),
         lastMessage: message,
         ...(decision.complete
           ? {
@@ -364,9 +555,11 @@ export async function completeDiscoverySourceRun(
 
   return {
     runId: context.runId,
+    outcome: decision.outcome,
     complete: decision.complete,
     seeded,
     observedCount,
+    reason: decision.reason,
     message,
   };
 }
@@ -376,7 +569,7 @@ export async function failDiscoverySourceRun(
   error: unknown,
   finishedAt = new Date(),
 ) {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = boundedDiscoverySourceReason(error);
   await prisma.$transaction([
     prisma.discoverySourceRun.update({
       where: { id: context.runId },
@@ -881,7 +1074,7 @@ export async function reconcileDiscoverySourceRuns(
   const runs = await prisma.discoverySourceRun.findMany({
     where: {
       id: { in: runIds },
-      status: "success",
+      status: { in: ["success", "limited"] },
       complete: true,
       seeded: false,
     },

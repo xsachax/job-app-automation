@@ -216,8 +216,8 @@ model DiscoverySourceRun {
   sourceKey     String
   startedAt     DateTime        @default(now())
   finishedAt    DateTime?
-  status        String          @default("running") // running | success | error
-  complete      Boolean         @default(false)
+  status        String          @default("running") // running | success | degraded | limited | error
+  complete      Boolean         @default(false) // complete for its scope; authority remains separate
   seeded        Boolean         @default(false)
   observedCount Int             @default(0)
   message       String?
