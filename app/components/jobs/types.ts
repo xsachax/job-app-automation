@@ -1,4 +1,5 @@
 import type { JobCategory } from "@/lib/discovery/categories";
+import type { GoldenJobMatch } from "@/lib/jobs/golden";
 
 export type Country = "US" | "CA";
 export type SortKey = "posted" | "company" | "fit" | "salary";
@@ -64,6 +65,8 @@ export interface Job {
     | null;
   fitSummary: string | null;
   fitReasons: string[];
+  isGolden: boolean;
+  goldenMatch: GoldenJobMatch | null;
   salaryMin: number | null;
   salaryMax: number | null;
   salaryCurrency: "USD" | "CAD" | null;
@@ -90,6 +93,7 @@ export interface JobFacets {
   statuses: FacetItem[];
   maxSalary: number;
   withConnections: number;
+  golden: number;
   total: number;
 }
 
@@ -106,6 +110,7 @@ export interface FilterState {
   status: string[];
   remote: boolean;
   warmIntro: boolean;
+  goldenOnly: boolean;
   salaryMin: number | null;
   fitMin: number | null;
 }
@@ -132,6 +137,7 @@ export const DEFAULT_FILTERS: FilterState = {
   status: [],
   remote: false,
   warmIntro: false,
+  goldenOnly: false,
   salaryMin: null,
   fitMin: null,
 };

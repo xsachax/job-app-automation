@@ -20,6 +20,12 @@ import {
 } from "./scoring";
 import { minRequiredBachelorYoE } from "../discovery/entryLevel";
 import { canonicalSkill } from "../discovery/enrich";
+import { getDiscoveryConfig } from "../discovery/config";
+import {
+  applyGoldenJobScoreFloor,
+  createGoldenJobMatcher,
+  goldenJobFloorReason,
+} from "../jobs/golden";
 import {
   isCopilotJudgeProvider,
   isEnhancedJudgeProvider,
@@ -214,7 +220,10 @@ function isContextAdvice(reason: string): boolean {
     /\bpay ~\$/i.test(reason) ||
     /\bsalary (?:is )?not listed\b/i.test(reason) ||
     /\bsaved experience\b.*\b(?:meets|below)\b/i.test(reason) ||
-    /\bposting asks for\b.*\badd relevant experience\b/i.test(reason)
+    /\bposting asks for\b.*\badd relevant experience\b/i.test(reason) ||
+    /\bgolden job: (?:title|description) matches\b.*\bscore floor\b/i.test(
+      reason,
+    )
   );
 }
 
@@ -245,9 +254,12 @@ function enhancedTierSummary(
   score: number,
   summary: string | null,
   companyReason: string,
+  goldenReason: string | null,
 ): string {
   const enhancedSummary = baseEnhancedSummary(summary);
-  return `${fitLabel(score)}: ${companyReason}.${
+  return `${fitLabel(score)}: ${
+    goldenReason ? `${goldenReason}. ` : ""
+  }${companyReason}.${
     enhancedSummary ? ` Enhanced résumé assessment: ${enhancedSummary}` : ""
   }`.slice(0, 300);
 }
@@ -337,6 +349,10 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
   const profile = await getProfile();
   const resume = buildResumeContext(profile);
   const criteria = await getCriteria();
+  const discoveryConfig = await getDiscoveryConfig();
+  const matchGoldenJob = createGoldenJobMatcher(
+    discoveryConfig.goldenJobs,
+  );
   const salaryTarget = typeof criteria.salaryTarget === "number" ? criteria.salaryTarget : null;
   const candidateYears =
     typeof profile.relevantExperienceYears === "number" &&
@@ -406,16 +422,19 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
     const contextDelta =
       locationMod + salary.delta + freshness.delta + experience.delta;
     const companySignal = companyBandSignal(job.company, tier);
+    const goldenMatch = matchGoldenJob(job);
+    const goldenReason = goldenMatch
+      ? goldenJobFloorReason(goldenMatch)
+      : null;
 
     if (
       isEnhancedJudgeProvider(job.fitProvider) &&
       (!opts.force || isCopilotJudgeProvider(job.fitProvider))
     ) {
       const baseScore = job.fitBaseScore ?? job.fitScore ?? 0;
-      const adjustedScore = tierFirstJudgeScore(
-        baseScore,
-        tier,
-        contextDelta,
+      const adjustedScore = applyGoldenJobScoreFloor(
+        tierFirstJudgeScore(baseScore, tier, contextDelta),
+        goldenMatch,
       );
       const baseAdvice = parseJobReasons(
         job.fitBaseReasons ?? job.fitReasons,
@@ -446,12 +465,18 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
         fitBaseSummary: baseSummary || null,
         fitScore: adjustedScore,
         fitReasons: JSON.stringify(
-          [companyAdvice, ...baseAdvice, ...contextAdvice].slice(0, 8),
+          [
+            ...(goldenReason ? [fitAdvice(goldenReason)] : []),
+            companyAdvice,
+            ...baseAdvice,
+            ...contextAdvice,
+          ].slice(0, 8),
         ),
         fitSummary: enhancedTierSummary(
           adjustedScore,
           baseSummary,
           companySignal.reason,
+          goldenReason,
         ),
         fitScoredAt: now,
       });
@@ -475,10 +500,9 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
       { title: job.title, company: job.company, description, skills },
       resume,
     );
-    const adjustedScore = tierFirstJudgeScore(
-      result.score,
-      tier,
-      contextDelta,
+    const adjustedScore = applyGoldenJobScoreFloor(
+      tierFirstJudgeScore(result.score, tier, contextDelta),
+      goldenMatch,
     );
 
     const strengths = result.reasons.filter(
@@ -502,6 +526,7 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
     (companySignal.positive ? strengths : gaps).unshift(
       companySignal.reason,
     );
+    if (goldenReason) strengths.unshift(goldenReason);
 
     const advice = [
       ...strengths.slice(0, 6).map(fitAdvice),

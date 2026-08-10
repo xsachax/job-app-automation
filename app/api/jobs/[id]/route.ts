@@ -4,6 +4,11 @@ import { json, errorResponse } from "@/lib/http";
 import { shapeJob } from "@/lib/jobs/shape";
 import { categorizeCompany, fallbackForSystem } from "@/lib/discovery/categories";
 import { getConnectionSet, lookupConnections } from "@/lib/connections/store";
+import { getDiscoveryConfig } from "@/lib/discovery/config";
+import {
+  createGoldenJobMatcher,
+  historicalGoldenJobMatch,
+} from "@/lib/jobs/golden";
 
 export const dynamic = "force-dynamic";
 
@@ -52,10 +57,27 @@ export async function PATCH(
     data: { applicationStatus: status, appliedAt },
     include: { sightings: { include: { source: { select: { id: true, name: true, kind: true } } } } },
   });
-  const match = lookupConnections(await getConnectionSet(), job.company);
+  const [connections, discoveryConfig] = await Promise.all([
+    getConnectionSet(),
+    getDiscoveryConfig(),
+  ]);
+  const connectionMatch = lookupConnections(connections, job.company);
+  const goldenMatch =
+    job.availabilityStatus === "closed"
+      ? historicalGoldenJobMatch(job.fitReasons)
+      : createGoldenJobMatcher(discoveryConfig.goldenJobs)(job);
   return json({
     ...shapeJob(job),
     category: categorizeCompany(job.company, fallbackForSystem(job.discoverySystem)),
-    ...(match ? { connections: { count: match.count, contacts: match.contacts.slice(0, 6) } } : {}),
+    isGolden: Boolean(goldenMatch),
+    goldenMatch,
+    ...(connectionMatch
+      ? {
+          connections: {
+            count: connectionMatch.count,
+            contacts: connectionMatch.contacts.slice(0, 6),
+          },
+        }
+      : {}),
   });
 }

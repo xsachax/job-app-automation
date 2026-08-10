@@ -216,13 +216,13 @@ The Chrome extension is optional and needs no build or Web Store publication. Fo
 | Page | What you do there |
 | --- | --- |
 | **Overview** | Discovery stats, US/CA entry-level counts, companies covered, by-category and by-company breakdowns. |
-| **Jobs** | Time-sorted US / CA queues of active postings plus an Archived closed view that preserves application history. Filter by category, date, skills, sponsorship, employment type, source, min salary, min fit, remote, warm intro and applied status; sort by newest / company / best fit / salary. Each active card links out or launches the optional autofill assistant, tracks its progress, and lets you mark status. |
+| **Jobs** | Golden-first US / CA queues of active postings plus an Archived closed view that preserves application history. Filter by Golden, category, date, skills, sponsorship, employment type, source, min salary, min fit, remote, warm intro and applied status; sort by newest / company / best fit / salary. Each active card links out or launches the optional autofill assistant, tracks its progress, and lets you mark status. |
 | **Companies** | Coverage of every API and browser-scraped source. |
 | **Judge** | Review scoring coverage, provider provenance, and signal definitions; set a salary target, monitor exact processed/total progress, and re-score all eligible jobs. |
 | **Company tiers** | Drag employers from S through F. The tier is authoritative: it selects the job's final score band. Unrated companies use E. |
 | **Location tiers** | Rank places from S through F. Location preference adjusts placement only within the company band; unrated locations are neutral. |
 | **Extension** | Install the optional Chrome extension and see its live connection status. |
-| **Settings** | Edit discovery configuration and select an OpenAI or Anthropic enhanced-Judge fallback. Provider keys stay server-side in local SQLite and reload only as a masked hint. |
+| **Settings** | Edit discovery and Golden-job configuration, and select an OpenAI or Anthropic enhanced-Judge fallback. Provider keys stay server-side in local SQLite and reload only as a masked hint. |
 | **Profile** | Manage automatically saved country-specific application details, education and qualifications, recurring application defaults, voluntary self-identification answers, a saved résumé PDF from GitHub or Google Drive, Judge signals, and your LinkedIn Connections.csv, then run the Judge. |
 | **Workday** | The legacy `/workday` route redirects to the unified, Workday-filterable Jobs queue. |
 
@@ -317,26 +317,31 @@ npm run sources:probe   # probes candidate Greenhouse/Lever/Ashby boards, prints
 
 ## The queue (Jobs page)
 
-The Jobs page is a **queue ordered by time posted** (`postedAt`, falling back to when we
-first saw the job), split into **United States** and **Canada** tabs. **Open & rechecking**
-is the default; **Archived closed** exposes confirmed closures without losing saved/applied
-state. Controls:
+The Jobs page is a **Golden-first queue**, split into **United States** and **Canada** tabs.
+Within the Golden and normal groups it is ordered by the selected sort (`postedAt`, falling
+back to when first seen, for the default). **Open & rechecking** is the default; **Archived
+closed** exposes confirmed closures without losing saved/applied state. Controls:
 
 - **Date posted** — `Last 24 hours`, `Last 7 days`, `Last 30 days`, `All time`.
 - **Sort** — `Newest` (default), `Company`, `Best fit`, or `Salary`.
 - **Facets** — category (Big Tech / AI Lab / Quant / Startup), skills (match-all),
   sponsorship, employment type, source, applied status — each showing live counts — plus
-  **min salary**, **min fit**, **remote only**, **warm intro** (jobs where you have a LinkedIn
-  connection, shown only once connections are imported) and free-text search on title/company.
+  **Golden only**, **min salary**, **min fit**, **remote only**, **warm intro** (jobs where you
+  have a LinkedIn connection, shown only once connections are imported) and free-text search
+  on title/company.
 - **Card actions** — `Open posting ↗` (normal link or extension-assisted handoff) and status buttons (`Save`,
   `Mark applied`, `Dismiss`, `Clear`). **New** (< 48h), **30d+ old**, **Rechecking**, and
-  **Closed** badges distinguish age from actual availability evidence.
+  **Closed** badges distinguish age from actual availability evidence. Every Judge score of
+  **95+** receives the gold card and score treatment, whether or not the posting matched a
+  Golden keyword; lower scores never receive that treatment. The sheen stops when the browser
+  requests reduced motion.
 
 The API backs this at `GET /api/jobs?view=discovery&country=US|CA&availability=active|closed&sort=posted|company|fit|salary`
 `&since=24h|7d|30d|all&category=…&skills=…&sponsorship=…&status=…&employmentType=…&source=…`
-`&salaryMin=…&fitMin=…&remote=1&connections=1&q=…`. Available filter values (including
+`&salaryMin=…&fitMin=…&golden=1&remote=1&connections=1&q=…`. Job responses include
+`isGolden` plus the matched field/phrase. Available filter values (including `golden` and
 `withConnections`) come from `GET /api/jobs/facets`; `PATCH /api/jobs/:id` records applied
-status.
+status and returns the same Golden metadata.
 
 ## Warm intros (LinkedIn connections)
 
@@ -386,10 +391,19 @@ the **Settings** page, read by the runner) drives every run:
   internships** gates — the entry-level classifier reads these instead of fixed constants.
 - **Role keywords / excluded title keywords** to widen or narrow what counts.
 - **Scraper query terms** handed to each source, and **per-source enable/disable**.
+- **Golden jobs** — an enable switch plus separate title keywords and precise description
+  phrases. Matching is case- and punctuation-insensitive with whole normalized phrases.
+  Defaults include `new grad`, related graduate wording, and title/intent-specific `2027`
+  signals. Description defaults intentionally omit generic `graduate` and bare `2027`, so
+  ordinary requirements such as `undergraduate degree` or incidental years do not qualify.
 
 `lib/discovery/config.ts` (`getDiscoveryConfig` / `saveDiscoveryConfig` /
-`toEntryLevelOptions`) is the backbone; `GET|PUT /api/config` is the editor API. Defaults
-preserve the original behavior, so an empty config scrapes exactly as before.
+`toEntryLevelOptions`) is the backbone; `GET|PUT /api/config` is the editor API.
+`lib/jobs/golden.ts` is the one matcher used by the API, filtering, sorting, and Judge.
+The JSON-backed record supplies Golden defaults to older databases without a migration.
+Golden setting changes affect the Jobs API immediately; rerun Judge to rebuild stored scores
+and evidence from the latest settings. Closed postings retain the Golden classification saved
+in their historical Judge evidence instead of being reclassified by later setting changes.
 
 ### Enrichment (at ingest, no API key)
 
@@ -416,8 +430,11 @@ strict, non-overlapping final score band:
 The deterministic baseline is always available. A Copilot-, OpenAI-, or Anthropic-reviewed
 résumé assessment can be retained separately as a raw 0–100 base score. Résumé overlap plus
 location tier, freshness, required experience, and pay then position the job **inside** its
-company band; they cannot promote or demote it across a tier boundary. Final evidence is
-rebuilt on each run so changing tiers or context cannot leave stale explanations behind.
+company band. A configured Golden match is the only post-band override: it raises the final
+score to at least **95**, still capped by the existing **97** maximum, and adds the matched
+field/phrase plus floor to Judge evidence. The raw enhanced score and provider provenance are
+unchanged. Final evidence is rebuilt on each run so changing tiers, Golden settings, or
+context cannot leave stale explanations behind.
 
 Enhanced provider resolution is explicit and conservative:
 

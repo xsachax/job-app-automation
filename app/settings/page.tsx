@@ -3,8 +3,12 @@
 import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
 import type { DiscoveryConfigData } from "@/lib/discovery/config";
-import { DEFAULT_YC_CONFIG } from "@/lib/discovery/config";
+import {
+  DEFAULT_DISCOVERY_CONFIG,
+  DEFAULT_YC_CONFIG,
+} from "@/lib/discovery/config";
 import { formatDiscoveryScope } from "@/lib/discovery/scope-copy";
+import { GOLDEN_JOB_SCORE_FLOOR } from "@/lib/jobs/golden";
 import type { Criteria } from "@/lib/matching/score";
 import type { ProfileData } from "@/lib/settings";
 import { api } from "../components/api";
@@ -37,18 +41,6 @@ interface JudgeProviderSettings extends JudgeProviderSummary {
   enhancedAvailable: boolean;
   status: string;
 }
-
-const DEFAULT_CONFIG: DiscoveryConfigData = {
-  countries: ["US", "CA"],
-  maxYoE: 2,
-  excludeAdvancedDegree: true,
-  includeInternships: false,
-  roleKeywords: [],
-  excludeTitleKeywords: [],
-  queryTerms: [],
-  disabledSources: [],
-  yc: DEFAULT_YC_CONFIG,
-};
 
 const helper = "mt-1 text-xs text-gray-500 dark:text-gray-400";
 const fieldShell = "rounded-lg border border-gray-200 p-4 dark:border-gray-800";
@@ -85,6 +77,9 @@ export default function SettingsPage() {
   const [roleKeywordsText, setRoleKeywordsText] = useState("");
   const [excludeTitleKeywordsText, setExcludeTitleKeywordsText] = useState("");
   const [queryTermsText, setQueryTermsText] = useState("");
+  const [goldenTitleKeywordsText, setGoldenTitleKeywordsText] = useState("");
+  const [goldenDescriptionKeywordsText, setGoldenDescriptionKeywordsText] =
+    useState("");
   const [scopeContext, setScopeContext] = useState<ScopeContext | null>(null);
   const [judgeProvider, setJudgeProvider] =
     useState<JudgeProviderSettings | null>(null);
@@ -117,6 +112,12 @@ export default function SettingsPage() {
         setRoleKeywordsText(listText(data.config.roleKeywords));
         setExcludeTitleKeywordsText(listText(data.config.excludeTitleKeywords));
         setQueryTermsText(listText(data.config.queryTerms));
+        setGoldenTitleKeywordsText(
+          listText(data.config.goldenJobs.titleKeywords),
+        );
+        setGoldenDescriptionKeywordsText(
+          listText(data.config.goldenJobs.descriptionKeywords),
+        );
         setScopeContext({
           criteria,
           profile: { targetRoles: profile.targetRoles },
@@ -149,6 +150,12 @@ export default function SettingsPage() {
       setRoleKeywordsText(listText(data.config.roleKeywords));
       setExcludeTitleKeywordsText(listText(data.config.excludeTitleKeywords));
       setQueryTermsText(listText(data.config.queryTerms));
+      setGoldenTitleKeywordsText(
+        listText(data.config.goldenJobs.titleKeywords),
+      );
+      setGoldenDescriptionKeywordsText(
+        listText(data.config.goldenJobs.descriptionKeywords),
+      );
       setScopeContext({
         criteria,
         profile: { targetRoles: profile.targetRoles },
@@ -170,6 +177,21 @@ export default function SettingsPage() {
   function updateYc(patch: Partial<DiscoveryConfigData["yc"]>) {
     setConfig((current) =>
       current ? { ...current, yc: { ...(current.yc ?? DEFAULT_YC_CONFIG), ...patch } } : current,
+    );
+    setError(null);
+    setMessage(null);
+  }
+
+  function updateGoldenJobs(
+    patch: Partial<DiscoveryConfigData["goldenJobs"]>,
+  ) {
+    setConfig((current) =>
+      current
+        ? {
+            ...current,
+            goldenJobs: { ...current.goldenJobs, ...patch },
+          }
+        : current,
     );
     setError(null);
     setMessage(null);
@@ -211,6 +233,10 @@ export default function SettingsPage() {
       setRoleKeywordsText(listText(saved.roleKeywords));
       setExcludeTitleKeywordsText(listText(saved.excludeTitleKeywords));
       setQueryTermsText(listText(saved.queryTerms));
+      setGoldenTitleKeywordsText(listText(saved.goldenJobs.titleKeywords));
+      setGoldenDescriptionKeywordsText(
+        listText(saved.goldenJobs.descriptionKeywords),
+      );
       setMessage(successMessage);
     } catch (e) {
       setError((e as Error).message);
@@ -228,15 +254,20 @@ export default function SettingsPage() {
         roleKeywords: parseList(roleKeywordsText),
         excludeTitleKeywords: parseList(excludeTitleKeywordsText),
         queryTerms: parseList(queryTermsText),
+        goldenJobs: {
+          ...config.goldenJobs,
+          titleKeywords: parseList(goldenTitleKeywordsText),
+          descriptionKeywords: parseList(goldenDescriptionKeywordsText),
+        },
       },
-      "Discovery settings saved. Changes take effect on the next discovery run.",
+      "Settings saved. Golden filtering updates immediately; rerun Judge to refresh scores.",
     );
   }
 
   async function resetDefaults() {
     await persist(
-      DEFAULT_CONFIG,
-      "Discovery settings reset. Changes take effect on the next discovery run.",
+      DEFAULT_DISCOVERY_CONFIG,
+      "Settings reset. Golden filtering updates immediately; rerun Judge to refresh scores.",
     );
   }
 
@@ -608,6 +639,87 @@ export default function SettingsPage() {
             </div>
           </section>
 
+          <section className={cls.card} data-testid="golden-job-settings">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold">Golden jobs</h2>
+                <p className={helper}>
+                  Promote precise early-career matches above the normal queue
+                  order. After Judge runs, every match receives a final score of
+                  at least {GOLDEN_JOB_SCORE_FLOOR}.
+                </p>
+              </div>
+              <span className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+                {GOLDEN_JOB_SCORE_FLOOR}+ after Judge
+              </span>
+            </div>
+
+            <label className="mt-5 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50/50 p-3 transition-colors hover:bg-amber-50 dark:border-amber-900 dark:bg-amber-950/20 dark:hover:bg-amber-950/35">
+              <input
+                type="checkbox"
+                className={checkbox}
+                checked={config.goldenJobs.enabled}
+                onChange={(event) =>
+                  updateGoldenJobs({ enabled: event.target.checked })
+                }
+              />
+              <span>
+                <span className="block text-sm font-medium text-gray-900 dark:text-gray-100">
+                  Enable golden-job matching
+                </span>
+                <span className="mt-1 block text-xs text-gray-600 dark:text-gray-300">
+                  Controls the Golden filter, queue promotion, API flag, and
+                  Judge score floor from this single saved configuration.
+                </span>
+              </span>
+            </label>
+
+            <div className="mt-5 grid gap-5 lg:grid-cols-2">
+              <div>
+                <label htmlFor="goldenTitleKeywords" className={cls.label}>
+                  Golden title keywords
+                </label>
+                <p className={helper}>
+                  Comma-separated exact phrases matched against normalized job
+                  titles. Punctuation and case are ignored.
+                </p>
+                <textarea
+                  id="goldenTitleKeywords"
+                  className={cls.input + " mt-2 min-h-28 resize-y"}
+                  value={goldenTitleKeywordsText}
+                  onChange={(event) => {
+                    setGoldenTitleKeywordsText(event.target.value);
+                    setMessage(null);
+                  }}
+                  placeholder="new grad, new graduate, graduate, 2027"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="goldenDescriptionKeywords"
+                  className={cls.label}
+                >
+                  Golden description phrases
+                </label>
+                <p className={helper}>
+                  Use precise early-career phrases only. Defaults deliberately
+                  avoid ordinary requirements such as undergraduate degree.
+                </p>
+                <textarea
+                  id="goldenDescriptionKeywords"
+                  className={cls.input + " mt-2 min-h-28 resize-y"}
+                  value={goldenDescriptionKeywordsText}
+                  onChange={(event) => {
+                    setGoldenDescriptionKeywordsText(event.target.value);
+                    setMessage(null);
+                  }}
+                  placeholder="new grad, class of 2027, graduating in 2027"
+                />
+              </div>
+            </div>
+          </section>
+
           <section className={cls.card}>
             <h2 className="text-lg font-semibold">Keyword tuning</h2>
             <p className={helper}>
@@ -799,7 +911,9 @@ export default function SettingsPage() {
 
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900">
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              Changes are stored now and used by the next <code>npm run discover</code> run.
+              Discovery scope changes apply on the next run. Golden matching
+              updates immediately; rerun Judge after changes to refresh score
+              floors.
             </p>
             <div className="flex flex-wrap gap-2">
               <button type="button" onClick={resetDefaults} disabled={saving} className={cls.btn}>

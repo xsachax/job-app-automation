@@ -51,6 +51,12 @@ export const JUDGE_AXES: JudgeAxis[] = [
     effect: "Primary band: S 84–97 … F 0–13",
   },
   {
+    key: "golden",
+    name: "Golden job",
+    reads: "Saved title and precise description phrases from Settings",
+    effect: "A match applies a 95 floor after tier banding; the 97 maximum remains",
+  },
+  {
     key: "resume",
     name: "Résumé fit",
     reads: "Skills, prior titles, and summary from your résumé matched against the posting",

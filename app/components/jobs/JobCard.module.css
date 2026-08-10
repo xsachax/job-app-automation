@@ -1,0 +1,56 @@
+.goldenCard {
+  isolation: isolate;
+  position: relative;
+}
+
+.goldenCard::after {
+  animation: golden-sheen 4.5s ease-in-out infinite;
+  background: linear-gradient(
+    110deg,
+    transparent 35%,
+    rgb(251 191 36 / 18%) 48%,
+    rgb(254 240 138 / 42%) 52%,
+    transparent 65%
+  );
+  background-position: 200% 0;
+  background-size: 250% 100%;
+  border-radius: inherit;
+  content: "";
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 0;
+}
+
+.goldenCard > * {
+  position: relative;
+  z-index: 1;
+}
+
+:global(.dark) .goldenCard::after {
+  background: linear-gradient(
+    110deg,
+    transparent 35%,
+    rgb(245 158 11 / 10%) 48%,
+    rgb(253 230 138 / 20%) 52%,
+    transparent 65%
+  );
+}
+
+@keyframes golden-sheen {
+  0%,
+  55% {
+    background-position: 200% 0;
+  }
+
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .goldenCard::after {
+    animation: none;
+    opacity: 0.35;
+  }
+}

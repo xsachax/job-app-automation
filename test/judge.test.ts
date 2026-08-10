@@ -6,6 +6,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 type Prisma = typeof import("../lib/db").prisma;
 type SaveProfile = typeof import("../lib/settings").saveProfile;
 type SaveCriteria = typeof import("../lib/settings").saveCriteria;
+type SaveDiscoveryConfig =
+  typeof import("../lib/discovery/config").saveDiscoveryConfig;
 type JudgeModule = typeof import("../lib/judge/judge");
 type ScoreAllJobsProgress = import("../lib/judge/judge").ScoreAllJobsProgress;
 type AgentModule = typeof import("../lib/judge/agent");
@@ -14,6 +16,7 @@ type RefreshModule = typeof import("../lib/profile/refresh");
 let prisma: Prisma;
 let saveProfile: SaveProfile;
 let saveCriteria: SaveCriteria;
+let saveDiscoveryConfig: SaveDiscoveryConfig;
 let buildQualificationContext: JudgeModule["buildQualificationContext"];
 let buildResumeContext: JudgeModule["buildResumeContext"];
 let scoreAllJobs: JudgeModule["scoreAllJobs"];
@@ -37,6 +40,7 @@ async function resetDb() {
   await prisma.criteria.deleteMany();
   await prisma.companyTier.deleteMany();
   await prisma.locationTier.deleteMany();
+  await prisma.discoveryConfig.deleteMany();
 }
 
 async function makeJob(opts: {
@@ -88,6 +92,7 @@ async function makeJob(opts: {
 beforeAll(async () => {
   ({ prisma } = await import("../lib/db"));
   ({ saveProfile, saveCriteria } = await import("../lib/settings"));
+  ({ saveDiscoveryConfig } = await import("../lib/discovery/config"));
   ({ buildQualificationContext, buildResumeContext, scoreAllJobs, updateJobScoreFromSnapshot } =
     await import("../lib/judge/judge"));
   ({ buildJudgeBatch, applyJudgeScores } = await import("../lib/judge/agent"));
@@ -658,6 +663,7 @@ describe("scoreAllJobs company axis", () => {
       targetRoles: ["Software Engineer"],
       summary: "Entry-level software engineer shipping web apps.",
     });
+
     await prisma.companyTier.create({ data: { company: "Neutral Co", tier: "E" } });
 
     const desc = "Build customer features with TypeScript and React.";
@@ -687,6 +693,129 @@ describe("scoreAllJobs company axis", () => {
       expect.arrayContaining([
         expect.stringMatching(/unrated and uses company tier E/i),
       ]),
+    );
+  });
+});
+
+describe("scoreAllJobs golden floor", () => {
+  it("raises a deterministic F-tier match after tier banding and records evidence", async () => {
+    await saveProfile({
+      skills: ["TypeScript"],
+      targetRoles: ["Software Engineer"],
+    });
+    await prisma.companyTier.create({
+      data: { company: "Golden Co", tier: "F" },
+    });
+    const job = await makeJob({
+      key: "deterministic-golden",
+      title: "Software Engineer, New Grad",
+      company: "Golden Co",
+      description: "Build TypeScript services.",
+      skills: ["TypeScript"],
+    });
+
+    await scoreAllJobs();
+
+    const scored = await prisma.job.findUniqueOrThrow({
+      where: { id: job.id },
+    });
+    expect(scored.fitProvider).toBe("deterministic");
+    expect(scored.fitBaseScore).not.toBeNull();
+    expect(scored.fitScore).toBe(95);
+    expect(JSON.parse(scored.fitReasons ?? "[]")).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(
+          /^Fit: Golden job: title matches "new grad"; final Judge score floor is 95$/,
+        ),
+        expect.stringMatching(/company tier F.*score band/i),
+      ]),
+    );
+  });
+
+  it("keeps enhanced-provider provenance and evidence while flooring the final tier score", async () => {
+    await prisma.companyTier.create({
+      data: { company: "Provider Golden", tier: "F" },
+    });
+    const job = await makeJob({
+      key: "provider-golden",
+      title: "2027 Backend Engineer",
+      company: "Provider Golden",
+      description: "Build APIs.",
+      fitScore: 10,
+      fitProvider: "deterministic",
+    });
+
+    const applied = await applyJudgeScores(
+      [
+        {
+          id: job.id,
+          score: 8,
+          summary: "Transferable API experience",
+          fits: ["Built production APIs"],
+          gaps: ["Language differs"],
+        },
+      ],
+      { provider: "openai" },
+    );
+
+    expect(applied.updated).toBe(1);
+    const scored = await prisma.job.findUniqueOrThrow({
+      where: { id: job.id },
+    });
+    expect(scored.fitProvider).toBe("openai");
+    expect(scored.fitBaseScore).toBe(8);
+    expect(scored.fitScore).toBe(95);
+    expect(scored.fitSummary).toMatch(
+      /^Strong fit: Golden job: title matches "2027"; final Judge score floor is 95\./,
+    );
+    expect(JSON.parse(scored.fitReasons ?? "[]")).toEqual(
+      expect.arrayContaining([
+        "Fit: Built production APIs",
+        "Gap: Language differs",
+        expect.stringMatching(/Golden job.*score floor is 95/i),
+        expect.stringMatching(/company tier F.*score band/i),
+      ]),
+    );
+  });
+
+  it("uses the latest saved matcher on rescoring and removes the floor when disabled", async () => {
+    await saveDiscoveryConfig({
+      goldenJobs: {
+        enabled: true,
+        titleKeywords: ["campus launch"],
+        descriptionKeywords: [],
+      },
+    });
+    await prisma.companyTier.create({
+      data: { company: "Configurable Co", tier: "F" },
+    });
+    const job = await makeJob({
+      key: "configurable-golden",
+      title: "Campus Launch Engineer",
+      company: "Configurable Co",
+    });
+
+    await scoreAllJobs();
+    expect(
+      (await prisma.job.findUniqueOrThrow({ where: { id: job.id } }))
+        .fitScore,
+    ).toBe(95);
+
+    await saveDiscoveryConfig({
+      goldenJobs: {
+        enabled: false,
+        titleKeywords: ["campus launch"],
+        descriptionKeywords: [],
+      },
+    });
+    await scoreAllJobs();
+
+    const rescored = await prisma.job.findUniqueOrThrow({
+      where: { id: job.id },
+    });
+    expect(rescored.fitScore).toBeLessThanOrEqual(13);
+    expect(JSON.parse(rescored.fitReasons ?? "[]")).not.toEqual(
+      expect.arrayContaining([expect.stringMatching(/Golden job/i)]),
     );
   });
 });
