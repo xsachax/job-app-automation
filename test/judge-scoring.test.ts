@@ -5,6 +5,10 @@ import {
   companyTierScoreBand,
   tierFirstJudgeScore,
 } from "../lib/judge/scoring";
+import {
+  GOLDEN_JOB_SCORE_FLOOR,
+  applyGoldenJobScoreFloor,
+} from "../lib/jobs/golden";
 
 describe("tier-first judge scoring", () => {
   it("keeps every result inside its non-overlapping company-tier band", () => {
@@ -38,5 +42,28 @@ describe("tier-first judge scoring", () => {
     expect(tierFirstJudgeScore(75, null, 0)).toBe(
       tierFirstJudgeScore(75, "E", 0),
     );
+  });
+
+  it("applies the golden floor after every company tier without changing the maximum", () => {
+    const match = { field: "title", keyword: "new grad" } as const;
+    for (const tier of TIERS) {
+      const tierScore = tierFirstJudgeScore(0, tier, -1_000);
+      const finalScore = applyGoldenJobScoreFloor(tierScore, match);
+      expect(finalScore).toBeGreaterThanOrEqual(GOLDEN_JOB_SCORE_FLOOR);
+      expect(finalScore).toBeLessThanOrEqual(97);
+    }
+
+    expect(
+      applyGoldenJobScoreFloor(
+        tierFirstJudgeScore(100, "S", 1_000),
+        match,
+      ),
+    ).toBe(97);
+    expect(
+      applyGoldenJobScoreFloor(
+        tierFirstJudgeScore(100, "F", 1_000),
+        null,
+      ),
+    ).toBe(COMPANY_TIER_SCORE_BANDS.F.max);
   });
 });

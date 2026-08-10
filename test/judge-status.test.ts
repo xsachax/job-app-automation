@@ -33,9 +33,10 @@ describe("judge status vocabulary", () => {
   });
 
   it("documents every scoring axis", () => {
-    expect(JUDGE_AXES).toHaveLength(6);
+    expect(JUDGE_AXES).toHaveLength(7);
     expect(JUDGE_AXES.map((a) => a.key)).toEqual([
       "company",
+      "golden",
       "resume",
       "experience",
       "freshness",
@@ -43,6 +44,8 @@ describe("judge status vocabulary", () => {
       "salary",
     ]);
     expect(JUDGE_AXES[0].effect).toContain("84–97");
+    expect(JUDGE_AXES[1].effect).toContain("95 floor");
+    expect(JUDGE_AXES[1].effect).toContain("97 maximum");
     for (const axis of JUDGE_AXES) {
       expect(axis.name.length).toBeGreaterThan(0);
       expect(axis.reads.length).toBeGreaterThan(0);

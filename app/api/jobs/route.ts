@@ -8,6 +8,11 @@ import {
   jobAvailabilityWhere,
   parseJobAvailabilityView,
 } from "@/lib/jobs/availability";
+import { getDiscoveryConfig } from "@/lib/discovery/config";
+import {
+  createGoldenJobMatcher,
+  historicalGoldenJobMatch,
+} from "@/lib/jobs/golden";
 
 export const dynamic = "force-dynamic";
 
@@ -39,18 +44,32 @@ export async function GET(req: NextRequest) {
   const category = parseList(searchParams.get("category")); // bigtech | ai | quant | startup | other
   const remoteOnly = searchParams.get("remote") === "1";
   const warmOnly = searchParams.get("connections") === "1"; // only jobs where the user has a connection
+  const goldenOnly = searchParams.get("golden") === "1";
   const salaryMin = Number(searchParams.get("salaryMin")) || 0;
   const fitMin = Number(searchParams.get("fitMin")) || 0;
 
   // Imported LinkedIn connections (empty when none), loaded once per request and
   // matched by normalized company name to tag "warm intro" jobs.
-  const connections = await getConnectionSet();
+  const [connections, discoveryConfig] = await Promise.all([
+    getConnectionSet(),
+    getDiscoveryConfig(),
+  ]);
+  const matchGoldenJob = createGoldenJobMatcher(
+    discoveryConfig.goldenJobs,
+  );
+  const goldenMatches = new Map<
+    string,
+    ReturnType<typeof matchGoldenJob>
+  >();
 
   // Attach derived, non-column fields every job card renders: company category
   // and (when present) the user's connections at that employer.
   const decorate = <
     T extends {
       company: string;
+      id: string;
+      title: string;
+      description?: string | null;
       discoverySystem: string | null;
       skills?: string | null;
       fitReasons?: string | null;
@@ -59,9 +78,12 @@ export async function GET(req: NextRequest) {
     j: T,
   ) => {
     const match = lookupConnections(connections, j.company);
+    const goldenMatch = goldenMatches.get(j.id) ?? null;
     return {
       ...shapeJob(j),
       category: categorizeCompany(j.company, fallbackForSystem(j.discoverySystem)),
+      isGolden: Boolean(goldenMatch),
+      goldenMatch,
       ...(match
         ? { connections: { count: match.count, contacts: match.contacts.slice(0, 6) } }
         : {}),
@@ -86,6 +108,16 @@ export async function GET(req: NextRequest) {
   // Effective posting time: real postedAt when the ATS gives one, else the
   // moment we first saw it. Drives both the date filter and the queue order.
   const posted = (j: (typeof jobs)[number]) => (j.postedAt ?? j.firstSeenAt).getTime();
+  for (const job of jobs) {
+    goldenMatches.set(
+      job.id,
+      job.availabilityStatus === "closed"
+        ? historicalGoldenJobMatch(job.fitReasons)
+        : matchGoldenJob(job),
+    );
+  }
+  const isGolden = (job: (typeof jobs)[number]) =>
+    Boolean(goldenMatches.get(job.id));
 
   const windowMs: Record<string, number> = {
     "24h": 864e5,
@@ -105,6 +137,7 @@ export async function GET(req: NextRequest) {
     if (platform.length && !platform.includes((j.atsType ?? "unknown").toLowerCase())) return false;
     if (category.length && !category.includes(categorizeCompany(j.company, fallbackForSystem(j.discoverySystem)))) return false;
     if (warmOnly && !lookupConnections(connections, j.company)) return false;
+    if (goldenOnly && !isGolden(j)) return false;
     if (fitMin && (j.fitScore ?? -1) < fitMin) return false;
     if (salaryMin) {
       const top = j.salaryMax ?? j.salaryMin ?? 0;
@@ -122,15 +155,31 @@ export async function GET(req: NextRequest) {
 
   const byPosted = (a: (typeof jobs)[number], b: (typeof jobs)[number]) =>
     posted(b) - posted(a) || a.company.localeCompare(b.company);
+  const goldenFirst = (
+    a: (typeof jobs)[number],
+    b: (typeof jobs)[number],
+  ) => Number(isGolden(b)) - Number(isGolden(a));
   if (sort === "company") {
-    result.sort((a, b) => a.company.localeCompare(b.company) || posted(b) - posted(a));
+    result.sort(
+      (a, b) =>
+        goldenFirst(a, b) ||
+        a.company.localeCompare(b.company) ||
+        posted(b) - posted(a),
+    );
   } else if (sort === "fit") {
-    result.sort((a, b) => (b.fitScore ?? -1) - (a.fitScore ?? -1) || byPosted(a, b));
+    result.sort(
+      (a, b) =>
+        goldenFirst(a, b) ||
+        (b.fitScore ?? -1) - (a.fitScore ?? -1) ||
+        byPosted(a, b),
+    );
   } else if (sort === "salary") {
     const top = (j: (typeof jobs)[number]) => j.salaryMax ?? j.salaryMin ?? -1;
-    result.sort((a, b) => top(b) - top(a) || byPosted(a, b));
+    result.sort(
+      (a, b) => goldenFirst(a, b) || top(b) - top(a) || byPosted(a, b),
+    );
   } else {
-    result.sort(byPosted);
+    result.sort((a, b) => goldenFirst(a, b) || byPosted(a, b));
   }
 
   return json(result.slice(0, 2000).map(decorate));

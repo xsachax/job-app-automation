@@ -8,6 +8,11 @@
 
 import { prisma } from "../db";
 import type { EntryLevelOptions } from "./entryLevel";
+import {
+  DEFAULT_GOLDEN_JOB_CONFIG,
+  normalizeGoldenJobConfig,
+  type GoldenJobConfig,
+} from "../jobs/golden";
 
 export interface DiscoveryConfigData {
   /** Countries to keep, each surfaced as its own list. Uses classifyCountry codes. */
@@ -29,6 +34,8 @@ export interface DiscoveryConfigData {
   queryTerms: string[];
   /** Source names (company or board) to skip on a run. Missing = enabled. */
   disabledSources: string[];
+  /** Early-career signals promoted in the queue and guaranteed a Judge floor. */
+  goldenJobs: GoldenJobConfig;
   /** Y Combinator directory-expansion source settings (see lib/discovery/yc.ts). */
   yc: YcConfig;
 }
@@ -66,10 +73,13 @@ export const DEFAULT_DISCOVERY_CONFIG: DiscoveryConfigData = {
   excludeTitleKeywords: [],
   queryTerms: [],
   disabledSources: [],
+  goldenJobs: DEFAULT_GOLDEN_JOB_CONFIG,
   yc: DEFAULT_YC_CONFIG,
 };
 
-function coerce(raw: Partial<DiscoveryConfigData> | null | undefined): DiscoveryConfigData {
+export function normalizeDiscoveryConfig(
+  raw: Partial<DiscoveryConfigData> | null | undefined,
+): DiscoveryConfigData {
   const d = DEFAULT_DISCOVERY_CONFIG;
   const r = raw ?? {};
   const arr = (v: unknown, fallback: string[]): string[] =>
@@ -104,24 +114,33 @@ function coerce(raw: Partial<DiscoveryConfigData> | null | undefined): Discovery
     excludeTitleKeywords: arr(r.excludeTitleKeywords, d.excludeTitleKeywords),
     queryTerms: arr(r.queryTerms, d.queryTerms),
     disabledSources: arr(r.disabledSources, d.disabledSources),
+    goldenJobs: normalizeGoldenJobConfig(r.goldenJobs, d.goldenJobs),
     yc: yc(r.yc),
   };
 }
 
 export async function getDiscoveryConfig(): Promise<DiscoveryConfigData> {
   const row = await prisma.discoveryConfig.findUnique({ where: { id: "default" } });
-  if (!row) return { ...DEFAULT_DISCOVERY_CONFIG };
+  if (!row) return normalizeDiscoveryConfig(null);
   try {
-    return coerce(JSON.parse(row.data) as Partial<DiscoveryConfigData>);
+    return normalizeDiscoveryConfig(
+      JSON.parse(row.data) as Partial<DiscoveryConfigData>,
+    );
   } catch {
-    return { ...DEFAULT_DISCOVERY_CONFIG };
+    return normalizeDiscoveryConfig(null);
   }
 }
 
 export async function saveDiscoveryConfig(
   data: Partial<DiscoveryConfigData>,
 ): Promise<DiscoveryConfigData> {
-  const merged = coerce({ ...(await getDiscoveryConfig()), ...data });
+  const current = await getDiscoveryConfig();
+  const merged = normalizeDiscoveryConfig({
+    ...current,
+    ...data,
+    goldenJobs: { ...current.goldenJobs, ...data.goldenJobs },
+    yc: { ...current.yc, ...data.yc },
+  });
   await prisma.discoveryConfig.upsert({
     where: { id: "default" },
     update: { data: JSON.stringify(merged) },

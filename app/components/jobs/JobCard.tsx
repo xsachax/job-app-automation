@@ -14,6 +14,8 @@ import type { ApplicationStatus, Job } from "./types";
 import { splitJudgeAdvice } from "@/lib/judge/advice";
 import { bucketScore, type FitBand } from "@/lib/judge/status";
 import { judgeProviderLabel } from "@/lib/judge/provider";
+import { GOLDEN_JOB_SCORE_FLOOR } from "@/lib/jobs/golden";
+import styles from "./JobCard.module.css";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -67,7 +69,16 @@ type FitTone = {
   badge: string;
 };
 
-const FIT_TONES: Record<FitBand | "unscored", FitTone> = {
+const FIT_TONES: Record<FitBand | "unscored" | "gold", FitTone> = {
+  gold: {
+    label: "Golden fit",
+    card:
+      "border-amber-400 bg-amber-50/80 shadow-amber-200/80 dark:border-amber-500 dark:bg-amber-950/35 dark:shadow-none",
+    score:
+      "border-amber-400 bg-amber-100 text-amber-950 dark:border-amber-500 dark:bg-amber-900/75 dark:text-amber-50",
+    badge:
+      "bg-amber-200 text-amber-950 dark:bg-amber-800 dark:text-amber-50",
+  },
   strong: {
     label: "Strong fit",
     card:
@@ -103,6 +114,9 @@ const FIT_TONES: Record<FitBand | "unscored", FitTone> = {
 };
 
 function fitTone(score: number | null | undefined): FitTone {
+  if (score != null && score >= GOLDEN_JOB_SCORE_FLOOR) {
+    return FIT_TONES.gold;
+  }
   return FIT_TONES[bucketScore(score)];
 }
 
@@ -312,6 +326,8 @@ export function JobCard({
     .filter(Boolean)
     .join(" · ");
   const tone = fitTone(job.fitScore);
+  const hasGoldScore =
+    job.fitScore != null && job.fitScore >= GOLDEN_JOB_SCORE_FLOOR;
   const yoeText =
     job.minYoE == null ? null : job.minYoE === 0 ? "No exp. req." : `${job.minYoE}+ yrs`;
   const employmentText = job.employmentType
@@ -335,9 +351,12 @@ export function JobCard({
 
   return (
     <article
+      data-score-style={hasGoldScore ? "gold" : "standard"}
       className={`rounded-lg border px-3 py-2.5 shadow-sm transition-colors ${cardTone(status, isNew, tone)} ${
         selected ? "ring-2 ring-indigo-500 dark:ring-indigo-400" : ""
-      } ${(isOld || isClosed) && status !== "dismissed" ? "opacity-80" : ""}`}
+      } ${(isOld || isClosed) && status !== "dismissed" ? "opacity-80" : ""} ${
+        hasGoldScore ? styles.goldenCard : ""
+      }`}
     >
       <div className="flex flex-wrap gap-2.5">
         <JudgeScore score={job.fitScore} provider={job.fitProvider} tone={tone} />
@@ -370,6 +389,19 @@ export function JobCard({
                   {job.title}
                 </a>
                 <CategoryBadge category={job.category} />
+                {job.isGolden && (
+                  <span
+                    data-testid="golden-match-badge"
+                    title={
+                      job.goldenMatch
+                        ? `Golden ${job.goldenMatch.field} phrase: ${job.goldenMatch.keyword}`
+                        : "Golden job match"
+                    }
+                    className="rounded-full border border-amber-300 bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100"
+                  >
+                    Golden
+                  </span>
+                )}
                 {job.isWorkday && (
                   <span
                     data-testid="workday-badge"

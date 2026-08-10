@@ -7,6 +7,11 @@ import {
   jobAvailabilityWhere,
   parseJobAvailabilityView,
 } from "@/lib/jobs/availability";
+import { getDiscoveryConfig } from "@/lib/discovery/config";
+import {
+  createGoldenJobMatcher,
+  historicalGoldenJobMatch,
+} from "@/lib/jobs/golden";
 
 export const dynamic = "force-dynamic";
 
@@ -15,28 +20,41 @@ export const dynamic = "force-dynamic";
 // only ever offers filters that can match something. Computed in-memory over the
 // entry-level discovery rows (skills live in a JSON column SQLite can't group).
 export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
   const availability = parseJobAvailabilityView(
-    new URL(req.url).searchParams.get("availability"),
+    searchParams.get("availability"),
   );
-  const jobs = await prisma.job.findMany({
-    where: {
-      isEntryLevel: true,
-      ...jobAvailabilityWhere(availability),
-      country: { in: ["US", "CA"] },
-    },
-    select: {
-      skills: true,
-      discoverySystem: true,
-      atsType: true,
-      company: true,
-      sponsorship: true,
-      employmentType: true,
-      salaryMax: true,
-      salaryMin: true,
-      applicationStatus: true,
-    },
-    take: 8000,
-  });
+  const country = searchParams.get("country");
+  const [jobs, connections, discoveryConfig] = await Promise.all([
+    prisma.job.findMany({
+      where: {
+        isEntryLevel: true,
+        ...jobAvailabilityWhere(availability),
+        ...(country ? { country } : { country: { in: ["US", "CA"] } }),
+      },
+      select: {
+        title: true,
+        description: true,
+        availabilityStatus: true,
+        fitReasons: true,
+        skills: true,
+        discoverySystem: true,
+        atsType: true,
+        company: true,
+        sponsorship: true,
+        employmentType: true,
+        salaryMax: true,
+        salaryMin: true,
+        applicationStatus: true,
+      },
+      take: 8000,
+    }),
+    getConnectionSet(),
+    getDiscoveryConfig(),
+  ]);
+  const matchGoldenJob = createGoldenJobMatcher(
+    discoveryConfig.goldenJobs,
+  );
 
   const skillCounts = new Map<string, number>();
   const sources = new Map<string, number>();
@@ -47,8 +65,7 @@ export async function GET(req: NextRequest) {
   const statuses = new Map<string, number>();
   let maxSalary = 0;
   let withConnections = 0;
-
-  const connections = await getConnectionSet();
+  let golden = 0;
 
   const bump = (m: Map<string, number>, k: string | null | undefined) => {
     if (!k) return;
@@ -64,6 +81,11 @@ export async function GET(req: NextRequest) {
     bump(statuses, j.applicationStatus);
     maxSalary = Math.max(maxSalary, j.salaryMax ?? j.salaryMin ?? 0);
     if (lookupConnections(connections, j.company)) withConnections += 1;
+    const goldenMatch =
+      j.availabilityStatus === "closed"
+        ? historicalGoldenJobMatch(j.fitReasons)
+        : matchGoldenJob(j);
+    if (goldenMatch) golden += 1;
     if (j.skills) {
       try {
         for (const s of JSON.parse(j.skills) as string[]) bump(skillCounts, s);
@@ -92,6 +114,7 @@ export async function GET(req: NextRequest) {
     statuses: sorted(statuses),
     maxSalary,
     withConnections,
+    golden,
     total: jobs.length,
   });
 }

@@ -79,6 +79,7 @@ function buildJobsUrl(
   if (filters.category.length > 0) params.set("category", filters.category.join(","));
   if (filters.remote) params.set("remote", "1");
   if (filters.warmIntro) params.set("connections", "1");
+  if (filters.goldenOnly) params.set("golden", "1");
   if (filters.salaryMin) params.set("salaryMin", String(filters.salaryMin));
   if (filters.fitMin) params.set("fitMin", String(filters.fitMin));
 
@@ -99,6 +100,7 @@ function hasActiveFilters(filters: FilterState): boolean {
     filters.status.length > 0 ||
     filters.remote ||
     filters.warmIntro ||
+    filters.goldenOnly ||
     Boolean(filters.salaryMin) ||
     Boolean(filters.fitMin)
   );
@@ -155,7 +157,7 @@ export default function JobsPage() {
     () => buildJobsUrl(country, availability, filters),
     [availability, country, filters],
   );
-  const facetsUrl = `/api/jobs/facets?availability=${availability}`;
+  const facetsUrl = `/api/jobs/facets?availability=${availability}&country=${country}`;
   const filtered = hasActiveFilters(filters);
 
   useEffect(() => {
@@ -354,6 +356,7 @@ export default function JobsPage() {
   function handleCountryChange(nextCountry: Country) {
     if (nextCountry === country) return;
     startRefresh();
+    setFacetsLoading(true);
     setCountry(nextCountry);
   }
 

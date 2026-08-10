@@ -107,6 +107,7 @@ function activeFilterCount(filters: FilterState): number {
     filters.status.length +
     (filters.remote ? 1 : 0) +
     (filters.warmIntro ? 1 : 0) +
+    (filters.goldenOnly ? 1 : 0) +
     (filters.salaryMin ? 1 : 0) +
     (filters.fitMin ? 1 : 0)
   );
@@ -299,6 +300,23 @@ export function FilterBar({
           }
         >
           Remote only
+        </button>
+
+        <button
+          type="button"
+          aria-pressed={filters.goldenOnly}
+          data-testid="golden-filter"
+          onClick={() =>
+            onFiltersChange({ goldenOnly: !filters.goldenOnly })
+          }
+          className={
+            "h-9 rounded-lg border px-3 text-sm font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-1 dark:focus:ring-amber-400 dark:focus:ring-offset-gray-900 " +
+            (filters.goldenOnly
+              ? "border-amber-500 bg-amber-100 text-amber-900 hover:bg-amber-200 dark:border-amber-600 dark:bg-amber-950 dark:text-amber-100 dark:hover:bg-amber-900"
+              : "border-amber-300 bg-white text-amber-800 hover:bg-amber-50 dark:border-amber-800 dark:bg-gray-800 dark:text-amber-200 dark:hover:bg-amber-950")
+          }
+        >
+          Golden only ({facets?.golden ?? 0})
         </button>
 
         {facets && facets.withConnections > 0 && (

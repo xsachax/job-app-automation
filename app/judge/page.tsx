@@ -216,7 +216,7 @@ export default function JudgePage() {
     <div className="space-y-6">
       <PageHeader
         title="Judge"
-        subtitle="Company tier sets each posting's score band; the deterministic baseline is always available and enhanced résumé evidence uses Copilot first, then your selected fallback."
+        subtitle="Company tier sets each posting's score band; configured Golden matches then receive a 95 floor. The deterministic baseline is always available and enhanced résumé evidence uses Copilot first, then your selected fallback."
       >
         <button
           className={cls.btnGreen}
@@ -325,7 +325,9 @@ export default function JudgePage() {
           <h2 className="text-lg font-semibold">How the score is built</h2>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             Company tier selects a non-overlapping score band. Résumé fit and
-            the remaining signals decide where the job lands inside that band.
+            the remaining signals decide where the job lands inside that band;
+            a configured Golden match is the sole post-band override and raises
+            the final score to at least 95.
           </p>
         </div>
         <table className="w-full text-sm">

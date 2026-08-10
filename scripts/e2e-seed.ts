@@ -24,6 +24,7 @@ async function wipe() {
   await prisma.connectionSet.deleteMany();
   await prisma.companyTier.deleteMany();
   await prisma.locationTier.deleteMany();
+  await prisma.discoveryConfig.deleteMany();
 }
 
 interface Fixture {
@@ -59,7 +60,7 @@ const JOBS: Fixture[] = [
     key: "frontend",
     title: "E2E Frontend Engineer",
     company: "OpenAI",
-    description: "Build UI with TypeScript, React and Node.js. New grad friendly.",
+    description: "Build UI with TypeScript, React and Node.js. Early-career friendly.",
     country: "US",
     minYoE: 0,
     system: "greenhouse",
@@ -79,6 +80,41 @@ const JOBS: Fixture[] = [
       "Fit: Posted within 24 hours (+12 freshness)",
       "Gap: Confirm any team-specific experience requirements",
     ],
+  },
+  {
+    key: "golden-2027",
+    title: "E2E 2027 Graduate Engineer",
+    company: "GoldenE2E",
+    description: "A software engineering role for the next campus cohort.",
+    country: "US",
+    minYoE: 0,
+    system: "greenhouse",
+    ageDays: 20,
+    skills: ["TypeScript"],
+    location: "Seattle, WA",
+    fitScore: 95,
+    fitProvider: "deterministic",
+    fitSummary:
+      "Strong fit: Golden job title matched; final Judge score floor is 95.",
+    fitReasons: [
+      'Fit: Golden job: title matches "graduate"; final Judge score floor is 95',
+    ],
+  },
+  {
+    key: "high-score",
+    title: "E2E Exceptional Engineer",
+    company: "ExcellentE2E",
+    description: "Build reliable distributed systems.",
+    country: "US",
+    minYoE: 1,
+    system: "lever",
+    ageDays: 4,
+    skills: ["Go"],
+    location: "Boston, MA",
+    fitScore: 96,
+    fitProvider: "copilot",
+    fitSummary: "Exceptional résumé and domain fit.",
+    fitReasons: ["Fit: Direct distributed systems experience"],
   },
   {
     key: "apply",
