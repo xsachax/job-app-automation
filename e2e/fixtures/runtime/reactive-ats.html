@@ -573,6 +573,171 @@
         </div>
       </section>
 
+      <section id="layer4-controls" hidden>
+        <h2>Location and consequential choice robustness</h2>
+
+        <label>
+          Current location *
+          <select id="layer4-native-location" name="current_location" required>
+            <option value="">Select a location</option>
+            <option value="loc-wrong-region">New York, Florida, United States</option>
+            <option value="loc-correct">New York City, New York, United States</option>
+            <option value="loc-remote">Remote — United States</option>
+            <option value="loc-unrelated">Boston, Massachusetts, United States</option>
+          </select>
+        </label>
+
+        <div class="field-wrapper">
+          <div class="select">
+            <div class="select__container">
+              <label
+                id="layer4-search-location-label"
+                for="layer4-search-location"
+                class="label select__label"
+              >Current City<span aria-hidden="true">*</span></label>
+              <div class="select-shell">
+                <span id="react-select-layer4-search-location-live-region"></span>
+                <span aria-live="polite" role="log"></span>
+                <div class="select__control">
+                  <div class="select__value-container">
+                    <div
+                      id="react-select-layer4-search-location-placeholder"
+                      class="select__placeholder"
+                    >Search for a city...</div>
+                    <div class="select__input-container" data-value="">
+                      <input
+                        id="layer4-search-location"
+                        class="select__input"
+                        type="text"
+                        role="combobox"
+                        aria-autocomplete="list"
+                        aria-expanded="false"
+                        aria-haspopup="true"
+                        aria-labelledby="layer4-search-location-label"
+                        aria-required="true"
+                        aria-describedby="react-select-layer4-search-location-placeholder"
+                        autocomplete="off"
+                        value=""
+                      >
+                    </div>
+                  </div>
+                </div>
+                <input
+                  required
+                  tabindex="-1"
+                  aria-hidden="true"
+                  class="greenhouse-required-input"
+                  value=""
+                >
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <label>
+          Optional current location
+          <select id="layer4-optional-location" name="optional_current_location">
+            <option value="">Select a location</option>
+            <option value="loc-correct">New York City, New York, United States</option>
+          </select>
+        </label>
+
+        <label>
+          Voluntary Self-Identification: Race / Ethnic Identity (Pre-Offer) *
+          <select id="layer4-race" name="race_identity" required>
+            <option value="">Select an answer</option>
+            <option value="opaque-hispanic">Hispanic or Latino</option>
+            <option value="opaque-white">White (Not Hispanic or Latino)</option>
+            <option value="opaque-other">Other / self-describe</option>
+            <option value="opaque-decline">I decline to self-identify</option>
+          </select>
+        </label>
+
+        <fieldset class="application-question">
+          <legend>
+            Voluntary self-identification of protected-veteran classification /
+            status (post-offer) *
+          </legend>
+          <label class="styled-choice">
+            <input
+              id="layer4-veteran-protected"
+              type="radio"
+              name="layer4_veteran"
+              value="opaque-protected"
+              required
+            >
+            <span>Yes — I identify as one or more classifications of a protected veteran</span>
+          </label>
+          <label class="styled-choice">
+            <input
+              id="layer4-veteran-not-protected"
+              type="radio"
+              name="layer4_veteran"
+              value="opaque-not-protected"
+            >
+            <span>I am a veteran, but I am not a protected veteran</span>
+          </label>
+          <label class="styled-choice">
+            <input
+              id="layer4-veteran-not-veteran"
+              type="radio"
+              name="layer4_veteran"
+              value="opaque-not-veteran"
+            >
+            <span>No — I am not a veteran</span>
+          </label>
+          <label class="styled-choice">
+            <input
+              id="layer4-veteran-decline"
+              type="radio"
+              name="layer4_veteran"
+              value="opaque-decline"
+            >
+            <span>I decline to disclose my protected-veteran status</span>
+          </label>
+        </fieldset>
+
+        <label>
+          Optional race / ethnicity
+          <select id="layer4-optional-race" name="optional_race">
+            <option value="">Select an answer</option>
+            <option value="opaque-white">White (Not Hispanic or Latino)</option>
+          </select>
+        </label>
+
+        <fieldset>
+          <legend>Optional protected-veteran status</legend>
+          <label>
+            <input
+              id="layer4-optional-veteran"
+              type="radio"
+              name="layer4_optional_veteran"
+              value="opaque-not-protected"
+            >
+            I am not a protected veteran
+          </label>
+        </fieldset>
+
+        <label>
+          Race / ethnic identity *
+          <select id="layer4-ambiguous-race" name="ambiguous_race" required>
+            <option value="">Select an answer</option>
+            <option value="opaque-white-one">White (Not Hispanic or Latino)</option>
+            <option value="opaque-white-two">Caucasian</option>
+          </select>
+        </label>
+
+        <label>
+          Protected-veteran classification / status (post-offer) *
+          <select id="layer4-rejected-veteran" name="rejected_veteran" required>
+            <option value="">Select an answer</option>
+            <option value="opaque-not-protected">
+              I am a veteran, but I am not a protected veteran
+            </option>
+          </select>
+        </label>
+      </section>
+
       <section id="checkbox-controls" data-ats-shape="generic">
         <h2>Checkboxes</h2>
 
@@ -866,6 +1031,7 @@
             "rejected-source-committed": false
           },
           replacements: {},
+          searchQueries: {},
           documentShadowOptionClicks: 0,
           identityOptionClicks: 0,
           unrelatedOptionClicks: 0,
@@ -1045,6 +1211,17 @@
               ["toronto", "Toronto, ON"]
             ]
           },
+          "layer4-search-location": {
+            modelKey: "layer4-search-location",
+            delay: 90,
+            requiredQuery: "New York",
+            options: [
+              ["search-wrong-region", "New York, Florida, United States"],
+              ["search-correct", "New York City, New York, United States"],
+              ["search-remote", "Remote — United States"],
+              ["search-unrelated", "Boston, Massachusetts, United States"]
+            ]
+          },
           "greenhouse-sponsorship": {
             modelKey: "greenhouse-sponsorship",
             delay: 70,
@@ -1172,6 +1349,12 @@
           const listboxId = greenhouseListboxId(trigger);
           trigger.setAttribute("aria-expanded", "true");
           trigger.setAttribute("aria-controls", listboxId);
+          if (
+            config.requiredQuery &&
+            trigger.value.trim() !== config.requiredQuery
+          ) {
+            return;
+          }
           if (loading.has(trigger.id) || document.getElementById(listboxId)) {
             return;
           }
@@ -1222,6 +1405,41 @@
           const trigger = event.target.closest(".select__input[role='combobox']");
           if (!trigger || !(trigger.id in greenhouseCombos)) return;
           trigger.parentElement.dataset.value = trigger.value;
+          const config = greenhouseCombos[trigger.id];
+          if (config.requiredQuery) {
+            const queries = harness.searchQueries[trigger.id] || [];
+            queries.push(trigger.value);
+            harness.searchQueries[trigger.id] = queries;
+            document.getElementById(greenhouseListboxId(trigger))?.remove();
+            if (
+              mode === "layer4-retry-evidence" &&
+              trigger.id === "layer4-search-location" &&
+              trigger.value === "" &&
+              queries.includes("New York, NY")
+            ) {
+              const valueContainer = trigger.closest(".select__value-container");
+              const placeholder = valueContainer.querySelector(
+                ".select__placeholder"
+              );
+              const selectedValue = document.createElement("div");
+              selectedValue.className = "select__single-value";
+              selectedValue.textContent = "User choice";
+              valueContainer.prepend(selectedValue);
+              placeholder.hidden = true;
+              trigger.dataset.value = "user-choice";
+              trigger.setAttribute("aria-valuetext", "User choice");
+              trigger.setAttribute("aria-expanded", "false");
+              trigger
+                .closest(".select-shell")
+                .querySelector(".greenhouse-required-input").value =
+                "user-choice";
+              harness.model["layer4-search-location"] = "user-choice";
+              renderModel();
+              return;
+            }
+            openGreenhouseCombo(trigger, config);
+            renderModel();
+          }
         });
 
         for (const option of document.querySelectorAll("#unrelated-listbox [role=option]")) {
@@ -1307,6 +1525,26 @@
             queueMicrotask(() => {
               source.value = "";
               harness.model["reverting-source"] = "";
+              renderModel();
+            });
+          });
+        }
+
+        if (
+          mode === "layer4" ||
+          mode === "layer4-blank" ||
+          mode === "layer4-retry-evidence"
+        ) {
+          for (const section of document.querySelectorAll("#application > section")) {
+            section.hidden = section.id !== "layer4-controls";
+          }
+          const rejectedVeteran = document.querySelector(
+            "#layer4-rejected-veteran"
+          );
+          rejectedVeteran.addEventListener("change", () => {
+            queueMicrotask(() => {
+              rejectedVeteran.value = "";
+              harness.model["layer4-rejected-veteran"] = "";
               renderModel();
             });
           });

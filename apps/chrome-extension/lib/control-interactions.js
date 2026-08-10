@@ -316,6 +316,13 @@
         }
       }
     }
+    if (!reference?.id && reference?.rootNode) {
+      for (const candidate of reference.rootNode.querySelectorAll?.(
+        "input, textarea, select, button, [role='combobox']"
+      ) || []) {
+        candidates.add(candidate);
+      }
+    }
     const matches = Array.from(candidates).filter((candidate) =>
       controlMatchesReference(candidate, reference)
     );
@@ -641,14 +648,44 @@
 
   function committedControlValue(element) {
     const evidence = comboboxCommitEvidence(element);
+    const tagName = String(element?.tagName || "").toUpperCase();
+    const role = text(element?.getAttribute?.("role")).toLowerCase();
+    const popup = text(element?.getAttribute?.("aria-haspopup")).toLowerCase();
+    const editableCombobox =
+      ["INPUT", "TEXTAREA"].includes(tagName) &&
+      (role === "combobox" || popup === "listbox");
     return (
-      text(element?.value) ||
       evidence[0]?.value ||
+      (editableCombobox ? "" : text(element?.value)) ||
       text(element?.textContent)
     );
   }
 
+  function collapsedEditableComboboxValue(element) {
+    const tagName = String(element?.tagName || "").toUpperCase();
+    const role = text(element?.getAttribute?.("role")).toLowerCase();
+    const popup = text(element?.getAttribute?.("aria-haspopup")).toLowerCase();
+    if (
+      !["INPUT", "TEXTAREA"].includes(tagName) ||
+      (role !== "combobox" && popup !== "listbox")
+    ) {
+      return "";
+    }
+    const expandedOwner =
+      (element?.getAttribute?.("aria-expanded") != null && element) ||
+      (element?.parentElement?.getAttribute?.("aria-expanded") != null &&
+        element.parentElement) ||
+      element?.closest?.(
+        "[role='combobox'][aria-expanded], [class*='select'][aria-expanded], [class*='combobox'][aria-expanded], [data-control][aria-expanded]"
+      );
+    return text(expandedOwner?.getAttribute?.("aria-expanded")).toLowerCase() ===
+      "true"
+      ? ""
+      : text(element?.value);
+  }
+
   const api = Object.freeze({
+    collapsedEditableComboboxValue,
     comboboxCommitEvidence,
     committedControlValue,
     componentCommitState,

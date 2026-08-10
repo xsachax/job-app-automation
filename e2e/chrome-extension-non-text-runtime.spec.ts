@@ -32,6 +32,7 @@ interface FixtureState {
   identityOptionClicks: number;
   model: Record<string, string | boolean>;
   replacements: Record<string, number>;
+  searchQueries: Record<string, string[]>;
   unrelatedOptionClicks: number;
   shadowOptionClicks: number;
   staleOptionClicks: number;
@@ -70,6 +71,8 @@ const profile = {
   isAtLeast18: true,
   canPerformEssentialFunctions: true,
   gender: "",
+  raceEthnicity: "White",
+  veteranStatus: "Not a protected veteran",
 };
 
 function listen(server: Server): Promise<number> {
@@ -157,6 +160,7 @@ function runtimeJob(applicationUrl: string) {
 async function installDashboardRoutes(
   context: BrowserContext,
   applicationUrl: string,
+  savedProfile: Record<string, unknown> = profile,
 ) {
   await context.addInitScript(() => {
     Object.defineProperty(navigator, "userAgentData", {
@@ -180,7 +184,7 @@ async function installDashboardRoutes(
     route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(profile),
+      body: JSON.stringify(savedProfile),
     }),
   );
   await context.route(
@@ -212,8 +216,9 @@ async function installDashboardRoutes(
 async function launchFromDashboard(
   runtime: UnpackedExtensionRuntime,
   applicationUrl: string,
+  savedProfile: Record<string, unknown> = profile,
 ): Promise<Page> {
-  await installDashboardRoutes(runtime.context, applicationUrl);
+  await installDashboardRoutes(runtime.context, applicationUrl, savedProfile);
   const dashboard = runtime.context.pages()[0] ?? (await runtime.context.newPage());
   await dashboard.goto(dashboardUrl);
   await expect(
@@ -287,6 +292,7 @@ test.describe("unpacked extension non-text runtime", () => {
       await popup.locator("[data-fill]").click();
       await expect(popup.locator("[data-notice]")).toContainText(
         /^Filled \d+ fields?\. Review the page\.$/,
+        { timeout: 30_000 },
       );
 
       await expect(application.locator("#native-city")).toHaveValue("ny");
@@ -433,6 +439,7 @@ test.describe("unpacked extension non-text runtime", () => {
         "resume-file": "runtime-resume.pdf",
         "greenhouse-resume": "runtime-resume.pdf",
       });
+
       expect(state.replacements).toMatchObject({
         "native-school": 1,
         "native-source": 1,
@@ -495,6 +502,200 @@ test.describe("unpacked extension non-text runtime", () => {
           }),
         ]),
       );
+    } finally {
+      await runtime.close();
+      await closeServer(fixture.server);
+    }
+  });
+
+  test("chooses exact location, race, and veteran semantics through live controls", async () => {
+    const fixture = await startFixtureServer();
+    const runtime = await launchUnpackedExtension([
+      "--host-resolver-rules=MAP ats.test 127.0.0.1",
+    ]);
+    try {
+      const applicationUrl = `${fixture.origin}/application?mode=layer4`;
+      const application = await launchFromDashboard(runtime, applicationUrl);
+      const popup = await openPopupForPage(runtime, application);
+
+      await popup.locator("[data-fill]").click();
+      await expect(application.locator("#layer4-native-location")).toHaveValue(
+        "loc-correct",
+      );
+      await expect(
+        application
+          .locator("#layer4-search-location")
+          .locator("xpath=ancestor::*[contains(@class, 'select__value-container')]")
+          .locator(".select__single-value"),
+      ).toHaveText("New York City, New York, United States");
+      await expect(application.locator("#layer4-search-location")).toHaveValue("");
+      await expect(application.locator("#layer4-search-location")).toHaveAttribute(
+        "aria-expanded",
+        "false",
+      );
+      await expect(application.locator("#layer4-race")).toHaveValue("opaque-white");
+      await expect(application.locator("#layer4-veteran-not-protected")).toBeChecked();
+      await expect(application.locator("#layer4-veteran-protected")).not.toBeChecked();
+      await expect(application.locator("#layer4-veteran-not-veteran")).not.toBeChecked();
+
+      await expect(application.locator("#layer4-optional-location")).toHaveValue("");
+      await expect(application.locator("#layer4-optional-race")).toHaveValue("");
+      await expect(application.locator("#layer4-optional-veteran")).not.toBeChecked();
+      await expect(application.locator("#layer4-ambiguous-race")).toHaveValue("");
+      await expect(application.locator("#layer4-ambiguous-race")).toHaveAttribute(
+        "data-job-autofill-review",
+        "failed",
+      );
+      await expect(application.locator("#layer4-rejected-veteran")).toHaveValue("");
+      await expect(application.locator("#layer4-rejected-veteran")).toHaveAttribute(
+        "data-job-autofill-review",
+        "failed",
+      );
+
+      const state = await application.evaluate(
+        () =>
+          (globalThis as unknown as { __atsHarness: FixtureState }).__atsHarness,
+      );
+      expect(state.model).toMatchObject({
+        "layer4-native-location": "loc-correct",
+        "layer4-search-location": "search-correct",
+        "layer4-race": "opaque-white",
+        layer4_veteran: "opaque-not-protected",
+        "layer4-rejected-veteran": "",
+      });
+      expect(state.searchQueries["layer4-search-location"]).toEqual(
+        expect.arrayContaining(["New York, NY", "New York"]),
+      );
+      expect(state.replacements["layer4-search-location"]).toBe(1);
+      expect(eventsFor(state, "layer4-native-location")).toEqual(
+        expect.arrayContaining(["click", "input", "change", "blur"]),
+      );
+      expect(eventsFor(state, "layer4-race")).toEqual(
+        expect.arrayContaining(["click", "input", "change", "blur"]),
+      );
+      expect(eventsFor(state, "layer4-veteran-not-protected")).toEqual(
+        expect.arrayContaining(["click", "input", "change"]),
+      );
+      expect(
+        eventsFor(state, "react-select-layer4-search-location-option-1"),
+      ).toContain("click");
+      expect(
+        eventsFor(state, "react-select-layer4-search-location-option-0"),
+      ).not.toContain("click");
+      expect(
+        eventsFor(state, "react-select-layer4-search-location-option-2"),
+      ).not.toContain("click");
+      expect(state.unrelatedOptionClicks).toBe(0);
+      expect(state.submitClicks).toBe(0);
+
+      await expect
+        .poll(() => extensionState(popup, applicationUrl))
+        .toMatchObject({
+          session: {
+            progress: {
+              filledByExtension: 4,
+              needsAttention: 2,
+              unknownFields: expect.arrayContaining([
+                expect.objectContaining({
+                  label: expect.stringMatching(/race.*ethnic identity/i),
+                  status: "failed",
+                  reason: expect.stringMatching(/unique option/i),
+                }),
+                expect.objectContaining({
+                  label: expect.stringMatching(/protected.*veteran/i),
+                  status: "failed",
+                  reason: expect.stringMatching(/commit|persist|selected|value/i),
+                }),
+              ]),
+            },
+          },
+        });
+    } finally {
+      await runtime.close();
+      await closeServer(fixture.server);
+    }
+  });
+
+  test("leaves blank race and veteran answers manual in the real extension path", async () => {
+    const fixture = await startFixtureServer();
+    const runtime = await launchUnpackedExtension([
+      "--host-resolver-rules=MAP ats.test 127.0.0.1",
+    ]);
+    try {
+      const applicationUrl = `${fixture.origin}/application?mode=layer4-blank`;
+      const application = await launchFromDashboard(runtime, applicationUrl, {
+        ...profile,
+        raceEthnicity: "",
+        veteranStatus: "",
+      });
+      const popup = await openPopupForPage(runtime, application);
+
+      await popup.locator("[data-fill]").click();
+      await expect(application.locator("#layer4-race")).toHaveValue("");
+      await expect(application.locator('[name="layer4_veteran"]:checked')).toHaveCount(
+        0,
+      );
+      await expect(application.locator("#layer4-ambiguous-race")).toHaveValue("");
+      await expect(application.locator("#layer4-rejected-veteran")).toHaveValue("");
+
+      const state = await application.evaluate(
+        () =>
+          (globalThis as unknown as { __atsHarness: FixtureState }).__atsHarness,
+      );
+      expect(eventsFor(state, "layer4-race")).not.toContain("change");
+      expect(eventsFor(state, "layer4-veteran-not-protected")).not.toContain("click");
+      expect(state.unrelatedOptionClicks).toBe(0);
+      expect(state.submitClicks).toBe(0);
+
+      const backgroundState = await extensionState(popup, applicationUrl);
+      const consequential = backgroundState.session?.progress.unknownFields.filter(
+        (field) => /race|veteran/i.test(field.label),
+      );
+      expect(consequential?.length).toBeGreaterThanOrEqual(4);
+      expect(consequential?.every((field) => field.status === "manual")).toBe(true);
+    } finally {
+      await runtime.close();
+      await closeServer(fixture.server);
+    }
+  });
+
+  test("stops a location retry when restoration reveals newer commit evidence", async () => {
+    const fixture = await startFixtureServer();
+    const runtime = await launchUnpackedExtension([
+      "--host-resolver-rules=MAP ats.test 127.0.0.1",
+    ]);
+    try {
+      const applicationUrl = `${fixture.origin}/application?mode=layer4-retry-evidence`;
+      const application = await launchFromDashboard(runtime, applicationUrl, {
+        ...profile,
+        raceEthnicity: "",
+        veteranStatus: "",
+      });
+      const popup = await openPopupForPage(runtime, application);
+
+      await popup.locator("[data-fill]").click();
+      await expect(
+        application
+          .locator("#layer4-search-location")
+          .locator("xpath=ancestor::*[contains(@class, 'select__value-container')]")
+          .locator(".select__single-value"),
+      ).toHaveText("User choice");
+      await expect(application.locator("#layer4-search-location")).toHaveAttribute(
+        "data-value",
+        "user-choice",
+      );
+
+      const state = await application.evaluate(
+        () =>
+          (globalThis as unknown as { __atsHarness: FixtureState }).__atsHarness,
+      );
+      expect(state.model["layer4-search-location"]).toBe("user-choice");
+      expect(state.searchQueries["layer4-search-location"]).not.toContain("New York");
+      expect(
+        eventsFor(state, "react-select-layer4-search-location-option-1"),
+      ).not.toContain("click");
+      expect(state.unrelatedOptionClicks).toBe(0);
+      expect(state.submitClicks).toBe(0);
     } finally {
       await runtime.close();
       await closeServer(fixture.server);
