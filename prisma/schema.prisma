@@ -64,7 +64,7 @@ model Job {
   fitBaseSummary         String? // agent-provided resume assessment before tier banding
   fitReasons             String? // JSON array of short fit reasons
   fitSummary             String? // one-line fit/gap summary (mainly from the agent tier)
-  fitProvider            String? // deterministic | agent
+  fitProvider            String? // deterministic | copilot | openai | anthropic (legacy agent = copilot)
   fitScoredAt            DateTime?
   // --- Posting availability reconciliation (see lib/discovery/lifecycle.ts) ---
   availabilityStatus     String                 @default("open") // open | suspect | closed
@@ -183,6 +183,18 @@ model DiscoveryRunState {
   id            String    @id @default("default")
   lastStartedAt DateTime?
   updatedAt     DateTime  @updatedAt
+}
+
+// Server-only singleton for the enhanced Judge fallback. API keys remain in
+// SQLite and are only exposed through masked DTOs.
+model JudgeProviderSettings {
+  id               String   @id @default("default")
+  provider         String   @default("openai")
+  openAiModel      String?
+  openAiApiKey     String?
+  anthropicModel   String?
+  anthropicApiKey  String?
+  updatedAt        DateTime @updatedAt
 }
 
 // Durable evidence for the curated discovery catalog. This is intentionally

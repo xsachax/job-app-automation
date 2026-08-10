@@ -20,6 +20,10 @@ import {
 } from "./scoring";
 import { minRequiredBachelorYoE } from "../discovery/entryLevel";
 import { canonicalSkill } from "../discovery/enrich";
+import {
+  isCopilotJudgeProvider,
+  isEnhancedJudgeProvider,
+} from "./provider";
 
 export interface ScoreAllJobsOptions {
   onlyUnscored?: boolean;
@@ -34,7 +38,7 @@ export interface ScoreAllJobsProgress {
   processed: number;
   total: number;
   scored: number;
-  preservedAgent: number;
+  preservedEnhanced: number;
   skipped: number;
   currentJob: { id: string; company: string; title: string } | null;
 }
@@ -42,7 +46,7 @@ export interface ScoreAllJobsProgress {
 export interface ScoreAllJobsResult {
   scanned: number;
   scored: number;
-  preservedAgent: number;
+  preservedEnhanced: number;
   skipped: number;
   provider: "deterministic";
 }
@@ -58,6 +62,7 @@ type JobScoreSnapshot = Pick<
   | "fitSummary"
   | "fitProvider"
   | "fitScoredAt"
+  | "availabilityStatus"
 >;
 
 function scoreSnapshotWhere(job: JobScoreSnapshot): Prisma.JobWhereInput {
@@ -71,6 +76,7 @@ function scoreSnapshotWhere(job: JobScoreSnapshot): Prisma.JobWhereInput {
     fitSummary: job.fitSummary,
     fitProvider: job.fitProvider,
     fitScoredAt: job.fitScoredAt,
+    availabilityStatus: job.availabilityStatus,
   };
 }
 
@@ -220,7 +226,7 @@ function fitLabel(score: number): "Strong fit" | "Possible fit" | "Weak fit" {
       : "Weak fit";
 }
 
-function baseAgentSummary(summary: string | null): string {
+function baseEnhancedSummary(summary: string | null): string {
   return (summary ?? "")
     .replace(
       /^(?:strong|possible|weak) fit: .*?score band\.\s*(?:Agent résumé assessment:\s*)?/i,
@@ -235,14 +241,14 @@ function baseAgentSummary(summary: string | null): string {
     .trim();
 }
 
-function agentTierSummary(
+function enhancedTierSummary(
   score: number,
   summary: string | null,
   companyReason: string,
 ): string {
-  const agentSummary = baseAgentSummary(summary);
+  const enhancedSummary = baseEnhancedSummary(summary);
   return `${fitLabel(score)}: ${companyReason}.${
-    agentSummary ? ` Agent résumé assessment: ${agentSummary}` : ""
+    enhancedSummary ? ` Enhanced résumé assessment: ${enhancedSummary}` : ""
   }`.slice(0, 300);
 }
 
@@ -366,7 +372,7 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
 
   const now = new Date();
   let scored = 0;
-  let preservedAgent = 0;
+  let preservedEnhanced = 0;
   let skipped = 0;
   let processed = 0;
 
@@ -377,7 +383,7 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
       processed,
       total: jobs.length,
       scored,
-      preservedAgent,
+      preservedEnhanced,
       skipped,
       currentJob,
     });
@@ -401,7 +407,10 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
       locationMod + salary.delta + freshness.delta + experience.delta;
     const companySignal = companyBandSignal(job.company, tier);
 
-    if (job.fitProvider === "agent" && !opts.force) {
+    if (
+      isEnhancedJudgeProvider(job.fitProvider) &&
+      (!opts.force || isCopilotJudgeProvider(job.fitProvider))
+    ) {
       const baseScore = job.fitBaseScore ?? job.fitScore ?? 0;
       const adjustedScore = tierFirstJudgeScore(
         baseScore,
@@ -411,7 +420,7 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
       const baseAdvice = parseJobReasons(
         job.fitBaseReasons ?? job.fitReasons,
       ).filter((reason) => !isContextAdvice(reason));
-      const baseSummary = baseAgentSummary(
+      const baseSummary = baseEnhancedSummary(
         job.fitBaseSummary ?? job.fitSummary,
       );
       const companyAdvice = companySignal.positive
@@ -439,7 +448,7 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
         fitReasons: JSON.stringify(
           [companyAdvice, ...baseAdvice, ...contextAdvice].slice(0, 8),
         ),
-        fitSummary: agentTierSummary(
+        fitSummary: enhancedTierSummary(
           adjustedScore,
           baseSummary,
           companySignal.reason,
@@ -447,7 +456,7 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
         fitScoredAt: now,
       });
       if (updated) {
-        preservedAgent++;
+        preservedEnhanced++;
       } else {
         skipped++;
       }
@@ -522,5 +531,11 @@ export async function scoreAllJobs(opts: ScoreAllJobsOptions = {}): Promise<Scor
     });
   }
 
-  return { scanned: jobs.length, scored, preservedAgent, skipped, provider: "deterministic" };
+  return {
+    scanned: jobs.length,
+    scored,
+    preservedEnhanced,
+    skipped,
+    provider: "deterministic",
+  };
 }

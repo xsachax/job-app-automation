@@ -1,13 +1,23 @@
 import {
   scoreAllJobs,
   type ScoreAllJobsOptions,
-  type ScoreAllJobsResult,
 } from "./judge";
+import { applyJudgeScores, buildJudgeBatch } from "./agent";
+import {
+  MAX_EXTERNAL_JUDGE_BATCH_SIZE,
+  scoreExternalJudgeBatch,
+} from "./external";
+import {
+  resolveJudgeProvider,
+  type JudgeProviderResolution,
+} from "./provider-settings";
+import type { JudgeRunProvider } from "./provider";
 
 export type JudgeRunPhase =
   | "idle"
   | "starting"
-  | "scoring"
+  | "baseline"
+  | "enhanced"
   | "complete"
   | "failed";
 
@@ -17,8 +27,9 @@ export interface JudgeRunProgress {
   processed: number;
   total: number;
   scored: number;
-  preservedAgent: number;
+  preservedEnhanced: number;
   skipped: number;
+  provider: JudgeRunProvider;
   currentJob: string | null;
   message: string;
   startedAt: string | null;
@@ -29,6 +40,24 @@ export interface JudgeRunCoordination {
   waitForActive?: boolean;
 }
 
+export type JudgeProviderMode = "resolve" | "deterministic-only";
+
+export interface JudgeRunOptions
+  extends Omit<ScoreAllJobsOptions, "onProgress"> {
+  providerMode?: JudgeProviderMode;
+}
+
+export interface JudgeRunResult {
+  scanned: number;
+  scored: number;
+  preservedEnhanced: number;
+  skipped: number;
+  provider: JudgeRunProvider;
+  enhancedScored: number;
+  enhancedStatus: "applied" | "copilot-ready" | "unavailable";
+  message: string;
+}
+
 export class JudgeRunInProgressError extends Error {
   constructor() {
     super("The judge is already running.");
@@ -36,15 +65,16 @@ export class JudgeRunInProgressError extends Error {
   }
 }
 
-let activeRun: Promise<ScoreAllJobsResult> | null = null;
+let activeRun: Promise<JudgeRunResult> | null = null;
 let progress: JudgeRunProgress = {
   running: false,
   phase: "idle",
   processed: 0,
   total: 0,
   scored: 0,
-  preservedAgent: 0,
+  preservedEnhanced: 0,
   skipped: 0,
+  provider: "deterministic",
   currentJob: null,
   message: "The judge is idle.",
   startedAt: null,
@@ -60,9 +90,9 @@ function updateProgress(patch: Partial<JudgeRunProgress>) {
 }
 
 export async function runJudgeScoring(
-  options: Omit<ScoreAllJobsOptions, "onProgress"> = {},
+  options: JudgeRunOptions = {},
   coordination: JudgeRunCoordination = {},
-): Promise<ScoreAllJobsResult> {
+): Promise<JudgeRunResult> {
   if (activeRun) {
     if (!coordination.waitForActive) throw new JudgeRunInProgressError();
     try {
@@ -80,37 +110,38 @@ export async function runJudgeScoring(
     processed: 0,
     total: 0,
     scored: 0,
-    preservedAgent: 0,
+    preservedEnhanced: 0,
     skipped: 0,
+    provider: "deterministic",
     currentJob: null,
-    message: "Preparing eligible jobs…",
+    message: "Resolving the active Judge path...",
     startedAt,
     finishedAt: null,
   };
 
-  const run = scoreAllJobs({
-    ...options,
-    onProgress: (current) => {
-      const currentJob = current.currentJob
-        ? `${current.currentJob.company} · ${current.currentJob.title}`
-        : null;
-      updateProgress({
-        phase: "scoring",
-        processed: current.processed,
-        total: current.total,
-        scored: current.scored,
-        preservedAgent: current.preservedAgent,
-        skipped: current.skipped,
-        currentJob,
-        message:
-          current.total === 0
-            ? "No eligible postings to score."
-            : `Processed ${current.processed}/${current.total}${
-                currentJob ? ` · ${currentJob}` : ""
-              }`,
-      });
-    },
-  });
+  const run = (async () => {
+    const {
+      providerMode = "resolve",
+      ...scoreOptions
+    } = options;
+    const resolution: JudgeProviderResolution =
+      providerMode === "deterministic-only"
+        ? {
+            provider: "deterministic",
+            external: null,
+            status: "Enhanced provider scoring was not requested by this run.",
+          }
+        : await resolveJudgeProvider();
+    updateProgress({
+      provider: resolution.provider,
+      message: `Preparing ${
+        resolution.provider === "deterministic"
+          ? "deterministic"
+          : resolution.provider
+      } Judge path...`,
+    });
+    return runResolvedJudge(resolution, scoreOptions, providerMode);
+  })();
   activeRun = run;
 
   try {
@@ -121,10 +152,11 @@ export async function runJudgeScoring(
       processed: result.scanned,
       total: result.scanned,
       scored: result.scored,
-      preservedAgent: result.preservedAgent,
+      preservedEnhanced: result.preservedEnhanced,
       skipped: result.skipped,
+      provider: result.provider,
       currentJob: null,
-      message: `Judge complete · ${result.scored} scored`,
+      message: result.message,
       finishedAt: new Date().toISOString(),
     });
     return result;
@@ -140,4 +172,129 @@ export async function runJudgeScoring(
   } finally {
     if (activeRun === run) activeRun = null;
   }
+}
+
+async function runResolvedJudge(
+  resolution: JudgeProviderResolution,
+  options: Omit<ScoreAllJobsOptions, "onProgress">,
+  providerMode: JudgeProviderMode,
+): Promise<JudgeRunResult> {
+  const baselineJobIds: string[] = [];
+  const baseline = await scoreAllJobs({
+    ...options,
+    onProgress: (current) => {
+      if (
+        current.currentJob &&
+        baselineJobIds.at(-1) !== current.currentJob.id
+      ) {
+        baselineJobIds.push(current.currentJob.id);
+      }
+      const currentJob = current.currentJob
+        ? `${current.currentJob.company} · ${current.currentJob.title}`
+        : null;
+      updateProgress({
+        phase: "baseline",
+        processed: current.processed,
+        total: current.total,
+        scored: current.scored,
+        preservedEnhanced: current.preservedEnhanced,
+        skipped: current.skipped,
+        currentJob,
+        message:
+          current.total === 0
+            ? "No eligible postings to score."
+            : `Baseline ${current.processed}/${current.total}${
+                currentJob ? ` · ${currentJob}` : ""
+              }`,
+      });
+    },
+  });
+
+  if (resolution.provider === "copilot") {
+    return {
+      ...baseline,
+      provider: "copilot",
+      enhancedScored: 0,
+      enhancedStatus: "copilot-ready",
+      message:
+        "Judge complete with deterministic coverage. Copilot has priority; export/apply remains ready for enhanced evidence.",
+    };
+  }
+  if (!resolution.external) {
+    return {
+      ...baseline,
+      provider: "deterministic",
+      enhancedScored: 0,
+      enhancedStatus: "unavailable",
+      message:
+        providerMode === "deterministic-only"
+          ? "Judge complete with deterministic scoring only; enhanced provider scoring was not requested."
+          : "Judge complete with deterministic scoring only; enhanced provider scoring is unavailable.",
+    };
+  }
+
+  const batch = await buildJudgeBatch({
+    topN: options.limit,
+    country: options.country,
+    jobIds: options.onlyUnscored ? baselineJobIds : undefined,
+    write: false,
+  });
+  let enhancedScored = 0;
+  let enhancedSkipped = 0;
+  let batches = 0;
+  updateProgress({
+    phase: "enhanced",
+    processed: 0,
+    total: batch.items.length,
+    scored: 0,
+    skipped: 0,
+    currentJob: null,
+    message: `Sending 0/${batch.items.length} to ${
+      resolution.provider === "openai" ? "OpenAI" : "Anthropic"
+    }...`,
+  });
+
+  for (
+    let start = 0;
+    start < batch.items.length;
+    start += MAX_EXTERNAL_JUDGE_BATCH_SIZE
+  ) {
+    const items = batch.items.slice(
+      start,
+      start + MAX_EXTERNAL_JUDGE_BATCH_SIZE,
+    );
+    const scores = await scoreExternalJudgeBatch(resolution.external, {
+      resume: batch.resume,
+      items,
+    });
+    const applied = await applyJudgeScores(scores, {
+      provider: resolution.provider,
+    });
+    enhancedScored += applied.updated;
+    enhancedSkipped += applied.skipped.length;
+    batches++;
+    updateProgress({
+      phase: "enhanced",
+      processed: Math.min(start + items.length, batch.items.length),
+      total: batch.items.length,
+      scored: enhancedScored,
+      skipped: enhancedSkipped,
+      currentJob: null,
+      message: `${
+        resolution.provider === "openai" ? "OpenAI" : "Anthropic"
+      } scored ${Math.min(start + items.length, batch.items.length)}/${batch.items.length}`,
+    });
+  }
+
+  const name = resolution.provider === "openai" ? "OpenAI" : "Anthropic";
+  return {
+    ...baseline,
+    provider: resolution.provider,
+    enhancedScored,
+    enhancedStatus: "applied",
+    message:
+      batch.items.length === 0
+        ? `Judge complete; no non-Copilot postings needed ${name} review.`
+        : `Judge complete · ${enhancedScored} enhanced by ${name} in ${batches} batch${batches === 1 ? "" : "es"}.`,
+  };
 }

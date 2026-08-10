@@ -55,7 +55,13 @@ export interface Job {
   applicationStatus: ApplicationStatus;
   appliedAt: string | null;
   fitScore: number | null;
-  fitProvider: "deterministic" | "agent" | null;
+  fitProvider:
+    | "deterministic"
+    | "agent"
+    | "copilot"
+    | "openai"
+    | "anthropic"
+    | null;
   fitSummary: string | null;
   fitReasons: string[];
   salaryMin: number | null;

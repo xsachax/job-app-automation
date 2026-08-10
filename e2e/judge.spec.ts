@@ -7,7 +7,24 @@ function judgeStatus(scored: number) {
     eligible,
     scored,
     unscored: eligible - scored,
-    agentScored: 0,
+    providerCounts: {
+      deterministic: scored,
+      copilot: 0,
+      openai: 0,
+      anthropic: 0,
+    },
+    providerStatus: {
+      provider: "openai",
+      model: "gpt-4o-mini",
+      hasApiKey: false,
+      apiKeyHint: null,
+      copilotConnected: false,
+      copilotHasPriority: false,
+      effectiveProvider: "deterministic",
+      enhancedAvailable: false,
+      status:
+        "No enhanced Judge provider is available; re-runs use the deterministic baseline only.",
+    },
     avgScore: scored ? 70 : null,
     lastScoredAt: scored ? "2026-01-01T00:00:01.000Z" : null,
     distribution: {
@@ -78,7 +95,7 @@ test.describe("judge hub", () => {
       page.getByText("Target salary saved. Re-run the judge to apply it."),
     ).toBeVisible();
     await page.getByRole("button", { name: "Re-run judge" }).click();
-    await expect(page.getByText(/Re-ran across all axes/)).toBeVisible();
+    await expect(page.getByText(/Judge complete/)).toBeVisible();
     // After a run the "Last run" tile is no longer "never".
     await expect(page.getByText("never")).toHaveCount(0);
 
@@ -123,9 +140,13 @@ test.describe("judge hub", () => {
           body: JSON.stringify({
             scanned: 4,
             scored: 3,
-            preservedAgent: 1,
+            preservedEnhanced: 1,
             skipped: 0,
             provider: "deterministic",
+            enhancedScored: 0,
+            enhancedStatus: "unavailable",
+            message:
+              "Judge complete with deterministic scoring only; enhanced provider scoring is unavailable.",
           }),
         });
         return;
@@ -143,8 +164,9 @@ test.describe("judge hub", () => {
                 processed: 4,
                 total: 4,
                 scored: 3,
-                preservedAgent: 1,
+                preservedEnhanced: 1,
                 skipped: 0,
+                provider: "deterministic",
                 currentJob: null,
                 message: "Judge complete · 3 scored",
                 startedAt: "2026-01-01T00:00:00.000Z",
@@ -152,12 +174,13 @@ test.describe("judge hub", () => {
               }
             : {
                 running: getCount > 1,
-                phase: getCount > 1 ? "scoring" : "idle",
+                phase: getCount > 1 ? "baseline" : "idle",
                 processed,
                 total: getCount > 1 ? 4 : 0,
                 scored: Math.max(processed - 1, 0),
-                preservedAgent: processed > 1 ? 1 : 0,
+                preservedEnhanced: processed > 1 ? 1 : 0,
                 skipped: 0,
+                provider: "deterministic",
                 currentJob: getCount > 1 ? "Acme · Software Engineer I" : null,
                 message:
                   getCount > 1
@@ -180,7 +203,7 @@ test.describe("judge hub", () => {
     await expect(progress).toBeVisible();
     await expect(progress).toHaveAttribute("aria-valuenow", "1");
     await expect(page.getByText("1/4 · 25%")).toBeVisible();
-    await expect(page.getByText(/Re-ran across all axes/)).toBeVisible();
+    await expect(page.getByText(/Judge complete/)).toBeVisible();
     await expect(progress).toHaveCount(0);
   });
 
@@ -203,12 +226,13 @@ test.describe("judge hub", () => {
         contentType: "application/json",
         body: JSON.stringify({
           running,
-          phase: running ? "scoring" : "complete",
+          phase: running ? "baseline" : "complete",
           processed: running ? 1 : 2,
           total: 2,
           scored: running ? 1 : 2,
-          preservedAgent: 0,
+          preservedEnhanced: 0,
           skipped: 0,
+          provider: "deterministic",
           currentJob: running ? "Acme · Software Engineer I" : null,
           message: running
             ? "Processed 1/2 · Acme · Software Engineer I"
@@ -223,5 +247,103 @@ test.describe("judge hub", () => {
     await expect(page.getByText("1/7", { exact: true })).toBeVisible();
     await expect(page.getByText("7/7", { exact: true })).toBeVisible();
     expect(statusCalls).toBe(2);
+  });
+
+  test("refreshes retained baseline status when enhanced scoring fails", async ({
+    page,
+  }) => {
+    let statusCalls = 0;
+    await page.route("**/api/judge/status", async (route) => {
+      statusCalls += 1;
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify(judgeStatus(statusCalls === 1 ? 1 : 2)),
+      });
+    });
+    await page.route("**/api/judge/score", async (route) => {
+      if (route.request().method() === "POST") {
+        await route.fulfill({
+          status: 502,
+          contentType: "application/json",
+          body: JSON.stringify({
+            error: "OpenAI Judge request failed with HTTP 429.",
+          }),
+        });
+        return;
+      }
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          running: false,
+          phase: "idle",
+          processed: 0,
+          total: 0,
+          scored: 0,
+          preservedEnhanced: 0,
+          skipped: 0,
+          provider: "openai",
+          currentJob: null,
+          message: "The judge is idle.",
+          startedAt: null,
+          finishedAt: null,
+        }),
+      });
+    });
+
+    await page.goto("/judge");
+    await expect(page.getByText("1/7", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Re-run judge" }).click();
+    await expect(
+      page.getByText("OpenAI Judge request failed with HTTP 429."),
+    ).toBeVisible();
+    await expect(page.getByText("2/7", { exact: true })).toBeVisible();
+    expect(statusCalls).toBeGreaterThanOrEqual(2);
+  });
+
+  test("keeps fallback keys masked across reload and reports provider status", async ({
+    page,
+  }) => {
+    await page.goto("/settings");
+    await expect(page.getByText("Copilot not marked connected")).toBeVisible();
+
+    await page
+      .getByLabel("Enhanced fallback provider")
+      .selectOption("openai");
+    const key = page.getByLabel("OpenAI API key");
+    await key.fill("sk-e2e-offline-key-9876");
+    await page.getByRole("button", { name: "Save Judge provider" }).click();
+    await expect(
+      page.getByText("OpenAI Judge settings saved."),
+    ).toBeVisible();
+    await expect(key).toHaveValue("");
+    await expect(key).toHaveAttribute(
+      "placeholder",
+      /\*\*\*\*9876 configured/,
+    );
+
+    await page.reload();
+    await expect(page.getByLabel("OpenAI API key")).toHaveValue("");
+    await expect(page.getByLabel("OpenAI API key")).toHaveAttribute(
+      "placeholder",
+      /\*\*\*\*9876 configured/,
+    );
+    await expect(
+      page.getByText(/OpenAI is the enhanced Judge fallback/),
+    ).toBeVisible();
+
+    await page.goto("/judge");
+    await expect(
+      page.getByRole("heading", { name: "Active Judge path" }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(/OpenAI is the enhanced Judge fallback/),
+    ).toBeVisible();
+
+    await page.goto("/settings");
+    await page.getByRole("button", { name: "Clear API key" }).click();
+    await expect(page.getByText("OpenAI API key cleared.")).toBeVisible();
+    await expect(
+      page.getByText("No key is configured for this provider."),
+    ).toBeVisible();
   });
 });

@@ -20,6 +20,24 @@ interface ScopeContext {
   profile: Pick<ProfileData, "targetRoles">;
 }
 
+type ExternalJudgeProvider = "openai" | "anthropic";
+
+interface JudgeProviderSummary {
+  model: string;
+  hasApiKey: boolean;
+  apiKeyHint: string | null;
+}
+
+interface JudgeProviderSettings extends JudgeProviderSummary {
+  provider: ExternalJudgeProvider;
+  providers: Record<ExternalJudgeProvider, JudgeProviderSummary>;
+  copilotConnected: boolean;
+  copilotHasPriority: boolean;
+  effectiveProvider: "deterministic" | "copilot" | ExternalJudgeProvider;
+  enhancedAvailable: boolean;
+  status: string;
+}
+
 const DEFAULT_CONFIG: DiscoveryConfigData = {
   countries: ["US", "CA"],
   maxYoE: 2,
@@ -68,15 +86,30 @@ export default function SettingsPage() {
   const [excludeTitleKeywordsText, setExcludeTitleKeywordsText] = useState("");
   const [queryTermsText, setQueryTermsText] = useState("");
   const [scopeContext, setScopeContext] = useState<ScopeContext | null>(null);
+  const [judgeProvider, setJudgeProvider] =
+    useState<JudgeProviderSettings | null>(null);
+  const [providerChoice, setProviderChoice] =
+    useState<ExternalJudgeProvider>("openai");
+  const [judgeModel, setJudgeModel] = useState("");
+  const [judgeApiKey, setJudgeApiKey] = useState("");
+  const [savingJudgeProvider, setSavingJudgeProvider] = useState(false);
+
+  function applyJudgeProviderSettings(settings: JudgeProviderSettings) {
+    setJudgeProvider(settings);
+    setProviderChoice(settings.provider);
+    setJudgeModel(settings.model);
+    setJudgeApiKey("");
+  }
 
   useEffect(() => {
     let active = true;
     (async () => {
       try {
-        const [data, criteria, profile] = await Promise.all([
+        const [data, criteria, profile, providerSettings] = await Promise.all([
           api<ConfigResponse>("/api/config"),
           api<Criteria>("/api/criteria"),
           api<ProfileData>("/api/profile"),
+          api<JudgeProviderSettings>("/api/settings/judge-provider"),
         ]);
         if (!active) return;
         setConfig(data.config);
@@ -88,6 +121,7 @@ export default function SettingsPage() {
           criteria,
           profile: { targetRoles: profile.targetRoles },
         });
+        applyJudgeProviderSettings(providerSettings);
       } catch (e) {
         if (active) setError((e as Error).message);
       } finally {
@@ -104,10 +138,11 @@ export default function SettingsPage() {
     setError(null);
     setMessage(null);
     try {
-      const [data, criteria, profile] = await Promise.all([
+      const [data, criteria, profile, providerSettings] = await Promise.all([
         api<ConfigResponse>("/api/config"),
         api<Criteria>("/api/criteria"),
         api<ProfileData>("/api/profile"),
+        api<JudgeProviderSettings>("/api/settings/judge-provider"),
       ]);
       setConfig(data.config);
       setSources(data.sources);
@@ -118,6 +153,7 @@ export default function SettingsPage() {
         criteria,
         profile: { targetRoles: profile.targetRoles },
       });
+      applyJudgeProviderSettings(providerSettings);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -193,12 +229,88 @@ export default function SettingsPage() {
         excludeTitleKeywords: parseList(excludeTitleKeywordsText),
         queryTerms: parseList(queryTermsText),
       },
-      "Discovery settings saved.",
+      "Discovery settings saved. Changes take effect on the next discovery run.",
     );
   }
 
   async function resetDefaults() {
-    await persist(DEFAULT_CONFIG, "Discovery settings reset to defaults.");
+    await persist(
+      DEFAULT_CONFIG,
+      "Discovery settings reset. Changes take effect on the next discovery run.",
+    );
+  }
+
+  function selectJudgeProvider(provider: ExternalJudgeProvider) {
+    setProviderChoice(provider);
+    setJudgeModel(
+      judgeProvider?.providers[provider].model ??
+        (provider === "openai"
+          ? "gpt-4o-mini"
+          : "claude-3-5-haiku-latest"),
+    );
+    setJudgeApiKey("");
+    setError(null);
+    setMessage(null);
+  }
+
+  async function saveJudgeProvider(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSavingJudgeProvider(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const payload: {
+        provider: ExternalJudgeProvider;
+        model: string | null;
+        apiKey?: string;
+      } = {
+        provider: providerChoice,
+        model: judgeModel.trim() || null,
+      };
+      if (judgeApiKey) payload.apiKey = judgeApiKey;
+      const saved = await api<JudgeProviderSettings>(
+        "/api/settings/judge-provider",
+        {
+          method: "PUT",
+          body: JSON.stringify(payload),
+        },
+      );
+      applyJudgeProviderSettings(saved);
+      setMessage(
+        `${providerChoice === "openai" ? "OpenAI" : "Anthropic"} Judge settings saved.`,
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSavingJudgeProvider(false);
+    }
+  }
+
+  async function clearJudgeProviderKey() {
+    setSavingJudgeProvider(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const saved = await api<JudgeProviderSettings>(
+        "/api/settings/judge-provider",
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            provider: providerChoice,
+            model: judgeModel.trim() || null,
+            apiKey: null,
+          }),
+        },
+      );
+      applyJudgeProviderSettings(saved);
+      setMessage(
+        `${providerChoice === "openai" ? "OpenAI" : "Anthropic"} API key cleared.`,
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSavingJudgeProvider(false);
+    }
   }
 
   const countryOptions = uniqueSorted(["US", "CA", ...(config?.countries ?? [])]);
@@ -219,12 +331,12 @@ export default function SettingsPage() {
     <div>
       <PageHeader
         title="Settings"
-        subtitle="Edit the stored discovery configuration that drives the next scrape."
+        subtitle="Configure discovery and the server-side enhanced Judge fallback."
       />
 
       {message && (
         <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
-          {message} Changes take effect on the next <code>npm run discover</code> run.
+          {message}
         </div>
       )}
 
@@ -232,6 +344,127 @@ export default function SettingsPage() {
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
           {error}
         </div>
+      )}
+
+      {!loading && judgeProvider && (
+        <form
+          onSubmit={saveJudgeProvider}
+          className={cls.card + " mb-6 space-y-5"}
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold">Enhanced Judge provider</h2>
+              <p className={helper}>
+                API keys are stored only in the server&apos;s local SQLite
+                database. They are never returned to this page after saving.
+              </p>
+            </div>
+            <span
+              className={
+                "rounded-full px-3 py-1 text-xs font-medium " +
+                (judgeProvider.copilotConnected
+                  ? "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-200"
+                  : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200")
+              }
+            >
+              {judgeProvider.copilotConnected
+                ? "Copilot connected: priority"
+                : "Copilot not marked connected"}
+            </span>
+          </div>
+
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-300">
+            <strong>Current path:</strong> {judgeProvider.status}
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <label htmlFor="judge-provider" className={cls.label}>
+                Enhanced fallback provider
+              </label>
+              <select
+                id="judge-provider"
+                className={cls.input + " mt-2"}
+                value={providerChoice}
+                onChange={(event) =>
+                  selectJudgeProvider(
+                    event.target.value as ExternalJudgeProvider,
+                  )
+                }
+              >
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic</option>
+              </select>
+              <p className={helper}>
+                Used only when <code>COPILOT_JUDGE_CONNECTED</code> is not{" "}
+                <code>1</code>.
+              </p>
+            </div>
+
+            <div>
+              <label htmlFor="judge-model" className={cls.label}>
+                Model
+              </label>
+              <input
+                id="judge-model"
+                className={cls.input + " mt-2"}
+                value={judgeModel}
+                maxLength={100}
+                onChange={(event) => setJudgeModel(event.target.value)}
+                autoComplete="off"
+              />
+              <p className={helper}>
+                Optional. Clear it to restore the provider default.
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <label htmlFor="judge-api-key" className={cls.label}>
+              {providerChoice === "openai" ? "OpenAI" : "Anthropic"} API key
+            </label>
+            <input
+              id="judge-api-key"
+              type="password"
+              className={cls.input + " mt-2"}
+              value={judgeApiKey}
+              maxLength={512}
+              autoComplete="new-password"
+              placeholder={
+                judgeProvider.providers[providerChoice].hasApiKey
+                  ? `${judgeProvider.providers[providerChoice].apiKeyHint} configured; leave blank to keep`
+                  : "Enter a server-side API key"
+              }
+              onChange={(event) => setJudgeApiKey(event.target.value)}
+            />
+            <p className={helper}>
+              {judgeProvider.providers[providerChoice].hasApiKey
+                ? `A key ending in ${judgeProvider.providers[providerChoice].apiKeyHint?.slice(-4)} is configured.`
+                : "No key is configured for this provider."}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              className={cls.btn}
+              disabled={
+                savingJudgeProvider ||
+                !judgeProvider.providers[providerChoice].hasApiKey
+              }
+              onClick={clearJudgeProviderKey}
+            >
+              Clear API key
+            </button>
+            <button
+              type="submit"
+              className={cls.btnPrimary}
+              disabled={savingJudgeProvider}
+            >
+              {savingJudgeProvider ? "Saving..." : "Save Judge provider"}
+            </button>
+          </div>
+        </form>
       )}
 
       {loading ? (

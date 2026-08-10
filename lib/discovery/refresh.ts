@@ -1,5 +1,7 @@
-import type { ScoreAllJobsResult } from "../judge/judge";
-import { runJudgeScoring } from "../judge/run";
+import {
+  runJudgeScoring,
+  type JudgeRunResult,
+} from "../judge/run";
 import { prisma } from "../db";
 import {
   BROWSER_COMPANIES,
@@ -57,7 +59,7 @@ export interface DiscoveryRefreshResult {
     sources: AvailabilityReconciliationResult;
     untracked: AvailabilityReconciliationResult;
   };
-  judge: ScoreAllJobsResult;
+  judge: JudgeRunResult;
   totals: {
     sources: number;
     created: number;
@@ -92,6 +94,16 @@ export interface DiscoveryRefreshProgress {
   outcomes: DiscoverySourceOutcomeCounts;
   startedAt: string | null;
   finishedAt: string | null;
+}
+
+export function scoreNewDiscoveryJobs(): Promise<JudgeRunResult> {
+  return runJudgeScoring(
+    {
+      onlyUnscored: true,
+      providerMode: "deterministic-only",
+    },
+    { waitForActive: true },
+  );
 }
 
 export interface DiscoveryRefreshAvailability {
@@ -376,10 +388,7 @@ async function executeRefresh(started: number): Promise<DiscoveryRefreshResult> 
     currentSource: null,
     message: "Scoring newly discovered jobs…",
   });
-  const judge = await runJudgeScoring(
-    { onlyUnscored: true },
-    { waitForActive: true },
-  );
+  const judge = await scoreNewDiscoveryJobs();
   const finished = Date.now();
   const browserCreated = browser.reduce((sum, result) => sum + result.created, 0);
   const browserUpdated = browser.reduce((sum, result) => sum + result.updated, 0);

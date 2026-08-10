@@ -214,7 +214,7 @@ describe("scoreAllJobs", () => {
     });
     expect(result.scanned).toBe(3);
     expect(result.scored).toBe(2);
-    expect(result.preservedAgent).toBe(1);
+    expect(result.preservedEnhanced).toBe(1);
     expect(progress.map((current) => current.processed)).toEqual([0, 1, 2, 3]);
     expect(progress.every((current) => current.total === result.scanned)).toBe(true);
     expect(progress[0]?.currentJob).toBeNull();
@@ -222,7 +222,7 @@ describe("scoreAllJobs", () => {
     expect(progress.at(-1)).toMatchObject({
       processed: result.scanned,
       scored: result.scored,
-      preservedAgent: result.preservedAgent,
+      preservedEnhanced: result.preservedEnhanced,
       skipped: result.skipped,
     });
 
@@ -329,6 +329,74 @@ describe("scoreAllJobs", () => {
       fitProvider: "agent",
       fitScoredAt: null,
     });
+  });
+
+  it("preserves external enhanced evidence during a normal baseline refresh", async () => {
+    const job = await makeJob({
+      key: "external-evidence",
+      title: "Software Engineer I",
+      description: "Build TypeScript services.",
+      fitScore: 86,
+      fitProvider: "openai",
+    });
+
+    const result = await scoreAllJobs();
+
+    expect(result.preservedEnhanced).toBe(1);
+    const after = await prisma.job.findUniqueOrThrow({
+      where: { id: job.id },
+    });
+    expect(after.fitProvider).toBe("openai");
+    expect(after.fitBaseScore).toBe(86);
+  });
+
+  it("replaces external evidence during a forced baseline refresh", async () => {
+    const job = await makeJob({
+      key: "forced-external-evidence",
+      title: "Software Engineer I",
+      description: "Build TypeScript services.",
+      fitScore: 86,
+      fitProvider: "anthropic",
+    });
+
+    const result = await scoreAllJobs({ force: true });
+
+    expect(result.preservedEnhanced).toBe(0);
+    expect(result.scored).toBe(1);
+    const after = await prisma.job.findUniqueOrThrow({
+      where: { id: job.id },
+    });
+    expect(after.fitProvider).toBe("deterministic");
+  });
+
+  it("preserves current and legacy Copilot evidence during forced runs and external batching", async () => {
+    const current = await makeJob({
+      key: "forced-current-copilot",
+      title: "Frontend Engineer",
+      fitScore: 92,
+      fitProvider: "copilot",
+    });
+    const legacy = await makeJob({
+      key: "forced-legacy-copilot",
+      title: "Backend Engineer",
+      fitScore: 91,
+      fitProvider: "agent",
+    });
+
+    const result = await scoreAllJobs({ force: true });
+    const batch = await buildJudgeBatch({ topN: 10, write: false });
+
+    expect(result.preservedEnhanced).toBe(2);
+    expect(
+      (await prisma.job.findUniqueOrThrow({ where: { id: current.id } }))
+        .fitProvider,
+    ).toBe("copilot");
+    expect(
+      (await prisma.job.findUniqueOrThrow({ where: { id: legacy.id } }))
+        .fitProvider,
+    ).toBe("agent");
+    expect(batch.items.map((item) => item.id)).not.toContain(current.id);
+    expect(batch.items.map((item) => item.id)).not.toContain(legacy.id);
   });
 });
 
@@ -669,12 +737,12 @@ describe("agent judge batch", () => {
     expect(result.skipped).toHaveLength(1);
 
     const updated = await prisma.job.findUniqueOrThrow({ where: { id: job.id } });
-    expect(updated.fitProvider).toBe("agent");
+    expect(updated.fitProvider).toBe("copilot");
     expect(updated.fitBaseScore).toBe(88);
     expect(updated.fitScore).toBeLessThanOrEqual(27);
     expect(updated.fitScore).toBeLessThan(100);
     expect(updated.fitSummary).toMatch(
-      /^Weak fit: .*company tier E.*Agent résumé assessment: Strong backend fit/i,
+      /^Weak fit: .*company tier E.*Enhanced résumé assessment: Strong backend fit/i,
     );
     expect(JSON.parse(updated.fitReasons ?? "[]")).toEqual(
       expect.arrayContaining([
@@ -711,5 +779,55 @@ describe("agent judge batch", () => {
       fitBaseScore: null,
       fitProvider: null,
     });
+  });
+
+  it("preserves Copilot evidence from external providers and lets Copilot replace external evidence", async () => {
+    const copilotJob = await makeJob({
+      key: "copilot-priority",
+      title: "Software Engineer",
+      fitScore: 90,
+      fitProvider: "agent",
+    });
+    const externalAttempt = await applyJudgeScores(
+      [
+        {
+          id: copilotJob.id,
+          score: 55,
+          summary: "External replacement",
+          fits: [],
+          gaps: ["Less direct evidence"],
+        },
+      ],
+      { provider: "openai" },
+    );
+    expect(externalAttempt).toEqual({
+      updated: 0,
+      skipped: [{ id: copilotJob.id, reason: "Copilot score preserved" }],
+    });
+    expect(
+      (await prisma.job.findUniqueOrThrow({ where: { id: copilotJob.id } }))
+        .fitProvider,
+    ).toBe("agent");
+
+    const externalJob = await makeJob({
+      key: "external-replaced",
+      title: "Backend Engineer",
+      fitScore: 60,
+      fitProvider: "anthropic",
+    });
+    const copilotAttempt = await applyJudgeScores([
+      {
+        id: externalJob.id,
+        score: 91,
+        summary: "Copilot replacement",
+        fits: ["Strong backend evidence"],
+        gaps: [],
+      },
+    ]);
+    expect(copilotAttempt.updated).toBe(1);
+    expect(
+      (await prisma.job.findUniqueOrThrow({ where: { id: externalJob.id } }))
+        .fitProvider,
+    ).toBe("copilot");
   });
 });

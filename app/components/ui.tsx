@@ -1,5 +1,9 @@
 import type { ReactNode } from "react";
 import { CATEGORY_LABELS, type JobCategory } from "@/lib/discovery/categories";
+import {
+  canonicalJudgeProvider,
+  judgeProviderLabel,
+} from "@/lib/judge/provider";
 
 export const cls = {
   card:
@@ -55,8 +59,7 @@ export function ScoreBadge({ score }: { score: number }) {
   );
 }
 
-// Resume-fit badge from the post-scrape judge. `provider` distinguishes the
-// deterministic baseline ("auto") from a Copilot agent judgement ("agent").
+// Resume-fit badge from the post-scrape judge.
 export function FitBadge({
   score,
   provider,
@@ -71,15 +74,16 @@ export function FitBadge({
       : score >= 40
         ? "bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-300"
         : "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400";
-  const tag = provider === "agent" ? "agent" : "auto";
+  const canonical = canonicalJudgeProvider(provider);
+  const label = canonical ? judgeProviderLabel(canonical) : "Baseline";
   return (
     <span
       className={`inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs font-semibold ${color}`}
-      title={provider === "agent" ? "Scored by Copilot agent" : "Deterministic baseline score"}
+      title={`${label} Judge score`}
     >
       fit {score}
       <span className="rounded bg-white/60 px-1 text-[10px] font-medium uppercase tracking-wide dark:bg-black/30">
-        {tag}
+        {label}
       </span>
     </span>
   );

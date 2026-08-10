@@ -4,6 +4,8 @@ import { getCriteria, getProfile } from "@/lib/settings";
 import { buildResumeContext } from "@/lib/judge/judge";
 import { STRONG_MIN, POSSIBLE_MIN } from "@/lib/judge/status";
 import { ACTIVE_JOB_WHERE } from "@/lib/jobs/availability";
+import { canonicalJudgeProvider } from "@/lib/judge/provider";
+import { getJudgeProviderPublicSettings } from "@/lib/judge/server";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +13,13 @@ export interface JudgeStatus {
   eligible: number;
   scored: number;
   unscored: number;
-  agentScored: number;
+  providerCounts: {
+    deterministic: number;
+    copilot: number;
+    openai: number;
+    anthropic: number;
+  };
+  providerStatus: Awaited<ReturnType<typeof getJudgeProviderPublicSettings>>;
   avgScore: number | null;
   lastScoredAt: string | null;
   distribution: { strong: number; possible: number; weak: number; unscored: number };
@@ -29,30 +37,46 @@ export async function GET() {
   try {
     const base = { isEntryLevel: true, ...ACTIVE_JOB_WHERE } as const;
 
-    const [eligible, scored, strong, possible, agentScored, avgAgg, lastAgg, companyTiers, locationTiers, criteria, profile] =
+    const [eligible, scored, strong, possible, providerGroups, avgAgg, lastAgg, companyTiers, locationTiers, criteria, profile, providerStatus] =
       await Promise.all([
         prisma.job.count({ where: base }),
         prisma.job.count({ where: { ...base, fitScore: { not: null } } }),
         prisma.job.count({ where: { ...base, fitScore: { gte: STRONG_MIN } } }),
         prisma.job.count({ where: { ...base, fitScore: { gte: POSSIBLE_MIN, lt: STRONG_MIN } } }),
-        prisma.job.count({ where: { ...base, fitProvider: "agent" } }),
+        prisma.job.groupBy({
+          by: ["fitProvider"],
+          where: { ...base, fitScore: { not: null } },
+          _count: { _all: true },
+        }),
         prisma.job.aggregate({ where: { ...base, fitScore: { not: null } }, _avg: { fitScore: true } }),
         prisma.job.aggregate({ where: base, _max: { fitScoredAt: true } }),
         prisma.companyTier.count(),
         prisma.locationTier.count(),
         getCriteria(),
         getProfile(),
+        getJudgeProviderPublicSettings(),
       ]);
 
     const weak = Math.max(0, scored - strong - possible);
     const unscored = Math.max(0, eligible - scored);
     const resume = buildResumeContext(profile);
+    const providerCounts = {
+      deterministic: 0,
+      copilot: 0,
+      openai: 0,
+      anthropic: 0,
+    };
+    for (const group of providerGroups) {
+      const provider = canonicalJudgeProvider(group.fitProvider);
+      if (provider) providerCounts[provider] += group._count._all;
+    }
 
     const status: JudgeStatus = {
       eligible,
       scored,
       unscored,
-      agentScored,
+      providerCounts,
+      providerStatus,
       avgScore: avgAgg._avg.fitScore != null ? Math.round(avgAgg._avg.fitScore) : null,
       lastScoredAt: lastAgg._max.fitScoredAt ? lastAgg._max.fitScoredAt.toISOString() : null,
       distribution: { strong, possible, weak, unscored },
