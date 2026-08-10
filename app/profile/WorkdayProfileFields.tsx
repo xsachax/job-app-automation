@@ -40,15 +40,17 @@ function Field({
 
 function TriState({
   label,
+  hint,
   value,
   onChange,
 }: {
   label: string;
+  hint?: string;
   value: boolean | null | undefined;
   onChange: (value: boolean | null) => void;
 }) {
   return (
-    <Field label={label}>
+    <Field label={label} hint={hint}>
       <select
         aria-label={label}
         className={cls.input}
@@ -172,6 +174,7 @@ function emptyEducation(): ProfileEducationEntry {
     fieldOfStudy: "",
     startDate: "",
     graduationDate: "",
+    graduationDateExact: "",
     gpa: "",
   };
 }
@@ -470,7 +473,29 @@ export function WorkdayProfileFields({ profile, onChange }: Props) {
                   className={cls.input}
                   value={entry.graduationDate}
                   onChange={(event) =>
-                    update({ graduationDate: event.target.value })
+                    update({
+                      graduationDate: event.target.value,
+                      graduationDateExact:
+                        entry.graduationDateExact?.slice(0, 7) ===
+                        event.target.value
+                          ? entry.graduationDateExact
+                          : "",
+                    })
+                  }
+                />
+              </Field>
+              <Field label={`Exact education end date ${index + 1}`}>
+                <input
+                  aria-label={`Additional exact education end date ${index + 1}`}
+                  type="date"
+                  className={cls.input}
+                  value={entry.graduationDateExact ?? ""}
+                  onChange={(event) =>
+                    update({
+                      graduationDate:
+                        event.target.value.slice(0, 7) || entry.graduationDate,
+                      graduationDateExact: event.target.value,
+                    })
                   }
                 />
               </Field>
@@ -689,6 +714,7 @@ export function WorkdayProfileFields({ profile, onChange }: Props) {
           </Field>
           <TriState
             label="Willing to relocate?"
+            hint="Defaults to Yes for application autofill; choose No to override."
             value={profile.willingToRelocate}
             onChange={(value) => onChange("willingToRelocate", value)}
           />

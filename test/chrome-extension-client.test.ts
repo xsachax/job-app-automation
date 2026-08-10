@@ -49,6 +49,7 @@ const PROFILE = {
   fieldOfStudy: " Computer Science ",
   educationStartDate: "2021-09",
   graduationDate: "2025-05",
+  graduationDateExact: "2025-05-15",
   additionalEducation: [
     {
       school: " Coursera ",
@@ -57,6 +58,7 @@ const PROFILE = {
       fieldOfStudy: " Machine Learning ",
       startDate: "2023-01",
       graduationDate: "2023-06",
+      graduationDateExact: "2023-06-30",
       gpa: "",
     },
   ],
@@ -232,6 +234,7 @@ describe("Chrome extension identity and profile mapping", () => {
       fieldOfStudy: "Computer Science",
       educationStartDate: "2021-09",
       graduationDate: "2025-05",
+      graduationDateExact: "2025-05-15",
       educationEntries: [
         {
           school: "University of Ottawa",
@@ -240,6 +243,7 @@ describe("Chrome extension identity and profile mapping", () => {
           fieldOfStudy: "Computer Science",
           startDate: "2021-09",
           graduationDate: "2025-05",
+          graduationDateExact: "2025-05-15",
           gpa: "3.8",
         },
         {
@@ -249,6 +253,7 @@ describe("Chrome extension identity and profile mapping", () => {
           fieldOfStudy: "Machine Learning",
           startDate: "2023-01",
           graduationDate: "2023-06",
+          graduationDateExact: "2023-06-30",
           gpa: "",
         },
       ],
@@ -347,6 +352,11 @@ describe("Chrome extension identity and profile mapping", () => {
       citizenshipStatusOther: "",
       workAuthorization: "",
       requiresSponsorship: "",
+    });
+    expect(
+      buildAutofillProfile({ ...PROFILE, willingToRelocate: null }),
+    ).toMatchObject({
+      willingToRelocate: "yes",
     });
   });
 

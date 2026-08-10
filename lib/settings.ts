@@ -53,6 +53,7 @@ export interface ProfileEducationEntry {
   fieldOfStudy: string;
   startDate: string;
   graduationDate: string;
+  graduationDateExact?: string;
   gpa: string;
 }
 
@@ -114,6 +115,7 @@ export interface ProfileData {
   fieldOfStudy?: string;
   educationStartDate?: string; // YYYY-MM
   graduationDate?: string; // YYYY-MM
+  graduationDateExact?: string; // YYYY-MM-DD
   additionalEducation?: ProfileEducationEntry[];
   workExperiences?: ProfileWorkExperience[];
   relevantExperienceYears?: number | null;
@@ -208,6 +210,7 @@ export const DEFAULT_PROFILE: ProfileData = {
   fieldOfStudy: "",
   educationStartDate: "",
   graduationDate: "",
+  graduationDateExact: "",
   additionalEducation: [],
   workExperiences: [],
   relevantExperienceYears: null,
@@ -230,7 +233,7 @@ export const DEFAULT_PROFILE: ProfileData = {
   compensationFrequency: "",
   availableStartDate: "",
   noticePeriod: "",
-  willingToRelocate: null,
+  willingToRelocate: true,
   willingToTravel: null,
   maxTravelPercentage: "",
   isAtLeast18: null,
@@ -341,15 +344,20 @@ function normalizeWorkExperiences(value: unknown): ProfileWorkExperience[] {
 
 function normalizeEducationEntries(value: unknown): ProfileEducationEntry[] {
   return limitedRecords(value, 10)
-    .map((item) => ({
-      school: boundedText(item.school, 300),
-      degree: boundedText(item.degree, 200),
-      degreeOther: boundedText(item.degreeOther, 200),
-      fieldOfStudy: boundedText(item.fieldOfStudy, 200),
-      startDate: monthValue(item.startDate),
-      graduationDate: monthValue(item.graduationDate),
-      gpa: boundedText(item.gpa, 20),
-    }))
+    .map((item) => {
+      const graduationDateExact = dateValue(item.graduationDateExact);
+      return {
+        school: boundedText(item.school, 300),
+        degree: boundedText(item.degree, 200),
+        degreeOther: boundedText(item.degreeOther, 200),
+        fieldOfStudy: boundedText(item.fieldOfStudy, 200),
+        startDate: monthValue(item.startDate),
+        graduationDate:
+          graduationDateExact.slice(0, 7) || monthValue(item.graduationDate),
+        graduationDateExact,
+        gpa: boundedText(item.gpa, 20),
+      };
+    })
     .filter((item) => item.school || item.degree || item.fieldOfStudy);
 }
 
@@ -421,7 +429,10 @@ function normalizeProfileData(data: ProfileData): ProfileData {
   profile.homeCountry = boundedText(profile.homeCountry, 200);
   profile.additionalWebsites = normalizeWebsites(profile.additionalWebsites);
   profile.educationStartDate = monthValue(profile.educationStartDate);
-  profile.graduationDate = monthValue(profile.graduationDate);
+  profile.graduationDateExact = dateValue(profile.graduationDateExact);
+  profile.graduationDate =
+    profile.graduationDateExact.slice(0, 7) ||
+    monthValue(profile.graduationDate);
   profile.additionalEducation = normalizeEducationEntries(
     profile.additionalEducation,
   );
@@ -434,7 +445,7 @@ function normalizeProfileData(data: ProfileData): ProfileData {
   profile.compensationFrequency = boundedText(profile.compensationFrequency, 80);
   profile.availableStartDate = dateValue(profile.availableStartDate);
   profile.noticePeriod = boundedText(profile.noticePeriod, 200);
-  profile.willingToRelocate = triState(profile.willingToRelocate);
+  profile.willingToRelocate = triState(profile.willingToRelocate) ?? true;
   profile.willingToTravel = triState(profile.willingToTravel);
   profile.maxTravelPercentage =
     profile.willingToTravel === false

@@ -132,11 +132,15 @@ export const commonQuestionCorpus: CommonQuestionCase[] = [
   question("education", "school", "text", "College or university name"),
   question("education", "school", "combobox", "Educational institution attended"),
   question("education", "degree", "select", "Highest qualification earned"),
+  question("education", "degree", "choice", "What is your degree level?", {
+    optionTexts: ["Bachelor of Science", "Master of Science"],
+  }),
   question("education", "degree", "combobox", "What academic degree did you receive?"),
   question("education", "fieldOfStudy", "text", "Major / Area of Study"),
   question("education", "fieldOfStudy", "combobox", "Academic program or concentration"),
   question("education", "educationStartDate", "date", "When did you begin school?"),
   question("education", "graduationDate", "text", "Expected completion month and year"),
+  question("education", "graduationDate", "date", "Exact graduation date"),
   question("education", "certifications", "textarea", "Licenses, certificates, or professional credentials"),
   question("education", "undergraduateGpa", "text", "Bachelor's cumulative GPA"),
   question("education", "graduateGpa", "text", "Master's cumulative GPA"),
@@ -228,6 +232,30 @@ export const commonQuestionCorpus: CommonQuestionCase[] = [
   question("availability", "willingToRelocate", "choice", "Would you be open to relocating?", {
     optionTexts: yesNo,
   }),
+  question("availability", "willingToRelocate", "choice", "Can you relocate if needed?", {
+    optionTexts: yesNo,
+  }),
+  question(
+    "availability",
+    "officeWorkWillingness",
+    "choice",
+    "Are you able to work from our office?",
+    { optionTexts: yesNo },
+  ),
+  question(
+    "availability",
+    "officeWorkWillingness",
+    "select",
+    "Can you work on-site 3 days per week?",
+    { optionTexts: yesNo },
+  ),
+  question(
+    "availability",
+    "officeWorkWillingness",
+    "choice",
+    "Are you willing to work a hybrid schedule?",
+    { optionTexts: yesNo },
+  ),
   question("availability", "willingToTravel", "choice", "Are you able and willing to travel?", {
     optionTexts: yesNo,
   }),
@@ -252,6 +280,9 @@ export const commonQuestionCorpus: CommonQuestionCase[] = [
   question("requirements", "citizenshipStatus", "select", "Current nationality / citizenship status"),
 
   question("demographics", "pronouns", "select", "Which pronouns should we use for you?"),
+  question("demographics", "pronouns", "choice", "What are your pronouns?", {
+    optionTexts: ["She / Her / Hers", "He / Him / His", "They / Them / Theirs"],
+  }),
   question("demographics", "gender", "select", "How do you self-describe your gender identity?"),
   question("demographics", "transgenderStatus", "choice", "Do you identify as transgender?", {
     optionTexts: yesNo,
@@ -313,9 +344,23 @@ export const guardedQuestionCorpus = [
   question("guard", "none", "choice", "Are you younger than 18?", {
     optionTexts: yesNo,
   }),
-  question("guard", "none", "choice", "Are you not willing to relocate?", {
+  question("guard", "none", "choice", "Where are you willing to relocate?", {
     optionTexts: yesNo,
   }),
+  question("guard", "none", "select", "Preferred office location"),
+  question("guard", "none", "choice", "Are you available weekends?", {
+    optionTexts: yesNo,
+  }),
+  question("guard", "none", "choice", "Can you travel?", {
+    optionTexts: yesNo,
+  }),
+  question(
+    "guard",
+    "none",
+    "choice",
+    "I certify that I reviewed the hybrid work policy.",
+    { optionTexts: yesNo },
+  ),
   question("guard", "none", "choice", "Do you not identify as transgender?", {
     optionTexts: yesNo,
   }),

@@ -371,6 +371,25 @@ export default function ProfilePage() {
     updateProfile((current) => ({ ...current, [key]: value }));
   }
 
+  function setGraduationMonth(value: string) {
+    updateProfile((current) => ({
+      ...current,
+      graduationDate: value,
+      graduationDateExact:
+        current.graduationDateExact?.slice(0, 7) === value
+          ? current.graduationDateExact
+          : "",
+    }));
+  }
+
+  function setExactGraduationDate(value: string) {
+    updateProfile((current) => ({
+      ...current,
+      graduationDate: value ? value.slice(0, 7) : current.graduationDate,
+      graduationDateExact: value,
+    }));
+  }
+
   async function reloadResumeAssetStatus(): Promise<ResumeAssetStatus | null> {
     const asset = await loadResumeAssetStatus();
     setResumeAsset(asset);
@@ -973,14 +992,29 @@ export default function ProfilePage() {
                     }
                   />
                 </FieldShell>
-                <FieldShell label="Graduation date">
+                <FieldShell
+                  label="Graduation month"
+                  hint="Month-only records remain supported for forms that do not ask for a day."
+                >
                   <input
-                    aria-label="Graduation date"
+                    aria-label="Graduation month"
                     type="month"
                     className={cls.input}
                     value={profile.graduationDate ?? ""}
+                    onChange={(event) => setGraduationMonth(event.target.value)}
+                  />
+                </FieldShell>
+                <FieldShell
+                  label="Exact graduation date"
+                  hint="Optional. Used only when an application requires a specific day; autofill never invents one."
+                >
+                  <input
+                    aria-label="Exact graduation date"
+                    type="date"
+                    className={cls.input}
+                    value={profile.graduationDateExact ?? ""}
                     onChange={(event) =>
-                      setField("graduationDate", event.target.value)
+                      setExactGraduationDate(event.target.value)
                     }
                   />
                 </FieldShell>

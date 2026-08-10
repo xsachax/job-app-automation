@@ -17,8 +17,17 @@
     "raceEthnicity",
     "veteranStatus"
   ]);
+  const explicitChoiceFieldKeys = new Set([
+    ...consequentialChoiceFieldKeys,
+    "degree",
+    "heardAboutJob",
+    "pronouns"
+  ]);
+  const workplaceChoiceFieldKeys = new Set([
+    "officeWorkWillingness",
+    "willingToRelocate"
+  ]);
   const directChoiceNegationKeys = new Set([
-    "willingToRelocate",
     "willingToTravel",
     "isAtLeast18",
     "citizenshipStatus",
@@ -174,6 +183,7 @@
     province: "region",
     relocating: "relocate",
     relocation: "relocate",
+    onsite: "on site",
     regions: "region",
     role: "job",
     salary: "compensation",
@@ -270,7 +280,8 @@
       "b s",
       "ba",
       "b a",
-      "bsc"
+      "bsc",
+      "b sc"
     ],
     "masters degree": [
       "master",
@@ -285,10 +296,27 @@
       "m s",
       "ma",
       "m a",
-      "msc"
+      "msc",
+      "m sc"
     ],
-    doctorate: ["doctorate", "doctoral degree", "phd", "ph d"],
-    "associate degree": ["associate", "associates", "associate s", "associate degree"],
+    doctorate: [
+      "doctorate",
+      "doctoral",
+      "doctoral degree",
+      "doctor of philosophy",
+      "phd",
+      "ph d"
+    ],
+    "associate degree": [
+      "associate",
+      "associates",
+      "associate s",
+      "associate degree",
+      "associate of arts",
+      "associate of science",
+      "aa",
+      "as"
+    ],
     "high school diploma": [
       "high school",
       "high school diploma",
@@ -341,10 +369,15 @@
       "i don t want to answer",
       "i prefer not to answer"
     ],
-    "he him": ["he him", "he him his"],
-    "she her": ["she her", "she her hers"],
-    "they them": ["they them", "they them theirs"],
-    "use my name": ["use my name", "name only", "use name only"],
+    "he him": ["he him", "he him his", "he his"],
+    "she her": ["she her", "she her hers", "she hers"],
+    "they them": ["they them", "they them theirs", "they theirs"],
+    "use my name": [
+      "use my name",
+      "name only",
+      "use name only",
+      "please use my name"
+    ],
     woman: ["woman", "female", "cisgender woman"],
     man: ["man", "male", "cisgender man"],
     "non binary": [
@@ -543,12 +576,7 @@
     "saskatchewan",
     "yukon"
   ]);
-  const safeFallbackFieldKeys = new Set([
-    "degree",
-    "fieldOfStudy",
-    "heardAboutJob",
-    "school"
-  ]);
+  const safeFallbackFieldKeys = new Set(["fieldOfStudy", "school"]);
 
   function normalizeText(value) {
     return String(value || "")
@@ -563,9 +591,232 @@
       .replace(/\s+/g, " ");
   }
 
+  function primaryQuestionText(signals) {
+    const primarySources = new Set(["aria", "label", "nearby", "prompt"]);
+    return (signals || [])
+      .filter((signal) => primarySources.has(signal.source))
+      .sort((left, right) => Number(right.weight || 0) - Number(left.weight || 0))
+      .map((signal) => String(signal.text || "").trim())
+      .find(Boolean) || "";
+  }
+
+  function interrogativeClause(value) {
+    const rawPrompt = String(value || "").trim();
+    const questionLead = rawPrompt.search(/\b(?:are|would|can|could) you\b/i);
+    const leadPrefix =
+      questionLead > 0 ? rawPrompt.slice(0, questionLead) : "";
+    const prompt =
+      questionLead >= 0 &&
+      !/\b(?:where|what|which)\b/i.test(leadPrefix)
+        ? rawPrompt.slice(questionLead)
+        : rawPrompt;
+    const questionMark = prompt.indexOf("?");
+    if (questionMark >= 0) {
+      return prompt.slice(0, questionMark + 1);
+    }
+    const boundary = prompt.search(
+      /\s*\(|[.!;:]\s+|\s+(?:—|–|-)\s+|[\r\n]+/
+    );
+    return boundary > 0 ? prompt.slice(0, boundary) : prompt;
+  }
+
+  function workplaceIntent(signals) {
+    const question = normalizeText(
+      interrogativeClause(primaryQuestionText(signals))
+    );
+    if (
+      !question ||
+      /\b(?:where|what|which) (?:office|location|place|city|region|country)\b/.test(
+        question
+      ) ||
+      /\b(?:where|what|which)\b.{0,32}\brelocat/.test(question) ||
+      /\b(?:preferred|desired|current) (?:office|workplace|location|city)\b/.test(
+        question
+      ) ||
+      /\b(?:travel|weekends?|overtime|night shifts?|on call)\b/.test(question) ||
+      /\b(?:remote preference|prefer remote|work from home preference)\b/.test(
+        question
+      ) ||
+      /\b(?:certif|attest|acknowledge|policy|job description)\b/.test(question)
+    ) {
+      return null;
+    }
+
+    const contradictory =
+      /\b(?:willing or unwilling|able or unable|can or cannot|can t and can|not unwilling|not unable)\b/.test(
+        question
+      );
+    if (contradictory) {
+      return null;
+    }
+    const negativePattern =
+      /\b(?:(?:can|could|would) you not|not (?:willing|able|available|prepared|open)|unwilling|unable|cannot|can t)\b/;
+    const relocationEvidence =
+      question.match(
+        /\b(?:are|would) you\b.{0,32}\b(?:willing|unwilling|open|able|unable|available)\b.{0,24}\b(?:to )?relocat/
+      )?.[0] || question.match(/\bcan you\b.{0,24}\brelocat/)?.[0];
+    if (relocationEvidence) {
+      return {
+        kind: "relocation",
+        negative: negativePattern.test(relocationEvidence)
+      };
+    }
+
+    const officeTarget =
+      /\b(?:office|on site|hybrid)\b/.test(question);
+    const officeEvidence =
+      officeTarget &&
+      (question.match(
+        /\b(?:are|would) you\b.{0,32}\b(?:willing|unwilling|able|unable|available)\b.{0,24}\bwork\b/
+      )?.[0] || question.match(/\bcan you\b.{0,24}\bwork\b/)?.[0]);
+    return officeEvidence
+      ? { kind: "office", negative: negativePattern.test(officeEvidence) }
+      : null;
+  }
+
+  function workplaceDefinitionMatches(definition, signals) {
+    if (!workplaceChoiceFieldKeys.has(definition.key)) {
+      return true;
+    }
+    const intent = workplaceIntent(signals);
+    if (!intent) {
+      return false;
+    }
+    return intent.kind ===
+      (definition.key === "willingToRelocate" ? "relocation" : "office");
+  }
+
   function tokens(value) {
     const normalized = normalizeText(value);
     return normalized ? normalized.split(" ") : [];
+  }
+
+  function canonicalPronounChoice(normalized) {
+    if (!normalized) {
+      return "";
+    }
+    if (isDeclineChoice(normalized)) {
+      return "prefer not to answer";
+    }
+    if (
+      /^(?:other|other pronouns|self describe|prefer to self describe|pronouns not listed)$/.test(
+        normalized
+      )
+    ) {
+      return "other";
+    }
+    if (/\b(?:use|using|please use)\b.{0,16}\b(?:my )?name\b|\bname only\b/.test(normalized)) {
+      return "use my name";
+    }
+    const families = [
+      ["he him", /\bhe\b.{0,16}\bhim\b/],
+      ["she her", /\bshe\b.{0,16}\bher\b/],
+      ["they them", /\bthey\b.{0,16}\bthem\b/]
+    ].filter(([, pattern]) => pattern.test(normalized));
+    return families.length === 1 ? families[0][0] : "";
+  }
+
+  function degreeIdentity(value) {
+    const normalized = normalizeText(value);
+    if (!normalized) {
+      return null;
+    }
+    if (isDeclineChoice(normalized)) {
+      return { level: "prefer not to answer", family: "" };
+    }
+    if (/^(?:other|other degree|degree not listed|not listed)$/.test(normalized)) {
+      return { level: "other", family: "" };
+    }
+    const aliases = [
+      ["doctorate", choiceAliases.doctorate],
+      ["masters degree", choiceAliases["masters degree"]],
+      ["bachelors degree", choiceAliases["bachelors degree"]],
+      ["associate degree", choiceAliases["associate degree"]],
+      ["high school diploma", choiceAliases["high school diploma"]]
+    ];
+    const match =
+      aliases.find(([, values]) => values.includes(normalized)) ||
+      (/(\bdoctor(?:ate|al)\b|\bdoctor of philosophy\b|\bph\s*d\b)/.test(
+        normalized
+      )
+        ? ["doctorate"]
+        : /\bmaster(?:s| s)?(?: degree| of (?:science|arts))?\b/.test(normalized)
+          ? ["masters degree"]
+          : /\bbachelor(?:s| s)?(?: degree| of (?:science|arts))?\b/.test(
+                normalized
+              )
+            ? ["bachelors degree"]
+            : /\bassociate(?:s| s)?(?: degree| of (?:science|arts))?\b/.test(
+                  normalized
+                )
+              ? ["associate degree"]
+              : /\bhigh school\b/.test(normalized)
+                ? ["high school diploma"]
+                : null);
+    if (!match) {
+      return null;
+    }
+    let family = "";
+    if (
+      /\b(?:bachelor|master) of science\b|^(?:bs|b s|bsc|b sc|ms|m s|msc|m sc)$/.test(
+        normalized
+      )
+    ) {
+      family = "science";
+    } else if (
+      /\b(?:bachelor|master) of arts\b|^(?:ba|b a|ma|m a)$/.test(normalized)
+    ) {
+      family = "arts";
+    }
+    return { level: match[0], family };
+  }
+
+  function scoreDegreeChoice(savedValue, optionValue, optionLabel) {
+    const saved = degreeIdentity(savedValue);
+    if (!saved) {
+      return 0;
+    }
+    const candidates = [optionLabel, optionValue]
+      .map(degreeIdentity)
+      .filter(Boolean);
+    return Math.max(
+      0,
+      ...candidates.map((candidate) => {
+        if (candidate.level !== saved.level) {
+          return 0;
+        }
+        if (["other", "prefer not to answer"].includes(saved.level)) {
+          return 100;
+        }
+        if (!saved.family) {
+          return 100;
+        }
+        if (saved.family && candidate.family) {
+          return saved.family === candidate.family ? 100 : 0;
+        }
+        return 94;
+      })
+    );
+  }
+
+  function scorePronounChoice(savedValue, optionValue, optionLabel) {
+    const savedNormalized = normalizeText(savedValue);
+    if (!savedNormalized) {
+      return 0;
+    }
+    const saved = canonicalPronounChoice(savedNormalized);
+    const candidates = [optionLabel, optionValue]
+      .map((value) => ({
+        canonical: canonicalPronounChoice(normalizeText(value)),
+        normalized: normalizeText(value)
+      }))
+      .filter((candidate) => candidate.normalized);
+    if (saved) {
+      return candidates.some((candidate) => candidate.canonical === saved) ? 100 : 0;
+    }
+    return candidates.some((candidate) => candidate.normalized === savedNormalized)
+      ? 100
+      : 0;
   }
 
   function semanticTokens(value, preserveRequirement = false) {
@@ -579,6 +830,7 @@
       ) {
         return [];
       }
+
       seen.add(token);
       return [token];
     });
@@ -1115,6 +1367,24 @@
     return value === "yes" ? "no" : value === "no" ? "yes" : "";
   }
 
+  function resolveWorkplaceAnswer(definitionKey, signals, profile) {
+    const intent = workplaceIntent(signals);
+    if (
+      !workplaceChoiceFieldKeys.has(definitionKey) ||
+      !intent ||
+      intent.kind !==
+        (definitionKey === "willingToRelocate" ? "relocation" : "office")
+    ) {
+      return "";
+    }
+    const configured =
+      definitionKey === "willingToRelocate"
+        ? canonicalChoice(profile?.willingToRelocate, definitionKey)
+        : "yes";
+    const answer = ["yes", "no"].includes(configured) ? configured : "yes";
+    return intent.negative ? invertYesNo(answer) : answer;
+  }
+
   function resolveEligibilityAnswer(definitionKey, signals, profile) {
     const intent = eligibilityIntent(signals);
     if (!eligibilityFieldKeys.has(definitionKey) || !intent) {
@@ -1345,6 +1615,7 @@
       !availableStartDateDefinitionMatches(definition, context.signals) ||
       !ageDefinitionMatches(definition, context.signals) ||
       !canPerformDefinitionMatches(definition, context.signals) ||
+      !workplaceDefinitionMatches(definition, context.signals) ||
       hasUnsupportedChoiceNegation(definition, context.signals)
     ) {
       return 0;
@@ -1521,6 +1792,12 @@
   function canonicalChoice(value, fieldKey) {
     const normalized = normalizeText(value);
 
+    if (fieldKey === "pronouns") {
+      const pronouns = canonicalPronounChoice(normalized);
+      if (pronouns) {
+        return pronouns;
+      }
+    }
     if (fieldKey === "raceEthnicity") {
       const race = canonicalRaceChoice(normalized);
       if (race) {
@@ -1852,6 +2129,12 @@
   }
 
   function scoreChoice(savedValue, optionValue, optionLabel, fieldKey) {
+    if (fieldKey === "degree") {
+      return scoreDegreeChoice(savedValue, optionValue, optionLabel);
+    }
+    if (fieldKey === "pronouns") {
+      return scorePronounChoice(savedValue, optionValue, optionLabel);
+    }
     if (["city", "location", "preferredOfficeLocations"].includes(fieldKey)) {
       if (fieldKey === "preferredOfficeLocations") {
         const remoteScore = scoreRemoteOfficePreference(
@@ -1965,7 +2248,7 @@
   }
 
   function requiresExplicitChoice(fieldKey) {
-    return consequentialChoiceFieldKeys.has(fieldKey);
+    return explicitChoiceFieldKeys.has(fieldKey);
   }
 
   function scoreSafeFallback(fieldKey, optionValue, optionLabel) {
@@ -2001,8 +2284,10 @@
     analyzeDefinition,
     findBestDefinition,
     eligibilityIntent,
+    workplaceIntent,
     equivalentCandidateMatch,
     resolveEligibilityAnswer,
+    resolveWorkplaceAnswer,
     resolvePreviousEmployerAnswer,
     canonicalChoice,
     choiceSearchQueries,

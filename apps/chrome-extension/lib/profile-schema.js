@@ -563,8 +563,15 @@
         "qualification earned"
       ],
       exactAliases: ["degree"],
-      excludeAliases: ["degree discipline", "degree field"],
-      controls: ["text", "select", "combobox"]
+      excludeAliases: [
+        "degree discipline",
+        "degree field",
+        "field of study",
+        "degree completion status",
+        "degree completed",
+        "degree gpa"
+      ],
+      controls: ["text", "choice", "select", "combobox"]
     },
     {
       key: "degreeOther",
@@ -643,7 +650,15 @@
         "graduation month and year",
         "expected completion month and year"
       ],
-      controls: ["text", "select", "combobox"]
+      controls: ["text", "date", "select", "combobox"]
+    },
+    {
+      key: "graduationDateExact",
+      label: "Exact graduation date",
+      group: "education",
+      input: "date",
+      aliases: [],
+      controls: []
     },
     {
       key: "graduationMonth",
@@ -798,7 +813,7 @@
         "where did you discover this opening",
         "recruiting source"
       ],
-      controls: ["text", "select", "combobox"]
+      controls: ["text", "choice", "select", "combobox"]
     },
     {
       key: "heardAboutJobOther",
@@ -949,7 +964,34 @@
       aliases: [
         "willing to relocate",
         "open to relocation",
-        "relocation willingness"
+        "relocation willingness",
+        "can you relocate",
+        "relocate if needed",
+        "able to relocate",
+        "unable to relocate",
+        "unwilling to relocate",
+        "not willing to relocate"
+      ],
+      controls: ["choice", "select", "combobox"]
+    },
+    {
+      key: "officeWorkWillingness",
+      label: "Ability and willingness to work in an office",
+      group: "eligibility",
+      stored: false,
+      input: "select",
+      aliases: [
+        "able to work from our office",
+        "able to work from the office",
+        "unable to work from our office",
+        "not able to work from our office",
+        "can you work from our office",
+        "can you work on site",
+        "can you work onsite",
+        "willing to work on site",
+        "willing to work onsite",
+        "willing to work a hybrid schedule",
+        "able to work a hybrid schedule"
       ],
       controls: ["choice", "select", "combobox"]
     },
@@ -1419,10 +1461,39 @@
     return { countryCode, national };
   }
 
-  function graduationParts(value) {
-    const match = String(value || "").trim().match(/^(\d{4})-(0[1-9]|1[0-2])$/);
+  function validExactDate(value) {
+    const match = String(value || "")
+      .trim()
+      .match(/^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/);
     if (!match) {
-      return { date: "", input: "", month: "", year: "" };
+      return "";
+    }
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return date.getUTCFullYear() === year &&
+      date.getUTCMonth() === month - 1 &&
+      date.getUTCDate() === day
+      ? match[0]
+      : "";
+  }
+
+  function graduationParts(value, exactValue) {
+    const exact = validExactDate(exactValue);
+    const monthInput = exact
+      ? exact.slice(0, 7)
+      : String(value || "").trim();
+    const match = monthInput.match(/^(\d{4})-(0[1-9]|1[0-2])$/);
+    if (!match) {
+      return {
+        date: "",
+        exact: "",
+        exactText: "",
+        input: "",
+        month: "",
+        year: ""
+      };
     }
     const months = [
       "January",
@@ -1441,7 +1512,11 @@
     const month = months[Number(match[2]) - 1];
     return {
       date: `${month} ${match[1]}`,
-      input: match[0],
+      exact,
+      exactText: exact
+        ? `${exact.slice(5, 7)}/${exact.slice(8, 10)}/${exact.slice(0, 4)}`
+        : "",
+      input: monthInput,
       month,
       year: match[1]
     };
@@ -1504,7 +1579,20 @@
         : "";
     const locationValues = locationParts(location);
     const phoneValues = phoneParts(profile.phone, country);
-    const graduationValues = graduationParts(profile.graduationDate);
+    const graduationValues = graduationParts(
+      profile.graduationDate,
+      profile.graduationDateExact
+    );
+    const relocationChoice =
+      profile.willingToRelocate === false
+        ? "no"
+        : profile.willingToRelocate === true
+          ? "yes"
+          : ["yes", "no"].includes(
+                String(profile.willingToRelocate || "").trim().toLowerCase()
+              )
+            ? String(profile.willingToRelocate).trim().toLowerCase()
+            : "yes";
 
     return {
       ...profile,
@@ -1536,7 +1624,11 @@
         String(profile.caCitizenshipStatus || "").trim() === "Other"
           ? String(profile.caCitizenshipStatusOther || "").trim()
           : "",
+      willingToRelocate: relocationChoice,
+      officeWorkWillingness: "yes",
       graduationDate: graduationValues.date,
+      graduationDateExact: graduationValues.exact,
+      graduationDateExactText: graduationValues.exactText,
       graduationDateInput: graduationValues.input,
       graduationMonth: graduationValues.month,
       graduationYear: graduationValues.year,
@@ -1573,6 +1665,7 @@
         fieldOfStudy: 300,
         startDate: 7,
         graduationDate: 7,
+        graduationDateExact: 10,
         gpa: 20
       }
     },
@@ -1632,6 +1725,13 @@
             ].includes(key) &&
             value &&
             !/^\d{4}-(?:0[1-9]|1[0-2])$/.test(value)
+          ) {
+            value = "";
+          }
+          if (
+            key === "graduationDateExact" &&
+            value &&
+            !validExactDate(value)
           ) {
             value = "";
           }
@@ -1737,6 +1837,13 @@
         ["graduationDate", "educationStartDate"].includes(field.key) &&
         value &&
         !/^\d{4}-(?:0[1-9]|1[0-2])$/.test(value)
+      ) {
+        value = "";
+      }
+      if (
+        field.key === "graduationDateExact" &&
+        value &&
+        !validExactDate(value)
       ) {
         value = "";
       }

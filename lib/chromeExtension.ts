@@ -102,6 +102,7 @@ export interface AutofillEducationEntry {
   fieldOfStudy: string;
   startDate: string;
   graduationDate: string;
+  graduationDateExact: string;
   gpa: string;
 }
 
@@ -168,6 +169,7 @@ export interface AutofillProfile {
   fieldOfStudy: string;
   educationStartDate: string;
   graduationDate: string;
+  graduationDateExact: string;
   educationEntries: AutofillEducationEntry[];
   workExperiences: AutofillWorkExperience[];
   relevantExperienceYears: string;
@@ -311,6 +313,7 @@ function primaryEducation(profile: ProfileData): AutofillEducationEntry | null {
     fieldOfStudy,
     startDate: text(profile.educationStartDate),
     graduationDate: text(profile.graduationDate),
+    graduationDateExact: text(profile.graduationDateExact),
     gpa,
   };
 }
@@ -327,6 +330,7 @@ function educationEntries(profile: ProfileData): AutofillEducationEntry[] {
       fieldOfStudy: text(entry.fieldOfStudy),
       startDate: text(entry.startDate),
       graduationDate: text(entry.graduationDate),
+      graduationDateExact: text(entry.graduationDateExact),
       gpa: text(entry.gpa),
     })),
   ];
@@ -435,6 +439,7 @@ export function buildAutofillProfile(
     fieldOfStudy: text(profile.fieldOfStudy),
     educationStartDate: text(profile.educationStartDate),
     graduationDate: text(profile.graduationDate),
+    graduationDateExact: text(profile.graduationDateExact),
     educationEntries: educationEntries(profile),
     workExperiences,
     relevantExperienceYears: numberText(profile.relevantExperienceYears),
@@ -472,7 +477,10 @@ export function buildAutofillProfile(
     compensationFrequency: text(profile.compensationFrequency),
     availableStartDate: text(profile.availableStartDate),
     noticePeriod: text(profile.noticePeriod),
-    willingToRelocate: choice(profile.willingToRelocate),
+    willingToRelocate:
+      profile.willingToRelocate == null
+        ? "yes"
+        : choice(profile.willingToRelocate),
     willingToTravel: choice(profile.willingToTravel),
     maxTravelPercentage: text(profile.maxTravelPercentage),
     isAtLeast18: choice(profile.isAtLeast18),
