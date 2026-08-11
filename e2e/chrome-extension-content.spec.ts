@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import {
   installContentPanel,
   invokeAutofill,
+  invokePanel,
 } from "./helpers/chrome-extension-harness";
 
 test("section headings prevent applicant data from filling reference fields", async ({
@@ -69,6 +70,68 @@ test("disabling the extension cancels an in-flight profile fill", async ({ page 
 
   expect(result).toMatchObject({ ok: false });
   await expect(page.locator("#applicant-email")).toHaveValue("");
+});
+
+test("closing the panel cancels an in-flight fill before embedded work starts", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `<label>Email address <input id="applicant-email" autocomplete="email" required></label>`,
+    profile: { email: "applicant@example.com" },
+    deferProfile: true,
+    requiredByDefault: false,
+    revealPanel: true,
+  });
+
+  await page.evaluate(() => {
+    const runtime = (
+      globalThis as unknown as {
+        chrome: {
+          runtime: {
+            sendMessage(message: { type: string }): Promise<unknown>;
+          };
+        };
+      }
+    ).chrome.runtime;
+    const sendMessage = runtime.sendMessage.bind(runtime);
+    runtime.sendMessage = (message) => {
+      if (message.type === "JOB_AUTOFILL_FILL_EMBEDDED") {
+        document.body.dataset.embeddedFillStarted = "true";
+      }
+      return sendMessage(message);
+    };
+  });
+
+  const panel = page.locator("#job-autofill-extension-panel");
+  await panel
+    .getByRole("button", { name: "Autofill required fields" })
+    .click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (
+            globalThis as unknown as {
+              __panelHarness: { profileRequested: boolean };
+            }
+          ).__panelHarness.profileRequested,
+      ),
+    )
+    .toBe(true);
+  await panel.getByRole("button", { name: "Close panel" }).click();
+  await page.evaluate(() => {
+    (
+      globalThis as unknown as {
+        __panelHarness: { resolveProfile(): void };
+      }
+    ).__panelHarness.resolveProfile();
+  });
+
+  await page.waitForTimeout(300);
+  await expect(page.locator("#applicant-email")).toHaveValue("");
+  await expect(page.locator("body")).not.toHaveAttribute(
+    "data-embedded-fill-started",
+  );
 });
 
 test("cancelled combobox fill preserves newer user input", async ({ page }) => {
@@ -173,6 +236,131 @@ test("preserves prefilled editable comboboxes without aria-expanded", async ({
   await expect(page.locator("#source-popup")).toHaveValue("Employee referral");
   await expect(page.locator("body")).not.toHaveAttribute("data-combobox-clicks");
   await expect(page.locator("body")).not.toHaveAttribute("data-combobox-inputs");
+});
+
+test("does not retry a committed button combobox across autofill passes", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `
+      <div class="application-question">
+        <label id="source-label">How did you hear about us? *</label>
+        <div class="select-shell">
+          <button
+            id="source"
+            type="button"
+            role="combobox"
+            aria-labelledby="source-label"
+            aria-expanded="false"
+            aria-required="true"
+          >Choose source</button>
+        </div>
+        <div id="source-options" role="listbox" hidden>
+          <div id="linkedin-option" role="option" data-value="linkedin">LinkedIn</div>
+        </div>
+      </div>
+      <script>
+        const source = document.getElementById("source");
+        const listbox = document.getElementById("source-options");
+        source.addEventListener("click", () => {
+          source.setAttribute("aria-expanded", "true");
+          listbox.hidden = false;
+        });
+        document.getElementById("linkedin-option").addEventListener("click", (event) => {
+          const selected = document.createElement("div");
+          selected.className = "select__single-value";
+          selected.textContent = event.currentTarget.textContent;
+          source.parentElement.querySelector(".select__single-value")?.remove();
+          source.before(selected);
+          source.setAttribute("aria-expanded", "false");
+          listbox.hidden = true;
+          document.body.dataset.optionClicks = String(
+            Number(document.body.dataset.optionClicks || "0") + 1,
+          );
+        });
+      </script>
+    `,
+    profile: { heardAboutJob: "LinkedIn" },
+    requiredByDefault: false,
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 1 });
+  await expect(page.locator(".select__single-value")).toHaveText("LinkedIn");
+  await expect(page.locator("body")).toHaveAttribute("data-option-clicks", "1");
+});
+
+test("preserves an explicit None combobox selection", async ({ page }) => {
+  await installContentPanel(page, {
+    html: `
+      <div class="application-question">
+        <label id="source-label">How did you hear about us? *</label>
+        <button
+          id="source"
+          type="button"
+          role="combobox"
+          aria-labelledby="source-label"
+          aria-required="true"
+          data-value="none"
+        >None</button>
+        <script>
+          document.getElementById("source").addEventListener("click", () => {
+            document.body.dataset.sourceClicked = "true";
+          });
+        </script>
+      </div>
+    `,
+    profile: { heardAboutJob: "LinkedIn" },
+    requiredByDefault: false,
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 0 });
+  await expect(page.locator("#source")).toHaveAttribute("data-value", "none");
+  await expect(page.locator("body")).not.toHaveAttribute("data-source-clicked");
+});
+
+test("fills combobox options mounted in a shadow root after opening", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `
+      <div class="application-question">
+        <label id="source-label">How did you hear about us? *</label>
+        <button
+          id="source"
+          type="button"
+          role="combobox"
+          aria-labelledby="source-label"
+          aria-expanded="false"
+          aria-required="true"
+        >Choose source</button>
+      </div>
+      <script>
+        const source = document.getElementById("source");
+        source.addEventListener("click", () => {
+          if (document.getElementById("popup-host")) return;
+          const host = document.createElement("div");
+          host.id = "popup-host";
+          const shadow = host.attachShadow({ mode: "open" });
+          shadow.innerHTML = '<div role="listbox"><button type="button" role="option" data-value="linkedin">LinkedIn</button></div>';
+          shadow.querySelector("[role=option]").addEventListener("click", (event) => {
+            source.setAttribute("aria-valuetext", event.currentTarget.textContent);
+            source.setAttribute("aria-expanded", "false");
+            host.remove();
+          });
+          document.body.append(host);
+          source.setAttribute("aria-expanded", "true");
+        });
+      </script>
+    `,
+    profile: { heardAboutJob: "LinkedIn" },
+    requiredByDefault: false,
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 1 });
+  await expect(page.locator("#source")).toHaveAttribute(
+    "aria-valuetext",
+    "LinkedIn",
+  );
 });
 
 test("does not count an extension-owned query without aria-expanded as answered", async ({
@@ -1606,6 +1794,449 @@ test("rescans fields added by a hydrated application step", async ({ page }) => 
   await expect(page.locator("#hydrated-email")).toHaveValue(
     "applicant@example.com",
   );
+});
+
+test("rescans controls added inside wrapped shadow roots and frames", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `<main id="application"></main>`,
+    profile: { email: "applicant@example.com" },
+    profileAvailability: { email: true },
+    requiredByDefault: false,
+    revealPanel: true,
+  });
+
+  const panel = page.locator("#job-autofill-extension-panel");
+  await page.evaluate(() => {
+    const wrapper = document.createElement("section");
+    wrapper.id = "shadow-wrapper";
+    const host = document.createElement("div");
+    const shadow = host.attachShadow({ mode: "open" });
+    shadow.innerHTML =
+      '<label>Primary email <input autocomplete="email" required></label>';
+    wrapper.append(host);
+    document.querySelector("#application")?.append(wrapper);
+  });
+  await expect(panel.locator("[data-ready-count]")).toHaveText("1");
+
+  await page.locator("#shadow-wrapper").evaluate((wrapper: HTMLElement) => {
+    wrapper.style.display = "none";
+  });
+  await expect(panel.locator("[data-progress-label]")).toHaveText(
+    "0 of 0 answered",
+  );
+  await page.locator("#shadow-wrapper").evaluate((wrapper: HTMLElement) => {
+    wrapper.style.display = "";
+  });
+  await expect(panel.locator("[data-ready-count]")).toHaveText("1");
+
+  await page.evaluate(() => {
+    const wrapper = document.createElement("section");
+    const frame = document.createElement("iframe");
+    frame.srcdoc =
+      '<label>Backup email <input autocomplete="email" required></label>';
+    wrapper.append(frame);
+    document.querySelector("#application")?.append(wrapper);
+  });
+  await expect(panel.locator("[data-ready-count]")).toHaveText("2");
+});
+
+test("rescans a shadow root attached to an existing host", async ({ page }) => {
+  await installContentPanel(page, {
+    html: `<main id="application"><div id="late-host"></div></main>`,
+    profile: { email: "applicant@example.com" },
+    profileAvailability: { email: true },
+    requiredByDefault: false,
+    revealPanel: true,
+  });
+
+  const panel = page.locator("#job-autofill-extension-panel");
+  await expect(panel.locator("[data-progress-label]")).toHaveText(
+    "0 of 0 answered",
+  );
+  await page.locator("#late-host").evaluate((host) => {
+    const shadow = host.attachShadow({ mode: "open" });
+    shadow.innerHTML =
+      '<label>Email address <input autocomplete="email" required></label>';
+  });
+  await expect(panel.locator("[data-ready-count]")).toHaveText("1");
+});
+
+test("uses one root walk per scan without panel self-rescans and ignores unrelated DOM churn", async ({
+  page,
+}) => {
+  const noise = Array.from(
+    { length: 1_500 },
+    (_, index) => `<span data-noise="${index}"></span>`,
+  ).join("");
+  await installContentPanel(page, {
+    html: `
+      <main id="application" data-automation-id="applicationPage">
+        <label>Email address <input id="email" autocomplete="email" required></label>
+      </main>
+      <aside id="noise">${noise}</aside>
+    `,
+    profile: { email: "applicant@example.com" },
+    requiredByDefault: false,
+    revealPanel: true,
+    url: "https://example.wd1.myworkdayjobs.com/en-US/job/test",
+  });
+
+  await page.evaluate(() => {
+    const metrics = { rootWalks: 0 };
+    const querySelectorAll = document.querySelectorAll.bind(document);
+    Object.defineProperty(document, "querySelectorAll", {
+      configurable: true,
+      value(selector: string) {
+        if (selector === "*") {
+          metrics.rootWalks += 1;
+        }
+        return querySelectorAll(selector);
+      },
+    });
+    Object.defineProperty(globalThis, "__autofillScanMetrics", {
+      configurable: true,
+      value: metrics,
+    });
+  });
+
+  await invokePanel(page, { type: "JOB_AUTOFILL_SCAN" });
+  await page.waitForTimeout(700);
+  expect(
+    await page.evaluate(
+      () =>
+        (
+          globalThis as unknown as {
+            __autofillScanMetrics: { rootWalks: number };
+          }
+        ).__autofillScanMetrics.rootWalks,
+    ),
+  ).toBe(1);
+
+  await page.evaluate(async () => {
+    const metrics = (
+      globalThis as unknown as {
+        __autofillScanMetrics: { rootWalks: number };
+      }
+    ).__autofillScanMetrics;
+    metrics.rootWalks = 0;
+    const fragment = document.createDocumentFragment();
+    for (let index = 0; index < 200; index += 1) {
+      const element = document.createElement("span");
+      element.className = `unrelated-pulse-${index}`;
+      element.style.opacity = String((index % 10) / 10);
+      fragment.append(element);
+    }
+    document.querySelector("#noise")?.append(fragment);
+    const application = document.querySelector("#application") as HTMLElement;
+    for (let index = 0; index < 3; index += 1) {
+      application.className = `workday-animation-${index}`;
+      application.style.transform = `translateX(${index}px)`;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+  });
+  await page.waitForTimeout(400);
+  expect(
+    await page.evaluate(
+      () =>
+        (
+          globalThis as unknown as {
+            __autofillScanMetrics: { rootWalks: number };
+          }
+        ).__autofillScanMetrics.rootWalks,
+    ),
+  ).toBe(0);
+
+  await page.evaluate(() => {
+    const input = document.createElement("input");
+    input.required = true;
+    document.querySelector("#application")?.append(input);
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (
+            globalThis as unknown as {
+              __autofillScanMetrics: { rootWalks: number };
+            }
+          ).__autofillScanMetrics.rootWalks,
+      ),
+    )
+    .toBe(1);
+
+  await page.evaluate(() => {
+    const metrics = (
+      globalThis as unknown as {
+        __autofillScanMetrics: { rootWalks: number };
+      }
+    ).__autofillScanMetrics;
+    metrics.rootWalks = 0;
+    const field = document.querySelector("#email")?.closest("label");
+    if (field instanceof HTMLElement) {
+      field.style.display = "none";
+    }
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (
+            globalThis as unknown as {
+              __autofillScanMetrics: { rootWalks: number };
+            }
+          ).__autofillScanMetrics.rootWalks,
+      ),
+    )
+    .toBe(1);
+});
+
+test("rescans meaningful control and question state changes", async ({ page }) => {
+  await installContentPanel(page, {
+    html: `
+      <section id="step">
+        <div id="question" class="application-question">
+          <label id="email-label" for="email">Email address</label>
+          <input id="email" aria-labelledby="email-label" required>
+        </div>
+      </section>
+    `,
+    profile: { email: "applicant@example.com" },
+    profileAvailability: { email: true },
+    requiredByDefault: false,
+    revealPanel: true,
+  });
+
+  const panel = page.locator("#job-autofill-extension-panel");
+  await expect(panel.locator("[data-ready-count]")).toHaveText("1");
+
+  await page.locator("#email").evaluate((input: HTMLInputElement) => {
+    input.required = false;
+  });
+  await expect(panel.locator("[data-progress-label]")).toHaveText(
+    "0 of 0 answered",
+  );
+
+  await page.locator("#step").evaluate((step) => {
+    step.setAttribute("data-required", "true");
+  });
+  await expect(panel.locator("[data-ready-count]")).toHaveText("1");
+
+  await page.locator("#step").evaluate((step) => {
+    step.removeAttribute("data-required");
+  });
+  await expect(panel.locator("[data-progress-label]")).toHaveText(
+    "0 of 0 answered",
+  );
+
+  await page.locator("#email").evaluate((input: HTMLInputElement) => {
+    input.required = true;
+    input.disabled = true;
+  });
+  await expect(panel.locator("[data-progress-label]")).toHaveText(
+    "0 of 0 answered",
+  );
+
+  await page.locator("#email").evaluate((input: HTMLInputElement) => {
+    input.disabled = false;
+  });
+  await expect(panel.locator("[data-ready-count]")).toHaveText("1");
+
+  await page.locator("#step").evaluate((step: HTMLElement) => {
+    step.style.display = "none";
+  });
+  await expect(panel.locator("[data-progress-label]")).toHaveText(
+    "0 of 0 answered",
+  );
+
+  await page.locator("#step").evaluate((step: HTMLElement) => {
+    step.style.display = "";
+  });
+  await expect(panel.locator("[data-ready-count]")).toHaveText("1");
+
+  await page.locator("#email-label").evaluate((label) => {
+    label.firstChild!.textContent = "Security clearance code *";
+  });
+  await expect(panel.locator("[data-ready-count]")).toHaveText("0");
+  await expect(panel.locator("[data-attention-count]")).toHaveText("1");
+});
+
+test("rescans text changes in standalone associated labels", async ({ page }) => {
+  await installContentPanel(page, {
+    html: `
+      <label id="email-label" for="email">Email address</label>
+      <input id="email" aria-labelledby="email-label" required>
+    `,
+    profile: { email: "applicant@example.com" },
+    profileAvailability: { email: true },
+    requiredByDefault: false,
+    revealPanel: true,
+  });
+
+  const panel = page.locator("#job-autofill-extension-panel");
+  await expect(panel.locator("[data-ready-count]")).toHaveText("1");
+
+  await page.locator("#email-label").evaluate((label) => {
+    label.firstChild!.textContent = "Security clearance code *";
+  });
+  await expect(panel.locator("[data-ready-count]")).toHaveText("0");
+  await expect(panel.locator("[data-attention-count]")).toHaveText("1");
+});
+
+test("rescans standalone labels added for existing controls", async ({ page }) => {
+  await installContentPanel(page, {
+    html: `<input id="candidate-response" required>`,
+    profile: { email: "applicant@example.com" },
+    profileAvailability: { email: true },
+    requiredByDefault: false,
+    revealPanel: true,
+  });
+
+  const panel = page.locator("#job-autofill-extension-panel");
+  await expect(panel.locator("[data-attention-count]")).toHaveText("1");
+  await page.evaluate(() => {
+    const label = document.createElement("label");
+    label.htmlFor = "candidate-response";
+    label.textContent = "Email address";
+    document.body.prepend(label);
+  });
+  await expect(panel.locator("[data-ready-count]")).toHaveText("1");
+  await expect(panel.locator("[data-attention-count]")).toHaveText("0");
+});
+
+test("close and teardown stop scans while reopening restores observers", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `
+      <main id="application">
+        <label>Email address <input id="email" autocomplete="email" required></label>
+      </main>
+      <iframe id="embedded" srcdoc="<p>Embedded application</p>"></iframe>
+    `,
+    profile: { email: "applicant@example.com" },
+    profileAvailability: { email: true },
+    requiredByDefault: false,
+    revealPanel: true,
+  });
+
+  await page.evaluate(() => {
+    const metrics = { rootWalks: 0 };
+    const querySelectorAll = document.querySelectorAll.bind(document);
+    Object.defineProperty(document, "querySelectorAll", {
+      configurable: true,
+      value(selector: string) {
+        if (selector === "*") {
+          metrics.rootWalks += 1;
+        }
+        return querySelectorAll(selector);
+      },
+    });
+    Object.defineProperty(globalThis, "__autofillScanMetrics", {
+      configurable: true,
+      value: metrics,
+    });
+  });
+
+  await page.evaluate(() => {
+    const email = document.querySelector("#email") as HTMLInputElement;
+    email.required = false;
+    const host = document.querySelector(
+      "#job-autofill-extension-panel",
+    ) as HTMLElement;
+    (host.shadowRoot?.querySelector("[data-close]") as HTMLButtonElement).click();
+    (
+      globalThis as unknown as {
+        __autofillScanMetrics: { rootWalks: number };
+      }
+    ).__autofillScanMetrics.rootWalks = 0;
+  });
+  await expect(page.locator("#job-autofill-extension-panel")).toHaveCount(0);
+
+  await page.evaluate(() => {
+    const input = document.createElement("input");
+    input.required = true;
+    document.querySelector("#application")?.append(input);
+    const frame = document.querySelector("#embedded") as HTMLIFrameElement;
+    frame.srcdoc = "<input required>";
+  });
+  await page.waitForTimeout(5_200);
+  expect(
+    await page.evaluate(
+      () =>
+        (
+          globalThis as unknown as {
+            __autofillScanMetrics: { rootWalks: number };
+          }
+        ).__autofillScanMetrics.rootWalks,
+    ),
+  ).toBe(0);
+
+  const sessionUrl = page.url();
+  await invokePanel(page, {
+    type: "JOB_AUTOFILL_START_SESSION",
+    session: {
+      id: "content-e2e-session",
+      url: sessionUrl,
+      applicationOrigins: [new URL(sessionUrl).origin],
+      jobTitle: "Content script fixture",
+      country: "",
+      company: "",
+    },
+    profile: {},
+    profileAvailability: { email: true },
+    frameMode: false,
+  });
+  await expect(page.locator("#job-autofill-extension-panel")).toHaveCount(1);
+
+  await page.evaluate(() => {
+    (
+      globalThis as unknown as {
+        __autofillScanMetrics: { rootWalks: number };
+      }
+    ).__autofillScanMetrics.rootWalks = 0;
+    const input = document.createElement("textarea");
+    input.required = true;
+    document.querySelector("#application")?.append(input);
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (
+            globalThis as unknown as {
+              __autofillScanMetrics: { rootWalks: number };
+            }
+          ).__autofillScanMetrics.rootWalks,
+      ),
+    )
+    .toBe(1);
+
+  await invokePanel(page, { type: "JOB_AUTOFILL_EXTENSION_DISABLED" });
+  await expect(page.locator("#job-autofill-extension-panel")).toHaveCount(0);
+  await page.evaluate(() => {
+    (
+      globalThis as unknown as {
+        __autofillScanMetrics: { rootWalks: number };
+      }
+    ).__autofillScanMetrics.rootWalks = 0;
+    const email = document.querySelector("#email") as HTMLInputElement;
+    email.disabled = true;
+    const frame = document.querySelector("#embedded") as HTMLIFrameElement;
+    frame.srcdoc = "<textarea required></textarea>";
+  });
+  await page.waitForTimeout(500);
+  expect(
+    await page.evaluate(
+      () =>
+        (
+          globalThis as unknown as {
+            __autofillScanMetrics: { rootWalks: number };
+          }
+        ).__autofillScanMetrics.rootWalks,
+    ),
+  ).toBe(0);
 });
 
 test("uses ATS metadata when generated controls have no labels", async ({
