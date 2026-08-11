@@ -9,7 +9,7 @@ test.describe("time-sorted queue", () => {
     await expect(page.getByTestId("job-title").first()).toBeVisible();
 
     // Default sort is "Newest first". Frontend is posted today, Staff 10 days ago.
-    const titles = await page.getByTestId("job-title").allInnerTexts();
+    const titles = await page.getByTestId("job-title").allTextContents();
     const fresh = titles.indexOf("E2E Frontend Engineer");
     const old = titles.indexOf("E2E Staff Engineer");
     expect(fresh).toBeGreaterThanOrEqual(0);

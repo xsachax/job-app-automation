@@ -352,7 +352,7 @@ export function JobCard({
   return (
     <article
       data-score-style={hasGoldScore ? "gold" : "standard"}
-      className={`rounded-lg border px-3 py-2.5 shadow-sm transition-colors ${cardTone(status, isNew, tone)} ${
+      className={`${styles.jobCard} rounded-lg border px-3 py-2.5 shadow-sm transition-colors ${cardTone(status, isNew, tone)} ${
         selected ? "ring-2 ring-indigo-500 dark:ring-indigo-400" : ""
       } ${(isOld || isClosed) && status !== "dismissed" ? "opacity-80" : ""} ${
         hasGoldScore ? styles.goldenCard : ""
