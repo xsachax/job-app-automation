@@ -23,8 +23,15 @@
     host: null,
     shadow: null,
     observers: new Map(),
-    observedFrames: new WeakSet(),
+    frameLoadListeners: new Map(),
+    mutationStates: new WeakMap(),
+    mutationContexts: new WeakSet(),
+    mutationContextControls: new WeakMap(),
+    mutationControls: new WeakSet(),
+    mutationAncestorControls: new WeakMap(),
     scanTimer: null,
+    rootDiscoveryTimer: null,
+    attachShadowHooks: new Map(),
     progressSignature: "",
     sessionGeneration: 0,
     extensionValues: new WeakMap(),
@@ -55,6 +62,90 @@
     "description",
     "label",
     "prompt"
+  ]);
+  const mutationQuestionSelector = [
+    "label",
+    "fieldset",
+    "[role='group']",
+    "[role='radiogroup']",
+    ".application-question",
+    ".application-field",
+    ".form-group",
+    ".field",
+    "[data-automation-id='formField']",
+    "[data-automation-id='questionItem']",
+    "[data-automation-id='promptQuestion']",
+    "[data-workday-question]",
+    "[data-testid*='field']",
+    "[data-testid*='question']",
+    "[data-test*='field']"
+  ].join(",");
+  const mutationAttributeFilter = [
+    "accept",
+    "aria-checked",
+    "aria-describedby",
+    "aria-disabled",
+    "aria-expanded",
+    "aria-haspopup",
+    "aria-hidden",
+    "aria-label",
+    "aria-labelledby",
+    "aria-required",
+    "aria-selected",
+    "aria-valuetext",
+    "autocomplete",
+    "checked",
+    "class",
+    "contenteditable",
+    "data-automation-id",
+    "data-cy",
+    "data-field",
+    "data-field-name",
+    "data-field-required",
+    "data-is-required",
+    "data-mandatory",
+    "data-mapped",
+    "data-name",
+    "data-qa",
+    "data-required",
+    "data-required-field",
+    "data-test",
+    "data-testid",
+    "data-uxi-element-id",
+    "data-value",
+    "disabled",
+    "for",
+    "hidden",
+    "id",
+    "inputmode",
+    "name",
+    "pattern",
+    "readonly",
+    "required",
+    "role",
+    "selected",
+    "style",
+    "title",
+    "type",
+    "value"
+  ];
+  const mutationStateAttributes = mutationAttributeFilter.filter(
+    (attribute) => attribute !== "class" && attribute !== "style"
+  );
+  const ancestorRequirementAttributes = new Set([
+    "aria-required",
+    "data-field-required",
+    "data-is-required",
+    "data-mandatory",
+    "data-required",
+    "data-required-field",
+    "required"
+  ]);
+  const ancestorVisibilityAttributes = new Set([
+    "aria-hidden",
+    "class",
+    "hidden",
+    "style"
   ]);
 
   function sendMessage(message) {
@@ -543,25 +634,20 @@
       );
     }
     if (controlKind(elements) === "combobox") {
-      const explicitValue =
-        first.getAttribute("data-value") ||
-        first.getAttribute("aria-valuetext");
-      if (text(explicitValue)) {
+      const commitEvidence = interactions.comboboxCommitEvidence(first);
+      if (commitEvidence.some((evidence) => evidence.source !== "trigger-text")) {
         return true;
       }
-      const hasSelectedOption = interactions
-        .resolveControlledListboxes(first)
-        .some((listbox) =>
-          listbox.querySelector?.(
-            '[role="option"][aria-selected="true"], option:checked'
-          )
-        );
-      if (hasSelectedOption) {
-        return true;
-      }
-      const displayed = text(first.textContent);
-      return Boolean(displayed) &&
-        !/^(?:choose|select|pick|please select|none)(?:\b|$)/i.test(displayed);
+      const displayed = text(
+        commitEvidence.find((evidence) => evidence.source === "trigger-text")
+          ?.value || first.textContent
+      );
+      return (
+        Boolean(displayed) &&
+        !/^(?:choose|select|pick|please select|none)(?:\b|$)/i.test(
+          displayed
+        )
+      );
     }
     return Boolean(text(first.value));
   }
@@ -700,9 +786,59 @@
     );
   }
 
-  function collectRoots() {
+  function installAttachShadowHook(documentLike) {
+    const prototype = documentLike?.defaultView?.Element?.prototype;
+    const descriptor = prototype
+      ? Object.getOwnPropertyDescriptor(prototype, "attachShadow")
+      : null;
+    if (
+      !prototype ||
+      !descriptor?.value ||
+      state.attachShadowHooks.has(prototype)
+    ) {
+      return;
+    }
+    const original = descriptor.value;
+    const wrapped = function attachObservedShadow(...args) {
+      const shadowRoot = Reflect.apply(original, this, args);
+      scheduleScan(120);
+      return shadowRoot;
+    };
+    try {
+      Object.defineProperty(prototype, "attachShadow", {
+        ...descriptor,
+        value: wrapped
+      });
+      state.attachShadowHooks.set(prototype, { descriptor, wrapped });
+    } catch (error) {
+      console.warn("Unable to observe shadow-root attachments.", error);
+    }
+  }
+
+  function restoreAttachShadowHooks() {
+    for (const [prototype, registration] of state.attachShadowHooks) {
+      if (prototype.attachShadow === registration.wrapped) {
+        try {
+          Object.defineProperty(
+            prototype,
+            "attachShadow",
+            registration.descriptor
+          );
+        } catch (error) {
+          console.warn("Unable to restore shadow-root observation.", error);
+        }
+      }
+    }
+    state.attachShadowHooks.clear();
+  }
+
+  function collectRoots({
+    observeFrames = scanIsActive(),
+    hookShadowAttachments = observeFrames
+  } = {}) {
     const roots = [];
     const seen = new Set();
+    const frames = new Set();
 
     function visit(rootNode) {
       if (!rootNode || seen.has(rootNode)) {
@@ -710,15 +846,25 @@
       }
       seen.add(rootNode);
       roots.push(rootNode);
+      if (hookShadowAttachments) {
+        installAttachShadowHook(
+          rootNode.nodeType === 9 ? rootNode : rootNode.ownerDocument
+        );
+      }
 
       for (const element of rootNode.querySelectorAll?.("*") || []) {
+        if (element === state.host) {
+          continue;
+        }
         if (element.shadowRoot) {
           visit(element.shadowRoot);
         }
         if (tagName(element) === "IFRAME") {
-          if (!state.observedFrames.has(element)) {
-            state.observedFrames.add(element);
-            element.addEventListener("load", () => scheduleScan(250));
+          frames.add(element);
+          if (observeFrames && !state.frameLoadListeners.has(element)) {
+            const handleLoad = () => scheduleScan(250);
+            state.frameLoadListeners.set(element, handleLoad);
+            element.addEventListener("load", handleLoad);
           }
           try {
             if (element.contentDocument?.documentElement) {
@@ -732,25 +878,127 @@
     }
 
     visit(document);
+    if (observeFrames) {
+      for (const [frame, handleLoad] of state.frameLoadListeners) {
+        if (!frames.has(frame)) {
+          frame.removeEventListener("load", handleLoad);
+          state.frameLoadListeners.delete(frame);
+        }
+      }
+    }
     return roots;
   }
 
-  function pageControls() {
+  function addMutationAssociation(associations, element, control) {
+    if (!element || element === control) {
+      return;
+    }
+    if (!associations.has(element)) {
+      associations.set(element, new Set());
+    }
+    associations.get(element).add(control);
+  }
+
+  function mutationSignalElements(control) {
+    const elements = new Set(Array.from(control.labels || []));
+    const rootNode = control.getRootNode?.();
+    for (const attribute of ["aria-labelledby", "aria-describedby"]) {
+      for (const id of String(control.getAttribute?.(attribute) || "")
+        .split(/\s+/)
+        .filter(Boolean)) {
+        const referenced =
+          rootNode?.getElementById?.(id) ||
+          control.ownerDocument?.getElementById?.(id);
+        if (referenced) {
+          elements.add(referenced);
+        }
+      }
+    }
+    return elements;
+  }
+
+  function composedParent(element) {
+    if (element?.parentElement) {
+      return element.parentElement;
+    }
+    const rootNode = element?.getRootNode?.();
+    if (rootNode?.host) {
+      return rootNode.host;
+    }
+    try {
+      return element?.ownerDocument?.defaultView?.frameElement || null;
+    } catch {
+      return null;
+    }
+  }
+
+  function mutationAncestors(control) {
+    const ancestors = [];
+    let current = composedParent(control);
+    for (let depth = 0; current && depth < 32; depth += 1) {
+      ancestors.push(current);
+      current = composedParent(current);
+    }
+    return ancestors;
+  }
+
+  function pageControls(roots = collectRoots()) {
     const controls = [];
     const seen = new Set();
-    for (const rootNode of collectRoots()) {
-      for (const element of rootNode.querySelectorAll?.(
-        ats.candidateSelectorFor(state.adapter)
-      ) || []) {
+    const mutationContexts = new Map();
+    const mutationAncestorsByControl = new Map();
+    const selector = ats.candidateSelectorFor(state.adapter);
+    state.mutationContexts = new WeakSet();
+    state.mutationContextControls = new WeakMap();
+    state.mutationControls = new WeakSet();
+    state.mutationAncestorControls = new WeakMap();
+    for (const rootNode of roots) {
+      for (const element of rootNode.querySelectorAll?.(selector) || []) {
+        const candidate = isCandidateControl(element);
+        state.mutationControls.add(element);
+        state.mutationStates.set(
+          element,
+          semanticMutationState(element, selector, candidate)
+        );
+        const context = ats.questionContainer(element, state.adapter, [element]);
+        if (context && context !== element) {
+          addMutationAssociation(mutationContexts, context, element);
+        }
+        for (const signalElement of mutationSignalElements(element)) {
+          addMutationAssociation(mutationContexts, signalElement, element);
+        }
+        for (const ancestor of mutationAncestors(element)) {
+          addMutationAssociation(
+            mutationAncestorsByControl,
+            ancestor,
+            element
+          );
+        }
         if (
           !seen.has(element) &&
-          isCandidateControl(element) &&
+          candidate &&
           !state.adapter?.shouldIgnoreElement?.(element)
         ) {
           seen.add(element);
           controls.push(element);
         }
       }
+    }
+    for (const [context, associatedControls] of mutationContexts) {
+      const contextControls = Array.from(associatedControls);
+      const details = { context, controls: contextControls };
+      state.mutationContexts.add(context);
+      state.mutationContextControls.set(context, contextControls);
+      state.mutationStates.set(
+        context,
+        mutationContextState(details, selector, true)
+      );
+    }
+    for (const [ancestor, associatedControls] of mutationAncestorsByControl) {
+      state.mutationAncestorControls.set(
+        ancestor,
+        Array.from(associatedControls)
+      );
     }
     return controls;
   }
@@ -891,7 +1139,8 @@
     effectiveProfile,
     nativeInputType,
     adapterDetails,
-    nativePattern
+    nativePattern,
+    controls
   ) {
     if (!match) {
       return { value: "", safe: false };
@@ -1027,7 +1276,7 @@
     if (
       match.definition.key === "phone" &&
       effectiveProfile.phoneNational &&
-      pageControls().some((control) => {
+      controls.some((control) => {
         const controlSignals = signalsForQuestion([control], false);
         return (
           matcher.findBestDefinition(
@@ -1104,8 +1353,8 @@
     };
   }
 
-  function collectQuestions() {
-    const controls = pageControls();
+  function collectQuestions(roots = collectRoots()) {
+    const controls = pageControls(roots);
     const groups = new Map();
 
     for (const control of controls) {
@@ -1162,7 +1411,8 @@
         effectiveProfile,
         inputType(elements[0]),
         adapterDetails,
-        elements[0].getAttribute("pattern")
+        elements[0].getAttribute("pattern"),
+        controls
       );
       const key =
         stableQuestionIdentity(elements, kind, label, match) || groupKey;
@@ -1346,8 +1596,8 @@
     }
   }
 
-  function clearReviewMarkers(removeStyles = false) {
-    for (const rootNode of collectRoots()) {
+  function clearReviewMarkers(removeStyles = false, roots = collectRoots()) {
+    for (const rootNode of roots) {
       if (!removeStyles) {
         ensureReviewStyle(rootNode);
       }
@@ -1381,8 +1631,8 @@
     return first;
   }
 
-  function markQuestionsForReview(questions) {
-    clearReviewMarkers();
+  function markQuestionsForReview(questions, roots = collectRoots()) {
+    clearReviewMarkers(false, roots);
     for (const question of questions) {
       if (
         !question.required ||
@@ -1546,8 +1796,14 @@
     }
   }
 
+  function scanIsActive() {
+    return Boolean(
+      state.session && (state.frameMode || state.host?.isConnected)
+    );
+  }
+
   function scan({ includeEmbedded = true } = {}) {
-    if (!state.session) {
+    if (!scanIsActive()) {
       return null;
     }
     if (!sessionScope.isAllowedUrl(state.session, location.href)) {
@@ -1561,12 +1817,13 @@
     state.definitions =
       state.adapter?.augmentDefinitions?.(profileSchema.fields) ||
       profileSchema.fields;
-    refreshObservers();
-    const questions = collectQuestions();
+    const roots = collectRoots();
+    refreshObservers(roots);
+    const questions = collectQuestions(roots);
     state.lastQuestions = new Map(
       questions.map((question) => [question.key, question])
     );
-    markQuestionsForReview(questions);
+    markQuestionsForReview(questions, roots);
     const progress = summarize(questions);
     if (state.host) {
       renderProgress(progress);
@@ -1575,16 +1832,340 @@
         void addEmbeddedProgress(progress, revision);
       }
     }
+    scheduleRootDiscovery();
     return progress;
   }
 
-  function scheduleScan(delay = 120) {
+  function clearScheduledScan() {
     clearTimeout(state.scanTimer);
-    state.scanTimer = setTimeout(scan, delay);
+    state.scanTimer = null;
   }
 
-  function refreshObservers() {
-    const roots = new Set(collectRoots());
+  function clearRootDiscovery() {
+    clearTimeout(state.rootDiscoveryTimer);
+    state.rootDiscoveryTimer = null;
+  }
+
+  function scheduleRootDiscovery(delay = 5_000) {
+    clearRootDiscovery();
+    if (!scanIsActive()) {
+      return;
+    }
+    state.rootDiscoveryTimer = setTimeout(() => {
+      state.rootDiscoveryTimer = null;
+      if (!scanIsActive()) {
+        return;
+      }
+      const roots = collectRoots();
+      if (roots.some((rootNode) => !state.observers.has(rootNode))) {
+        scheduleScan(0);
+      } else {
+        scheduleRootDiscovery(delay);
+      }
+    }, delay);
+  }
+
+  function scheduleScan(delay = 120) {
+    if (!scanIsActive()) {
+      return;
+    }
+    clearScheduledScan();
+    state.scanTimer = setTimeout(() => {
+      state.scanTimer = null;
+      if (scanIsActive()) {
+        scan();
+      }
+    }, delay);
+  }
+
+  function isPanelNode(node) {
+    if (node === state.shadow) {
+      return true;
+    }
+    const element =
+      node?.nodeType === 1 ? node : node?.parentElement || node?.parentNode;
+    if (!element) {
+      return false;
+    }
+    const rootNode = element.getRootNode?.();
+    return Boolean(
+      element === state.host ||
+        state.host?.contains?.(element) ||
+        rootNode === state.shadow ||
+        rootNode?.host === state.host
+    );
+  }
+
+  function matchesOrContainsCandidate(element, selector) {
+    return Boolean(
+      element?.matches?.(selector) ||
+        element?.querySelector?.(selector) ||
+        element?.querySelector?.("iframe") ||
+        Array.from(element?.querySelectorAll?.("*") || []).some(
+          (descendant) => Boolean(descendant.shadowRoot)
+        ) ||
+        (element?.shadowRoot &&
+          (element.shadowRoot.querySelector?.(selector) ||
+            element.shadowRoot.querySelector?.("iframe")))
+    );
+  }
+
+  function semanticMutationState(element, selector, candidateState) {
+    const candidate = Boolean(element?.matches?.(selector));
+    const active =
+      candidateState ??
+      (candidate ? isCandidateControl(element) : isVisible(element));
+    const className = String(element?.getAttribute?.("class") || "");
+    const displayedText =
+      candidate &&
+      !isInput(element) &&
+      !isTextarea(element) &&
+      !isSelect(element)
+        ? text(element.textContent)
+        : "";
+    return JSON.stringify({
+      active,
+      attributes: mutationStateAttributes.map((attribute) =>
+        element?.getAttribute?.(attribute)
+      ),
+      candidate,
+      displayedText,
+      requiredClass: hasRequiredClass(className)
+    });
+  }
+
+  function cachedMutationContext(element) {
+    let current = element;
+    for (let depth = 0; current && depth < 8; depth += 1) {
+      if (state.mutationContexts.has(current)) {
+        return current;
+      }
+      current = current.parentElement;
+    }
+    return null;
+  }
+
+  function mutationContextDetails(target, selector) {
+    const element =
+      target?.nodeType === 1 ? target : target?.parentElement || null;
+    if (!element) {
+      return null;
+    }
+    const cachedContext = cachedMutationContext(element);
+    const context =
+      cachedContext || element.closest?.(mutationQuestionSelector);
+    if (!context) {
+      return null;
+    }
+    const cachedControls =
+      state.mutationContextControls.get(context) || [];
+    const candidates = new Set([
+      ...cachedControls,
+      ...Array.from(context.querySelectorAll?.(selector) || [])
+    ]);
+    if (context.matches?.(selector)) {
+      candidates.add(context);
+    }
+    if (tagName(context) === "LABEL" && context.control?.matches?.(selector)) {
+      candidates.add(context.control);
+    }
+    const controls = Array.from(candidates).filter(
+      (control) =>
+        (cachedControls.includes(control) ||
+          context.control === control ||
+          ats.questionContainer(control, state.adapter, [control]) ===
+            context) &&
+        (control.matches?.(selector) || state.mutationControls.has(control))
+    );
+    return controls.length ? { context, controls } : null;
+  }
+
+  function mutationContextState(details, selector, useCachedControls = false) {
+    return JSON.stringify({
+      context: semanticMutationState(details.context, selector),
+      controls: details.controls.map((control) => [
+        elementIdentity(control),
+        (useCachedControls && state.mutationStates.get(control)) ||
+          semanticMutationState(control, selector)
+      ]),
+      required: details.controls.some((control) =>
+        ats.hasRequiredMetadata(control, state.adapter, details.controls)
+      ),
+      text: text(details.context.textContent)
+    });
+  }
+
+  function updateMutationState(key, nextState) {
+    const previousState = state.mutationStates.get(key);
+    state.mutationStates.set(key, nextState);
+    return previousState == null || previousState !== nextState;
+  }
+
+  function controlMutationAffectsScan(target, selector) {
+    const element =
+      target?.nodeType === 1 ? target : target?.parentElement || null;
+    const control =
+      element?.matches?.(selector) || state.mutationControls.has(element)
+        ? element
+        : element?.closest?.(selector);
+    if (
+      !control ||
+      state.mutationContexts.has(control) ||
+      (!control.matches?.(selector) && !state.mutationControls.has(control))
+    ) {
+      return false;
+    }
+    return updateMutationState(
+      control,
+      semanticMutationState(control, selector)
+    );
+  }
+
+  function contextMutationAffectsScan(target, selector) {
+    const details = mutationContextDetails(target, selector);
+    if (!details) {
+      return false;
+    }
+    state.mutationContexts.add(details.context);
+    return updateMutationState(
+      details.context,
+      mutationContextState(details, selector)
+    );
+  }
+
+  function hasRequiredClass(value) {
+    return /(?:^|\s)(?:field-required|is-required|mandatory|required|required-field)(?:\s|$)/i.test(
+      String(value || "")
+    );
+  }
+
+  function descendantControlMutationAffectsScan(target, selector) {
+    let changed = false;
+    const controls = new Set([
+      ...(state.mutationAncestorControls.get(target) || []),
+      ...Array.from(target?.querySelectorAll?.(selector) || [])
+    ]);
+    for (const control of controls) {
+      if (
+        state.mutationControls.has(control) &&
+        updateMutationState(
+          control,
+          semanticMutationState(control, selector)
+        )
+      ) {
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  function attributeMutationAffectsScan(record, selector) {
+    const target = record.target;
+    if (
+      target?.matches?.(selector) ||
+      state.mutationControls.has(target)
+    ) {
+      return controlMutationAffectsScan(target, selector);
+    }
+    const containsCandidate = Boolean(
+      state.mutationAncestorControls.get(target)?.length ||
+        target?.querySelector?.(selector)
+    );
+    if (
+      containsCandidate &&
+      (ancestorRequirementAttributes.has(record.attributeName) ||
+        (record.attributeName === "class" &&
+          hasRequiredClass(record.oldValue) !==
+            hasRequiredClass(target.getAttribute?.("class"))))
+    ) {
+      return true;
+    }
+    if (
+      containsCandidate &&
+      ancestorVisibilityAttributes.has(record.attributeName) &&
+      descendantControlMutationAffectsScan(target, selector)
+    ) {
+      return true;
+    }
+    const details = mutationContextDetails(target, selector);
+    if (!details) {
+      return false;
+    }
+    if (
+      target !== details.context &&
+      record.attributeName !== "class" &&
+      record.attributeName !== "style" &&
+      updateMutationState(target, semanticMutationState(target, selector))
+    ) {
+      return true;
+    }
+    state.mutationContexts.add(details.context);
+    return updateMutationState(
+      details.context,
+      mutationContextState(details, selector)
+    );
+  }
+
+  function mutationNodeAffectsScan(node, selector) {
+    if (isPanelNode(node) || node?.nodeType !== 1) {
+      return false;
+    }
+    return (
+      tagName(node) === "IFRAME" ||
+      Boolean(node.shadowRoot) ||
+      node.matches?.("label, legend") ||
+      node.querySelector?.("label, legend") ||
+      matchesOrContainsCandidate(node, selector)
+    );
+  }
+
+  function mutationsAffectScan(records) {
+    if (!scanIsActive()) {
+      return false;
+    }
+    const selector = ats.candidateSelectorFor(state.adapter);
+    return records.some((record) => {
+      if (isPanelNode(record.target)) {
+        return false;
+      }
+      if (record.type === "attributes") {
+        return attributeMutationAffectsScan(record, selector);
+      }
+      if (
+        record.type === "childList" &&
+        [...record.addedNodes, ...record.removedNodes].some((node) =>
+          mutationNodeAffectsScan(node, selector)
+        )
+      ) {
+        return true;
+      }
+      return (
+        controlMutationAffectsScan(record.target, selector) ||
+        contextMutationAffectsScan(record.target, selector)
+      );
+    });
+  }
+
+  function observerOptions() {
+    const adapterOptions = state.adapter?.observerOptions || {};
+    return {
+      ...adapterOptions,
+      childList: true,
+      subtree: true,
+      attributes: true,
+      characterData: true,
+      attributeOldValue: true,
+      attributeFilter: Array.from(
+        new Set([
+          ...mutationAttributeFilter,
+          ...(adapterOptions.attributeFilter || [])
+        ])
+      )
+    };
+  }
+
+  function refreshObservers(rootSnapshot = collectRoots()) {
+    const roots = new Set(rootSnapshot);
     const observerKey = state.adapter?.key || "generic";
     for (const [rootNode, registration] of state.observers) {
       if (!roots.has(rootNode) || registration.key !== observerKey) {
@@ -1603,15 +2184,16 @@
         rootNode.nodeType === 9 ? rootNode : rootNode.ownerDocument;
       const Observer =
         ownerDocument?.defaultView?.MutationObserver || MutationObserver;
-      const observer = new Observer(() => scheduleScan(250));
+      const observer = new Observer((records) => {
+        if (mutationsAffectScan(records)) {
+          scheduleScan(250);
+        }
+      });
       const target =
         rootNode.nodeType === 9
           ? rootNode.body || rootNode.documentElement
           : rootNode;
-      observer.observe(
-        target,
-        state.adapter?.observerOptions || { childList: true, subtree: true }
-      );
+      observer.observe(target, observerOptions());
       rootNode.addEventListener?.("input", handleFieldChange, true);
       rootNode.addEventListener?.("change", handleFieldChange, true);
       rootNode.addEventListener?.("click", handleFieldClick, true);
@@ -2770,7 +3352,8 @@
     assertActive();
     let filled = 0;
     for (let pass = 0; pass < 4; pass += 1) {
-      const questions = collectQuestions();
+      const roots = collectRoots();
+      const questions = collectQuestions(roots);
       let passFilled = 0;
       let staleSkipped = false;
 
@@ -2841,7 +3424,9 @@
 
   async function handlePanelAutofill() {
     const button = state.shadow?.querySelector("[data-autofill]");
-    if (!button || button.disabled) {
+    const sessionId = state.session?.id;
+    const sessionGeneration = state.sessionGeneration;
+    if (!button || button.disabled || !sessionId) {
       return;
     }
 
@@ -2849,10 +3434,12 @@
     button.textContent = "Autofilling...";
     try {
       const local = await fillKnownFields();
+      assertAutofillSession(sessionId, sessionGeneration);
       const embedded = await sendMessage({
         type: "JOB_AUTOFILL_FILL_EMBEDDED",
-        sessionId: state.session?.id
+        sessionId
       });
+      assertAutofillSession(sessionId, sessionGeneration);
       const total = Number(local.filled || 0) + Number(embedded?.filled || 0);
       const status = state.shadow?.querySelector("[data-status]");
       if (status && embedded?.ok) {
@@ -3108,13 +3695,15 @@
       .addEventListener("click", () => void handlePanelAutofill());
     state.shadow.querySelector("[data-rescan]").addEventListener("click", scan);
     state.shadow.querySelector("[data-close]").addEventListener("click", () => {
+      const sessionId = state.session?.id;
       unmountPanel();
-      void sendMessage({
-        type: "JOB_AUTOFILL_DISMISS_PANEL",
-        sessionId: state.session.id
-      });
+      if (sessionId) {
+        void sendMessage({
+          type: "JOB_AUTOFILL_DISMISS_PANEL",
+          sessionId
+        });
+      }
     });
-    refreshObservers();
   }
 
   function questionForEditTarget(target) {
@@ -3123,7 +3712,7 @@
     const inferredControl = listbox
       ? interactions.resolveControl(state.inferredListboxOwners.get(listbox))
       : null;
-    return collectQuestions().find((question) => {
+    return Array.from(state.lastQuestions.values()).find((question) => {
       if (
         question.elements.some(
           (element) =>
@@ -3151,7 +3740,11 @@
   }
 
   function clearFillIssueForTrustedEdit(event) {
-    if (!event.isTrusted || !event.target?.closest) {
+    if (
+      !event.isTrusted ||
+      !event.target?.closest ||
+      (!state.extensionQueries.size && !state.fillIssues.size)
+    ) {
       return false;
     }
     const question = questionForEditTarget(event.target);
@@ -3193,7 +3786,10 @@
   }
 
   function unmountPanel() {
-    clearTimeout(state.scanTimer);
+    state.sessionGeneration += 1;
+    clearScheduledScan();
+    clearRootDiscovery();
+    state.scanRevision += 1;
     for (const [rootNode, registration] of state.observers) {
       registration.observer.disconnect();
       rootNode.removeEventListener?.("input", handleFieldChange, true);
@@ -3201,10 +3797,22 @@
       rootNode.removeEventListener?.("click", handleFieldClick, true);
     }
     state.observers.clear();
-    clearReviewMarkers(true);
+    for (const [frame, handleLoad] of state.frameLoadListeners) {
+      frame.removeEventListener("load", handleLoad);
+    }
+    state.frameLoadListeners.clear();
+    restoreAttachShadowHooks();
+    const roots = collectRoots({ observeFrames: false });
+    clearReviewMarkers(true, roots);
     state.host?.remove();
     state.host = null;
     state.shadow = null;
+    state.mutationStates = new WeakMap();
+    state.mutationContexts = new WeakSet();
+    state.mutationContextControls = new WeakMap();
+    state.mutationControls = new WeakSet();
+    state.mutationAncestorControls = new WeakMap();
+    state.lastQuestions = new Map();
   }
 
   function startSession(message) {
@@ -3229,12 +3837,16 @@
       state.extensionValues = new WeakMap();
       state.extensionQueries = new Map();
       state.inferredListboxOwners = new WeakMap();
+      state.mutationStates = new WeakMap();
+      state.mutationContexts = new WeakSet();
+      state.mutationContextControls = new WeakMap();
+      state.mutationControls = new WeakSet();
+      state.mutationAncestorControls = new WeakMap();
       state.fillIssues.clear();
       state.lastQuestions = new Map();
     }
     state.progressSignature = "";
     if (state.frameMode) {
-      refreshObservers();
       return {
         ok: true,
         progress: scan({ includeEmbedded: false })
@@ -3253,12 +3865,16 @@
 
   function teardown() {
     unmountPanel();
-    state.sessionGeneration += 1;
     state.session = null;
     state.context = {};
     state.profile = {};
     state.profileLoaded = false;
     state.profileAvailability = new Set();
+    state.mutationStates = new WeakMap();
+    state.mutationContexts = new WeakSet();
+    state.mutationContextControls = new WeakMap();
+    state.mutationControls = new WeakSet();
+    state.mutationAncestorControls = new WeakMap();
     state.adapter = null;
     state.page = null;
     state.definitions = profileSchema.fields;
