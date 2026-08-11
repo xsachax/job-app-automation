@@ -1,3 +1,8 @@
+.jobCard {
+  contain-intrinsic-block-size: auto 300px;
+  content-visibility: auto;
+}
+
 .goldenCard {
   isolation: isolate;
   position: relative;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../components/api";
 import { FilterBar } from "../components/jobs/FilterBar";
 import { JobCard } from "../components/jobs/JobCard";
@@ -187,17 +187,19 @@ export default function JobsPage() {
       try {
         const data = await api<Job[]>(jobsUrl);
         if (active) {
-          setJobs(data);
-          setVisibleCount(PAGE_SIZE);
-          setError(null);
+          startTransition(() => {
+            setJobs(data);
+            setVisibleCount(PAGE_SIZE);
+            setError(null);
+            setLoading(false);
+          });
         }
       } catch (caught) {
         if (active) {
           setJobs([]);
           setError((caught as Error).message);
+          setLoading(false);
         }
-      } finally {
-        if (active) setLoading(false);
       }
     })();
     return () => {
@@ -553,7 +555,7 @@ export default function JobsPage() {
       </div>
 
       {availability === "active" && jobs.length > 0 && (
-        <div className="sticky top-2 z-10 mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-gray-200 bg-white/90 px-3 py-2 shadow-sm backdrop-blur dark:border-gray-800 dark:bg-gray-900/90">
+        <div className="sticky top-2 z-10 mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-gray-200 bg-white px-3 py-2 shadow-sm dark:border-gray-800 dark:bg-gray-900">
           <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-gray-700 dark:text-gray-200">
             <input
               type="checkbox"
