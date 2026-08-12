@@ -37,16 +37,24 @@ test.describe("golden jobs", () => {
 
     await page
       .getByLabel("Golden title keywords")
-      .fill(" Campus-Launch, 2027, campus launch ");
+      .fill(" Campus-Launch\n2027\ncampus launch ");
     await page
       .getByLabel("Golden description phrases")
       .fill(" Class_of_2027 ");
-    await page.getByRole("button", { name: "Save settings" }).click();
+    await section.getByRole("button", { name: "Save Golden jobs" }).click();
     await expect(
       page.getByText(
-        "Settings saved. Golden filtering updates immediately; rerun Judge to refresh scores.",
+        "Golden job settings saved. Filtering updates immediately; rerun Judge to refresh scores.",
       ),
     ).toBeVisible();
+
+    await page.reload();
+    await expect(page.getByLabel("Golden title keywords")).toHaveValue(
+      "campus launch, 2027",
+    );
+    await expect(page.getByLabel("Golden description phrases")).toHaveValue(
+      "class of 2027",
+    );
 
     const response = await request.get("/api/config");
     const body = (await response.json()) as {
@@ -95,7 +103,7 @@ test.describe("golden jobs", () => {
     ).toHaveCount(0);
   });
 
-  test("all 95+ cards use gold styling and reduced motion while lower scores do not", async ({
+  test("all 95+ cards use blue Golden styling and reduced motion while lower scores do not", async ({
     page,
   }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
@@ -105,10 +113,17 @@ test.describe("golden jobs", () => {
     const scoreOnlyGolden = jobCard(page, "E2E Exceptional Engineer");
     const lowerScore = jobCard(page, "E2E Frontend Engineer");
 
-    await expect(keywordGolden).toHaveAttribute("data-score-style", "gold");
+    await expect(keywordGolden).toHaveAttribute("data-score-style", "blue");
+    await expect(keywordGolden).toHaveClass(/border-blue-400/);
+    await expect(keywordGolden.getByTestId("judge-score")).toHaveClass(
+      /bg-blue-100/,
+    );
+    await expect(keywordGolden.getByTestId("golden-match-badge")).toHaveClass(
+      /bg-blue-100/,
+    );
     await expect(scoreOnlyGolden).toHaveAttribute(
       "data-score-style",
-      "gold",
+      "blue",
     );
     await expect(scoreOnlyGolden.getByTestId("golden-match-badge")).toHaveCount(
       0,

@@ -69,15 +69,15 @@ type FitTone = {
   badge: string;
 };
 
-const FIT_TONES: Record<FitBand | "unscored" | "gold", FitTone> = {
-  gold: {
+const FIT_TONES: Record<FitBand | "unscored" | "golden", FitTone> = {
+  golden: {
     label: "Golden fit",
     card:
-      "border-amber-400 bg-amber-50/80 shadow-amber-200/80 dark:border-amber-500 dark:bg-amber-950/35 dark:shadow-none",
+      "border-blue-400 bg-blue-50/80 shadow-blue-200/80 dark:border-blue-500 dark:bg-blue-950/35 dark:shadow-none",
     score:
-      "border-amber-400 bg-amber-100 text-amber-950 dark:border-amber-500 dark:bg-amber-900/75 dark:text-amber-50",
+      "border-blue-400 bg-blue-100 text-blue-950 dark:border-blue-500 dark:bg-blue-900/75 dark:text-blue-50",
     badge:
-      "bg-amber-200 text-amber-950 dark:bg-amber-800 dark:text-amber-50",
+      "bg-blue-200 text-blue-950 dark:bg-blue-800 dark:text-blue-50",
   },
   strong: {
     label: "Strong fit",
@@ -115,7 +115,7 @@ const FIT_TONES: Record<FitBand | "unscored" | "gold", FitTone> = {
 
 function fitTone(score: number | null | undefined): FitTone {
   if (score != null && score >= GOLDEN_JOB_SCORE_FLOOR) {
-    return FIT_TONES.gold;
+    return FIT_TONES.golden;
   }
   return FIT_TONES[bucketScore(score)];
 }
@@ -326,7 +326,7 @@ export function JobCard({
     .filter(Boolean)
     .join(" · ");
   const tone = fitTone(job.fitScore);
-  const hasGoldScore =
+  const hasGoldenScore =
     job.fitScore != null && job.fitScore >= GOLDEN_JOB_SCORE_FLOOR;
   const yoeText =
     job.minYoE == null ? null : job.minYoE === 0 ? "No exp. req." : `${job.minYoE}+ yrs`;
@@ -351,11 +351,11 @@ export function JobCard({
 
   return (
     <article
-      data-score-style={hasGoldScore ? "gold" : "standard"}
+      data-score-style={hasGoldenScore ? "blue" : "standard"}
       className={`${styles.jobCard} rounded-lg border px-3 py-2.5 shadow-sm transition-colors ${cardTone(status, isNew, tone)} ${
         selected ? "ring-2 ring-indigo-500 dark:ring-indigo-400" : ""
       } ${(isOld || isClosed) && status !== "dismissed" ? "opacity-80" : ""} ${
-        hasGoldScore ? styles.goldenCard : ""
+        hasGoldenScore ? styles.goldenCard : ""
       }`}
     >
       <div className="flex flex-wrap gap-2.5">
@@ -397,7 +397,7 @@ export function JobCard({
                         ? `Golden ${job.goldenMatch.field} phrase: ${job.goldenMatch.keyword}`
                         : "Golden job match"
                     }
-                    className="rounded-full border border-amber-300 bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100"
+                    className="rounded-full border border-blue-300 bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold text-blue-900 dark:border-blue-700 dark:bg-blue-950 dark:text-blue-100"
                   >
                     Golden
                   </span>

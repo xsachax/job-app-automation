@@ -310,10 +310,10 @@ export function FilterBar({
             onFiltersChange({ goldenOnly: !filters.goldenOnly })
           }
           className={
-            "h-9 rounded-lg border px-3 text-sm font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-1 dark:focus:ring-amber-400 dark:focus:ring-offset-gray-900 " +
+            "h-9 rounded-lg border px-3 text-sm font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 dark:focus:ring-blue-400 dark:focus:ring-offset-gray-900 " +
             (filters.goldenOnly
-              ? "border-amber-500 bg-amber-100 text-amber-900 hover:bg-amber-200 dark:border-amber-600 dark:bg-amber-950 dark:text-amber-100 dark:hover:bg-amber-900"
-              : "border-amber-300 bg-white text-amber-800 hover:bg-amber-50 dark:border-amber-800 dark:bg-gray-800 dark:text-amber-200 dark:hover:bg-amber-950")
+              ? "border-blue-500 bg-blue-100 text-blue-900 hover:bg-blue-200 dark:border-blue-600 dark:bg-blue-950 dark:text-blue-100 dark:hover:bg-blue-900"
+              : "border-blue-300 bg-white text-blue-800 hover:bg-blue-50 dark:border-blue-800 dark:bg-gray-800 dark:text-blue-200 dark:hover:bg-blue-950")
           }
         >
           Golden only ({facets?.golden ?? 0})

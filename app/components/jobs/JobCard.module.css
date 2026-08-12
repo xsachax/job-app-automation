@@ -13,8 +13,8 @@
   background: linear-gradient(
     110deg,
     transparent 35%,
-    rgb(251 191 36 / 18%) 48%,
-    rgb(254 240 138 / 42%) 52%,
+    rgb(96 165 250 / 18%) 48%,
+    rgb(191 219 254 / 42%) 52%,
     transparent 65%
   );
   background-position: 200% 0;
@@ -36,8 +36,8 @@
   background: linear-gradient(
     110deg,
     transparent 35%,
-    rgb(245 158 11 / 10%) 48%,
-    rgb(253 230 138 / 20%) 52%,
+    rgb(59 130 246 / 10%) 48%,
+    rgb(147 197 253 / 20%) 52%,
     transparent 65%
   );
 }
