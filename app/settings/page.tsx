@@ -49,7 +49,7 @@ const checkbox =
 
 function parseList(value: string): string[] {
   return value
-    .split(",")
+    .split(/[,\n]/)
     .map((item) => item.trim())
     .filter(Boolean);
 }
@@ -220,29 +220,61 @@ export default function SettingsPage() {
     updateConfig({ disabledSources: uniqueSorted(next) });
   }
 
-  async function persist(payload: DiscoveryConfigData, successMessage: string) {
+  async function saveConfig(
+    payload: Partial<DiscoveryConfigData>,
+  ): Promise<DiscoveryConfigData | null> {
     setSaving(true);
     setError(null);
     setMessage(null);
     try {
-      const saved = await api<DiscoveryConfigData>("/api/config", {
+      return await api<DiscoveryConfigData>("/api/config", {
         method: "PUT",
         body: JSON.stringify(payload),
       });
-      setConfig(saved);
-      setRoleKeywordsText(listText(saved.roleKeywords));
-      setExcludeTitleKeywordsText(listText(saved.excludeTitleKeywords));
-      setQueryTermsText(listText(saved.queryTerms));
-      setGoldenTitleKeywordsText(listText(saved.goldenJobs.titleKeywords));
-      setGoldenDescriptionKeywordsText(
-        listText(saved.goldenJobs.descriptionKeywords),
-      );
-      setMessage(successMessage);
     } catch (e) {
       setError((e as Error).message);
+      return null;
     } finally {
       setSaving(false);
     }
+  }
+
+  async function persist(payload: DiscoveryConfigData, successMessage: string) {
+    const saved = await saveConfig(payload);
+    if (!saved) return;
+    setConfig(saved);
+    setRoleKeywordsText(listText(saved.roleKeywords));
+    setExcludeTitleKeywordsText(listText(saved.excludeTitleKeywords));
+    setQueryTermsText(listText(saved.queryTerms));
+    setGoldenTitleKeywordsText(listText(saved.goldenJobs.titleKeywords));
+    setGoldenDescriptionKeywordsText(
+      listText(saved.goldenJobs.descriptionKeywords),
+    );
+    setMessage(successMessage);
+  }
+
+  function goldenJobsDraft(config: DiscoveryConfigData) {
+    return {
+      ...config.goldenJobs,
+      titleKeywords: parseList(goldenTitleKeywordsText),
+      descriptionKeywords: parseList(goldenDescriptionKeywordsText),
+    };
+  }
+
+  async function saveGoldenJobs() {
+    if (!config) return;
+    const saved = await saveConfig({ goldenJobs: goldenJobsDraft(config) });
+    if (!saved) return;
+    setConfig((current) =>
+      current ? { ...current, goldenJobs: saved.goldenJobs } : saved,
+    );
+    setGoldenTitleKeywordsText(listText(saved.goldenJobs.titleKeywords));
+    setGoldenDescriptionKeywordsText(
+      listText(saved.goldenJobs.descriptionKeywords),
+    );
+    setMessage(
+      "Golden job settings saved. Filtering updates immediately; rerun Judge to refresh scores.",
+    );
   }
 
   async function saveSettings(event: FormEvent<HTMLFormElement>) {
@@ -254,11 +286,7 @@ export default function SettingsPage() {
         roleKeywords: parseList(roleKeywordsText),
         excludeTitleKeywords: parseList(excludeTitleKeywordsText),
         queryTerms: parseList(queryTermsText),
-        goldenJobs: {
-          ...config.goldenJobs,
-          titleKeywords: parseList(goldenTitleKeywordsText),
-          descriptionKeywords: parseList(goldenDescriptionKeywordsText),
-        },
+        goldenJobs: goldenJobsDraft(config),
       },
       "Settings saved. Golden filtering updates immediately; rerun Judge to refresh scores.",
     );
@@ -649,12 +677,12 @@ export default function SettingsPage() {
                   at least {GOLDEN_JOB_SCORE_FLOOR}.
                 </p>
               </div>
-              <span className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+              <span className="rounded-full border border-blue-300 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-800 dark:border-blue-700 dark:bg-blue-950 dark:text-blue-200">
                 {GOLDEN_JOB_SCORE_FLOOR}+ after Judge
               </span>
             </div>
 
-            <label className="mt-5 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50/50 p-3 transition-colors hover:bg-amber-50 dark:border-amber-900 dark:bg-amber-950/20 dark:hover:bg-amber-950/35">
+            <label className="mt-5 flex items-start gap-3 rounded-lg border border-blue-200 bg-blue-50/50 p-3 transition-colors hover:bg-blue-50 dark:border-blue-900 dark:bg-blue-950/20 dark:hover:bg-blue-950/35">
               <input
                 type="checkbox"
                 className={checkbox}
@@ -680,8 +708,8 @@ export default function SettingsPage() {
                   Golden title keywords
                 </label>
                 <p className={helper}>
-                  Comma-separated exact phrases matched against normalized job
-                  titles. Punctuation and case are ignored.
+                  Comma- or line-separated exact phrases matched against
+                  normalized job titles. Punctuation and case are ignored.
                 </p>
                 <textarea
                   id="goldenTitleKeywords"
@@ -717,6 +745,20 @@ export default function SettingsPage() {
                   placeholder="new grad, class of 2027, graduating in 2027"
                 />
               </div>
+            </div>
+
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-blue-200 pt-4 dark:border-blue-900">
+              <p className={helper + " mt-0"}>
+                Save Golden changes here without changing other settings drafts.
+              </p>
+              <button
+                type="button"
+                className={cls.btnPrimary}
+                disabled={saving}
+                onClick={saveGoldenJobs}
+              >
+                {saving ? "Saving..." : "Save Golden jobs"}
+              </button>
             </div>
           </section>
 

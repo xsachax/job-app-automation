@@ -332,7 +332,7 @@ closed** exposes confirmed closures without losing saved/applied state. Controls
 - **Card actions** — `Open posting ↗` (normal link or extension-assisted handoff) and status buttons (`Save`,
   `Mark applied`, `Dismiss`, `Clear`). **New** (< 48h), **30d+ old**, **Rechecking**, and
   **Closed** badges distinguish age from actual availability evidence. Every Judge score of
-  **95+** receives the gold card and score treatment, whether or not the posting matched a
+  **95+** receives the blue Golden card and score treatment, whether or not the posting matched a
   Golden keyword; lower scores never receive that treatment. The sheen stops when the browser
   requests reduced motion.
 
