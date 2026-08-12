@@ -1,8 +1,8 @@
 import type { ProfileData } from "./settings";
 import { canonicalCompanyName } from "./company-names";
+import { CHROME_AUTOFILL_EXTENSION_ID } from "./chrome-extension-constants";
 
-export const CHROME_AUTOFILL_EXTENSION_ID =
-  "naihpjhebnkenkfdlblbefoimhhcdfcl";
+export { CHROME_AUTOFILL_EXTENSION_ID };
 
 export interface BrowserIdentityLike {
   userAgent?: string;

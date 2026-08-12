@@ -11,7 +11,8 @@ const ats = globalThis.JobAutofillAts;
 const STORAGE_DEFAULTS = {
   enabled: true,
   profile: {},
-  applicationSessions: {}
+  applicationSessions: {},
+  dashboardOrigin: ""
 };
 const SESSION_PROFILES_KEY = "applicationSessionProfiles";
 const MAX_RESUME_BASE64_LENGTH = Math.ceil((5 * 1024 * 1024 * 4) / 3) + 4;
@@ -45,6 +46,29 @@ function isHttpUrl(value) {
   } catch {
     return false;
   }
+}
+
+function cleanDashboardOrigin(value) {
+  try {
+    const url = new URL(value);
+    if (
+      !["http:", "https:"].includes(url.protocol) ||
+      !["localhost", "127.0.0.1"].includes(url.hostname)
+    ) {
+      return "";
+    }
+    return url.origin;
+  } catch {
+    return "";
+  }
+}
+
+async function rememberDashboardOrigin(sender) {
+  const origin = cleanDashboardOrigin(sender?.url);
+  if (origin) {
+    await chrome.storage.local.set({ dashboardOrigin: origin });
+  }
+  return origin;
 }
 
 function sanitizeProfile(rawProfile) {
@@ -242,11 +266,12 @@ function cleanJobContext(payload = {}) {
   };
 }
 
-function createSession(context, tabId) {
+function createSession(context, tabId, dashboardOrigin = "") {
   const now = new Date().toISOString();
   return {
     id: crypto.randomUUID(),
     ...context,
+    dashboardOrigin: cleanDashboardOrigin(dashboardOrigin),
     applicationOrigins: sessionScope.approvedOriginsFor(context.url),
     tabId,
     status: "opening",
@@ -659,6 +684,53 @@ async function runEmbeddedFrameAction(session, messageType, { force = false } = 
   return responses.filter(Boolean);
 }
 
+async function requestAssistedSuggestions(session, fields) {
+  const stored = await chrome.storage.local.get({ dashboardOrigin: "" });
+  const dashboardOrigin = cleanDashboardOrigin(
+    session.dashboardOrigin || stored.dashboardOrigin
+  );
+  if (!dashboardOrigin) {
+    throw new Error(
+      "Open this application from the local dashboard before using AI assistance."
+    );
+  }
+
+  let response;
+  try {
+    response = await fetch(`${dashboardOrigin}/api/autofill/assist`, {
+      method: "POST",
+      cache: "no-store",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Job-Autofill-Extension": chrome.runtime.id
+      },
+      body: JSON.stringify({
+        job: {
+          title: session.jobTitle || "",
+          company: session.company || "",
+          country: session.country || "",
+          url: session.url
+        },
+        fields
+      })
+    });
+  } catch {
+    throw new Error(
+      "The local dashboard is unavailable. Start it and open the application from Jobs before using AI assistance."
+    );
+  }
+  let body;
+  try {
+    body = await response.json();
+  } catch {
+    throw new Error("The dashboard returned an invalid assisted autofill response.");
+  }
+  if (!response.ok || !body?.provider || !Array.isArray(body.suggestions)) {
+    throw new Error(body?.error || "Assisted autofill is unavailable.");
+  }
+  return { ok: true, ...body };
+}
+
 async function injectPanel(session, { autofill = false } = {}) {
   const expectedEnablementVersion = enablementVersion;
   const { enabled } = await chrome.storage.local.get({ enabled: true });
@@ -774,7 +846,7 @@ async function injectPanel(session, { autofill = false } = {}) {
   }
 }
 
-async function launchApplication(payload) {
+async function launchApplication(payload, dashboardOrigin = "") {
   const { enabled } = await chrome.storage.local.get({ enabled: true });
   if (!enabled || requestedEnabled === false) {
     throw new Error("The extension is turned off.");
@@ -799,7 +871,7 @@ async function launchApplication(payload) {
     throw new Error("Chrome did not return an application tab.");
   }
 
-  const session = createSession(context, tab.id);
+  const session = createSession(context, tab.id, dashboardOrigin);
   await saveNewSession(session);
   await saveSessionProfile(session.id, profile);
 
@@ -823,12 +895,16 @@ async function startCurrentTab(payload) {
   let session = await findSessionByTab(payload.tabId);
   let created = false;
   if (!session) {
+    const { dashboardOrigin = "" } = await chrome.storage.local.get({
+      dashboardOrigin: ""
+    });
     session = createSession(
       cleanJobContext({
         url: payload.url,
         jobTitle: payload.jobTitle || "Current application"
       }),
-      payload.tabId
+      payload.tabId,
+      dashboardOrigin
     );
     await saveNewSession(session);
     created = true;
@@ -840,7 +916,44 @@ async function startCurrentTab(payload) {
     await saveSessionProfile(session.id, profile);
   }
 
-  const result = await injectPanel(session, { autofill: Boolean(payload.autofill) });
+  const result = await injectPanel(session, {
+    autofill: Boolean(payload.autofill)
+  });
+  if (payload.assist && result.ok) {
+    const topResult = await chrome.tabs.sendMessage(
+      session.tabId,
+      { type: "JOB_AUTOFILL_ASSIST" },
+      { frameId: 0 }
+    );
+    const embeddedResults = await runEmbeddedFrameAction(
+      session,
+      "JOB_AUTOFILL_ASSIST",
+      { force: true }
+    );
+    return {
+      ...topResult,
+      filled:
+        Number(topResult?.filled || 0) +
+        embeddedResults.reduce(
+          (total, entry) => total + Number(entry.filled || 0),
+          0
+        ),
+      assisted:
+        Number(topResult?.assisted || 0) +
+        embeddedResults.reduce(
+          (total, entry) => total + Number(entry.assisted || 0),
+          0
+        ),
+      providers: Array.from(
+        new Set(
+          [
+            topResult?.provider,
+            ...embeddedResults.map((entry) => entry.provider)
+          ].filter(Boolean)
+        )
+      )
+    };
+  }
   return { ...result, sessionId: session.id };
 }
 
@@ -1021,10 +1134,35 @@ async function handleInternalMessage(message, sender) {
       });
       return { ok: true, profile, resumeFile };
     }
+    case "JOB_AUTOFILL_REQUEST_ASSISTANCE": {
+      const { enabled } = await chrome.storage.local.get({ enabled: true });
+      const tabId = sender.tab?.id;
+      const senderUrl = sender.url || sender.tab?.url;
+      const session = Number.isInteger(tabId)
+        ? await findSessionByTab(tabId)
+        : null;
+      if (
+        !enabled ||
+        requestedEnabled === false ||
+        !senderUrl ||
+        !session ||
+        session.id !== message.sessionId ||
+        session.panelDismissed ||
+        ["paused", "dismissed", "closed", "left-application"].includes(
+          session.status
+        ) ||
+        !isAuthorizedSessionDocument(session, senderUrl, sender.frameId)
+      ) {
+        return { ok: false, error: "The application session is not active." };
+      }
+      return requestAssistedSuggestions(session, message.fields);
+    }
     case "JOB_AUTOFILL_SET_ENABLED":
       return setEnabled(message.enabled);
     case "JOB_AUTOFILL_START_TAB":
       return startCurrentTab(message);
+    case "JOB_AUTOFILL_ASSIST_TAB":
+      return startCurrentTab({ ...message, assist: true });
     case "JOB_AUTOFILL_SCAN_EMBEDDED":
     case "JOB_AUTOFILL_FILL_EMBEDDED": {
       const tabId = sender.tab?.id;
@@ -1070,6 +1208,41 @@ async function handleInternalMessage(message, sender) {
             );
             return progress;
           })
+      };
+    }
+    case "JOB_AUTOFILL_ASSIST_EMBEDDED": {
+      const tabId = sender.tab?.id;
+      const senderUrl = sender.url || sender.tab?.url;
+      const session = Number.isInteger(tabId)
+        ? await findSessionByTab(tabId)
+        : null;
+      if (
+        !senderUrl ||
+        !session ||
+        session.id !== message.sessionId ||
+        session.panelDismissed ||
+        !sessionScope.isAllowedUrl(session, senderUrl)
+      ) {
+        return { ok: false, error: "The application session is not active." };
+      }
+      const results = await runEmbeddedFrameAction(
+        session,
+        "JOB_AUTOFILL_ASSIST",
+        { force: true }
+      );
+      return {
+        ok: true,
+        filled: results.reduce(
+          (total, result) => total + Number(result.filled || 0),
+          0
+        ),
+        assisted: results.reduce(
+          (total, result) => total + Number(result.assisted || 0),
+          0
+        ),
+        providers: Array.from(
+          new Set(results.map((result) => result.provider).filter(Boolean))
+        )
       };
     }
     case "JOB_AUTOFILL_PROGRESS": {
@@ -1122,7 +1295,8 @@ async function handleInternalMessage(message, sender) {
   }
 }
 
-async function handleExternalMessage(message) {
+async function handleExternalMessage(message, sender) {
+  const dashboardOrigin = await rememberDashboardOrigin(sender);
   switch (message.type) {
     case "JOB_AUTOFILL_PING": {
       const { enabled } = await chrome.storage.local.get({ enabled: true });
@@ -1134,7 +1308,7 @@ async function handleExternalMessage(message) {
       };
     }
     case "JOB_AUTOFILL_LAUNCH":
-      return launchApplication(message);
+      return launchApplication(message, dashboardOrigin);
     case "JOB_AUTOFILL_SET_PROFILE": {
       const profile = await replaceProfile(message.profile);
       if (Object.prototype.hasOwnProperty.call(message, "resumeFile")) {

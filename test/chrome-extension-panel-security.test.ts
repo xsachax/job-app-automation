@@ -5,6 +5,10 @@ const panelSource = readFileSync(
   new URL("../apps/chrome-extension/content/application-panel.js", import.meta.url),
   "utf8",
 );
+const copilotSource = readFileSync(
+  new URL("../lib/autofill/copilot.ts", import.meta.url),
+  "utf8",
+);
 
 describe("Chrome extension panel security", () => {
   it("keeps panel controls out of page-script reach", () => {
@@ -19,6 +23,27 @@ describe("Chrome extension panel security", () => {
     expect(panelSource).toContain("await fillKnownFields();");
     expect(panelSource).not.toContain("data-off");
     expect(panelSource).not.toContain("data-profile");
+  });
+
+  it("runs assisted filling only from its explicit control", () => {
+    expect(panelSource).toContain(
+      'data-assisted-autofill type="button"',
+    );
+    expect(panelSource).toContain(
+      '.querySelector("[data-assisted-autofill]")',
+    );
+    expect(panelSource.match(/JOB_AUTOFILL_REQUEST_ASSISTANCE/g)).toHaveLength(
+      1,
+    );
+    expect(panelSource).toMatch(
+      /async function fillAssistedFields[\s\S]*JOB_AUTOFILL_REQUEST_ASSISTANCE[\s\S]*assertActive\(\)/,
+    );
+  });
+
+  it("runs the Copilot fallback without agent tools", () => {
+    expect(copilotSource).toContain('"--available-tools="');
+    expect(copilotSource).toContain('"--disable-builtin-mcps"');
+    expect(copilotSource).toContain('"--no-custom-instructions"');
   });
 
   it("retries unanswered failures without dropping their diagnostics", () => {
