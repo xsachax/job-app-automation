@@ -6,7 +6,7 @@ export default function ExtensionPage() {
     <div className="max-w-3xl">
       <PageHeader
         title="Chrome extension"
-        subtitle="Install the autofill extension and check its live connection to this dashboard."
+        subtitle="Install the autofill extension, check its connection, and review optional AI-assisted filling."
       />
       <ExtensionSettings />
     </div>

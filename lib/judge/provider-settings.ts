@@ -243,6 +243,17 @@ export async function getExternalJudgeProviderConfig(
   };
 }
 
+export async function getSelectedExternalJudgeProviderConfig(): Promise<ExternalJudgeProviderConfig | null> {
+  const stored = await readStoredSettings();
+  const config = stored.providers[stored.provider];
+  if (!config.apiKey) return null;
+  return {
+    provider: stored.provider,
+    model: configuredModel(stored.provider, config),
+    apiKey: config.apiKey,
+  };
+}
+
 export async function resolveJudgeProvider(): Promise<JudgeProviderResolution> {
   if (isCopilotJudgeConnected()) {
     return {

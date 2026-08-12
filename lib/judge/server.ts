@@ -4,6 +4,7 @@ export {
   ExternalJudgeProviderError,
 } from "./external";
 export {
+  getSelectedExternalJudgeProviderConfig,
   getJudgeProviderPublicSettings,
   JudgeProviderSettingsValidationError,
   saveJudgeProviderSettings,

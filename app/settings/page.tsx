@@ -336,7 +336,7 @@ export default function SettingsPage() {
       );
       applyJudgeProviderSettings(saved);
       setMessage(
-        `${providerChoice === "openai" ? "OpenAI" : "Anthropic"} Judge settings saved.`,
+        `${providerChoice === "openai" ? "OpenAI" : "Anthropic"} AI provider settings saved.`,
       );
     } catch (e) {
       setError((e as Error).message);
@@ -390,7 +390,7 @@ export default function SettingsPage() {
     <div>
       <PageHeader
         title="Settings"
-        subtitle="Configure discovery and the server-side enhanced Judge fallback."
+        subtitle="Configure discovery and the server-side AI provider used by Judge and optional assisted autofill."
       />
 
       {message && (
@@ -412,10 +412,14 @@ export default function SettingsPage() {
         >
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold">Enhanced Judge provider</h2>
+              <h2 className="text-lg font-semibold">
+                AI provider: Judge + assisted autofill
+              </h2>
               <p className={helper}>
                 API keys are stored only in the server&apos;s local SQLite
-                database. They are never returned to this page after saving.
+                database. They can power enhanced Judge scoring and the
+                extension&apos;s optional assisted-fill pass, and are never
+                returned to this page after saving.
               </p>
             </div>
             <span
@@ -427,19 +431,26 @@ export default function SettingsPage() {
               }
             >
               {judgeProvider.copilotConnected
-                ? "Copilot connected: priority"
-                : "Copilot not marked connected"}
+                ? "Copilot Judge connected: priority"
+                : "Copilot Judge not marked connected"}
             </span>
           </div>
 
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-300">
-            <strong>Current path:</strong> {judgeProvider.status}
+            <p>
+              <strong>Judge:</strong> {judgeProvider.status}
+            </p>
+            <p className="mt-2">
+              <strong>Assisted autofill:</strong> Uses the selected provider key
+              first. If the key is missing or its request fails, the server tries
+              the locally authenticated Copilot CLI.
+            </p>
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
             <div>
               <label htmlFor="judge-provider" className={cls.label}>
-                Enhanced fallback provider
+                External AI provider
               </label>
               <select
                 id="judge-provider"
@@ -455,8 +466,9 @@ export default function SettingsPage() {
                 <option value="anthropic">Anthropic</option>
               </select>
               <p className={helper}>
-                Used only when <code>COPILOT_JUDGE_CONNECTED</code> is not{" "}
-                <code>1</code>.
+                Judge uses this when <code>COPILOT_JUDGE_CONNECTED</code> is not{" "}
+                <code>1</code>. Assisted autofill tries this provider before
+                Copilot.
               </p>
             </div>
 
@@ -520,7 +532,7 @@ export default function SettingsPage() {
               className={cls.btnPrimary}
               disabled={savingJudgeProvider}
             >
-              {savingJudgeProvider ? "Saving..." : "Save Judge provider"}
+              {savingJudgeProvider ? "Saving..." : "Save AI provider"}
             </button>
           </div>
         </form>
