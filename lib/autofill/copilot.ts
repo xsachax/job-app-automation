@@ -18,6 +18,39 @@ export interface CopilotPromptOptions {
   timeoutMs?: number;
 }
 
+export function extractCopilotResponseFromJsonl(jsonl: string): string {
+  let response = "";
+  for (const line of jsonl.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    let event: unknown;
+    try {
+      event = JSON.parse(line) as unknown;
+    } catch {
+      throw new CopilotAutofillError(
+        "Copilot CLI returned a malformed event stream.",
+      );
+    }
+    if (!event || typeof event !== "object") continue;
+    const message = event as {
+      type?: unknown;
+      data?: { content?: unknown };
+    };
+    if (
+      message.type === "assistant.message" &&
+      typeof message.data?.content === "string"
+    ) {
+      response = message.data.content;
+    }
+  }
+  const clean = response.trim();
+  if (!clean) {
+    throw new CopilotAutofillError(
+      "Copilot assisted autofill returned an empty response.",
+    );
+  }
+  return clean;
+}
+
 async function isExecutable(path: string): Promise<boolean> {
   try {
     await access(path, constants.X_OK);
@@ -99,7 +132,8 @@ export async function runCopilotAutofillPrompt(
     "--no-color",
     "--stream",
     "off",
-    "--silent",
+    "--output-format",
+    "json",
     "--effort",
     "low",
     "-p",
@@ -159,16 +193,17 @@ export async function runCopilotAutofillPrompt(
         );
         return;
       }
-      const output = stdout.trim();
-      if (!output) {
+      try {
+        finish(undefined, extractCopilotResponseFromJsonl(stdout));
+      } catch (error) {
         finish(
-          new CopilotAutofillError(
-            "Copilot assisted autofill returned an empty response.",
-          ),
+          error instanceof CopilotAutofillError
+            ? error
+            : new CopilotAutofillError(
+                "Copilot CLI response could not be decoded.",
+              ),
         );
-        return;
       }
-      finish(undefined, output);
     });
   });
 }

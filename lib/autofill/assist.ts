@@ -22,7 +22,7 @@ const OMITTED_PROFILE_KEYS = new Set([
 const unsafeFieldPattern =
   /\b(?:account number|bank|captcha|credit card|cvv|password|routing|signature|social security|ssn)\b/i;
 const attestationPattern =
-  /\b(?:acknowledge|agree to|attest|authoriz(?:e|ation)|certif(?:y|ication)|consent|privacy policy|terms and conditions|truthful|under penalty)\b/i;
+  /\b(?:acknowledge|agree to|attest|authoriz(?:e|ation)|certif(?:y|ication)|consent|privacy policy|privacy statement|terms and conditions|truthful|under penalty)\b/i;
 
 const fieldSchema = z
   .object({
@@ -171,6 +171,7 @@ function systemPrompt(): string {
   return [
     "You assist with a job application by proposing answers for unresolved required fields.",
     'Return JSON only as {"suggestions":[{"fieldId":"field-1","answer":"exact answer","confidence":0.0,"reason":"short explanation","sourceKeys":["profileKey"]}]}.',
+    "Your entire response must start with { and end with }. Do not use Markdown fences or commentary.",
     "Use only explicit candidate profile evidence. You may draft concise open-ended text from that evidence, but never invent employment, education, eligibility, identity, compensation, dates, credentials, or other facts.",
     "Omit a field when the profile does not support a reliable answer. Never answer signatures, passwords, financial identifiers, consent, certification, or legal-attestation fields.",
     "For select, radio, checkbox-group, or listed combobox options, copy the exact supplied option text. For checkbox groups, separate multiple exact option texts with semicolons.",
@@ -352,6 +353,89 @@ function isUnsafeField(field: AutofillAssistRequest["fields"][number]): boolean 
   );
 }
 
+function tryParseJson(
+  candidate: string,
+): { success: true; value: unknown } | { success: false } {
+  try {
+    return { success: true, value: JSON.parse(candidate) as unknown };
+  } catch {
+    return { success: false };
+  }
+}
+
+function balancedJsonObjects(value: string): string[] {
+  const candidates: string[] = [];
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (start < 0) {
+      if (character === "{") {
+        start = index;
+        depth = 1;
+      }
+      continue;
+    }
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (character === '"') {
+      inString = true;
+    } else if (character === "{") {
+      depth += 1;
+    } else if (character === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        candidates.push(value.slice(start, index + 1));
+        start = -1;
+      }
+    }
+  }
+
+  return candidates;
+}
+
+function decodeJsonResponse(raw: string): unknown {
+  const clean = raw.replace(/^\uFEFF/, "").trim();
+  const direct = tryParseJson(clean);
+  if (direct.success) {
+    if (typeof direct.value !== "string") return direct.value;
+    const nested = tryParseJson(direct.value.trim());
+    return nested.success ? nested.value : direct.value;
+  }
+
+  const candidateTexts = new Set<string>();
+  for (const match of clean.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)) {
+    if (match[1]) candidateTexts.add(match[1].trim());
+  }
+  for (const candidate of balancedJsonObjects(clean)) {
+    candidateTexts.add(candidate);
+  }
+
+  const parsedCandidates = Array.from(candidateTexts)
+    .map((candidate) => tryParseJson(candidate))
+    .filter(
+      (result): result is { success: true; value: unknown } => result.success,
+    )
+    .map((result) => result.value)
+    .filter(
+      (value) =>
+        value !== null && typeof value === "object" && !Array.isArray(value),
+    );
+  if (parsedCandidates.length === 1) return parsedCandidates[0];
+  throw new SyntaxError("No single JSON object was found.");
+}
+
 function validateSuggestions(
   raw: string,
   request: AutofillAssistRequest,
@@ -360,7 +444,7 @@ function validateSuggestions(
 ): AutofillAssistSuggestion[] {
   let decoded: unknown;
   try {
-    decoded = JSON.parse(raw) as unknown;
+    decoded = decodeJsonResponse(raw);
   } catch {
     throw new AutofillAssistProviderError(
       provider,
@@ -426,6 +510,37 @@ function validateSuggestions(
   return validated;
 }
 
+async function requestCopilotSuggestions(
+  prompt: string,
+  request: AutofillAssistRequest,
+  profile: Record<string, unknown>,
+  options: AutofillAssistOptions,
+): Promise<AutofillAssistSuggestion[]> {
+  const runner =
+    options.copilotRunner ??
+    ((value: string) =>
+      runCopilotAutofillPrompt(value, { timeoutMs: options.timeoutMs }));
+  const raw = await runner(prompt);
+  try {
+    return validateSuggestions(raw, request, profile, "copilot");
+  } catch (error) {
+    if (
+      !(error instanceof AutofillAssistProviderError) ||
+      error.provider !== "copilot"
+    ) {
+      throw error;
+    }
+  }
+
+  const retryPrompt = [
+    prompt,
+    "",
+    "STRICT MACHINE-READABLE RETRY: Return exactly one valid JSON object matching the required schema. Start with {, end with }, and include no Markdown or commentary.",
+  ].join("\n");
+  const retryRaw = await runner(retryPrompt);
+  return validateSuggestions(retryRaw, request, profile, "copilot");
+}
+
 function parseRequest(input: unknown): AutofillAssistRequest {
   const parsed = requestSchema.safeParse(input);
   if (!parsed.success) {
@@ -482,21 +597,14 @@ export async function assistAutofill(
       };
     } catch (externalError) {
       try {
-        const raw = await (
-          options.copilotRunner ??
-          ((value) =>
-            runCopilotAutofillPrompt(value, {
-              timeoutMs: options.timeoutMs,
-            }))
-        )(copilotPrompt);
         return {
           provider: "copilot",
           fallbackFrom: external.provider,
-          suggestions: validateSuggestions(
-            raw,
+          suggestions: await requestCopilotSuggestions(
+            copilotPrompt,
             request,
             profile,
-            "copilot",
+            options,
           ),
         };
       } catch (fallbackError) {
@@ -517,14 +625,14 @@ export async function assistAutofill(
   }
 
   try {
-    const raw = await (
-      options.copilotRunner ??
-      ((value) =>
-        runCopilotAutofillPrompt(value, { timeoutMs: options.timeoutMs }))
-    )(copilotPrompt);
     return {
       provider: "copilot",
-      suggestions: validateSuggestions(raw, request, profile, "copilot"),
+      suggestions: await requestCopilotSuggestions(
+        copilotPrompt,
+        request,
+        profile,
+        options,
+      ),
     };
   } catch (error) {
     if (error instanceof AutofillAssistProviderError) throw error;

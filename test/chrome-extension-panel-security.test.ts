@@ -44,6 +44,10 @@ describe("Chrome extension panel security", () => {
     expect(copilotSource).toContain('"--available-tools="');
     expect(copilotSource).toContain('"--disable-builtin-mcps"');
     expect(copilotSource).toContain('"--no-custom-instructions"');
+    expect(copilotSource).toMatch(
+      /"--output-format",\s*"json"/,
+    );
+    expect(copilotSource).not.toContain('"--silent"');
   });
 
   it("retries unanswered failures without dropping their diagnostics", () => {
