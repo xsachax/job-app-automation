@@ -212,23 +212,57 @@ describe("assisted autofill", () => {
     const result = await assistAutofill(request(), {
       providerConfig: null,
       copilotRunner: async () =>
-        JSON.stringify({
-          suggestions: [
-            {
-              fieldId: "field-1",
-              answer: "A profile-supported answer.",
-              confidence: 0.8,
-              reason: "Supported by the candidate name.",
-              sourceKeys: ["firstName"],
-            },
-          ],
-        }),
+        `Here is the requested response:
+\`\`\`json
+${JSON.stringify({
+  suggestions: [
+    {
+      fieldId: "field-1",
+      answer: "A profile-supported answer.",
+      confidence: 0.8,
+      reason: "Supported by the candidate name.",
+      sourceKeys: ["firstName"],
+    },
+  ],
+})}
+\`\`\``,
     });
 
     expect(result).toMatchObject({
       provider: "copilot",
       suggestions: [{ answer: "A profile-supported answer." }],
     });
+  });
+
+  it("retries Copilot once with stricter JSON instructions", async () => {
+    const prompts: string[] = [];
+    const result = await assistAutofill(request(), {
+      providerConfig: null,
+      copilotRunner: async (prompt) => {
+        prompts.push(prompt);
+        if (prompts.length === 1) {
+          return '{"suggestions":[';
+        }
+        return JSON.stringify({
+          suggestions: [
+            {
+              fieldId: "field-1",
+              answer: "Recovered on the strict retry.",
+              confidence: 0.85,
+              reason: "Supported by the candidate summary.",
+              sourceKeys: ["summary"],
+            },
+          ],
+        });
+      },
+    });
+
+    expect(result).toMatchObject({
+      provider: "copilot",
+      suggestions: [{ answer: "Recovered on the strict retry." }],
+    });
+    expect(prompts).toHaveLength(2);
+    expect(prompts[1]).toContain("STRICT MACHINE-READABLE RETRY");
   });
 
   it("rejects malformed requests and reports both failed provider paths", async () => {
