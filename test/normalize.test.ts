@@ -25,6 +25,18 @@ describe("normalizeUrl", () => {
       "https://x.com/jobs/9",
     );
   });
+  it.each([
+    [
+      "https://careers.withwaymo.com/jobs?gh_jid=8049315&utm_source=greenhouse#apply",
+      "https://careers.withwaymo.com/jobs?gh_jid=8049315",
+    ],
+    [
+      "https://www.hudsonrivertrading.com/careers/job/?gh_jid=7972593&gh_src=abc",
+      "https://www.hudsonrivertrading.com/careers/job/?gh_jid=7972593",
+    ],
+  ])("preserves Greenhouse job identifiers in %s", (input, expected) => {
+    expect(normalizeUrl(input)).toBe(expected);
+  });
   it("returns input unchanged when not a URL", () => {
     expect(normalizeUrl("  garbage ")).toBe("garbage");
   });
