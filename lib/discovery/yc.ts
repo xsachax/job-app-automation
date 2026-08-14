@@ -209,6 +209,7 @@ export interface ResolveDeps {
   fetchText: FetchText;
   concurrency: number;
   now?: Date;
+  onProbeFailure?: (company: YcDirectoryCompany, error: unknown) => void;
 }
 
 // Resolve ATS boards for a set of companies, using the DB cache to skip fresh
@@ -233,9 +234,10 @@ export async function resolveYcBoards(
     let hit: { system: ResolvedSystem; token: string } | null;
     try {
       hit = await resolveCompanyAts(c, deps.fetchText);
-    } catch {
+    } catch (error) {
       // A transient probe failure is not evidence that this company has no ATS.
       // Leave any stale cache row untouched so the next run retries it.
+      deps.onProbeFailure?.(c, error);
       return;
     }
     const data = {

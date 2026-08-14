@@ -24,7 +24,7 @@ The queue targets roles that are **entry-level or ask for ≤ 2 years of experie
 
 ## Discovery pipeline
 
-Postings are pulled directly from each company's careers backend. 78 companies expose a
+Postings are pulled directly from each company's careers backend. 80 companies expose a
 usable public JSON API (Greenhouse, Ashby, Lever, Amazon, Uber, Netflix, Snap, Phenom,
 Spotify, Workday CXS) — including a block of quant / high-frequency trading firms (Jane
 Street, Point72, Optiver, Jump, IMC, Tower Research, Squarepoint, Qube, WorldQuant, AQR,
@@ -99,7 +99,7 @@ If a direct source sees the same requisition again, that row reopens instead of 
 
 ## Features
 
-- **Company-site discovery** — 78 public-API companies (incl. quant / HFT firms) + Playwright
+- **Company-site discovery** — 80 public-API companies (incl. quant / HFT firms) + Playwright
   scraping for Apple and Shopify, plus community GitHub job boards (SimplifyJobs, vanshb03) for the long
   tail of employers, classified to US/Canada entry-level roles. See [Discovery pipeline](#discovery-pipeline).
 - **Two separate queues** — US and Canada, newest-first, with last-24h / 7d / 30d filters.

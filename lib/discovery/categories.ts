@@ -101,7 +101,7 @@ const DEFENSE = new Set(
 const STARTUP = new Set(
   [
     "Databricks", "Stripe", "Figma", "Discord", "SpaceX", "Nuro", "Notion",
-    "Ramp", "Wealthsimple",
+    "Ramp", "Wealthsimple", "Vercel", "Replit",
   ].map(norm),
 );
 
