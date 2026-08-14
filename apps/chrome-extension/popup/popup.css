@@ -107,18 +107,6 @@ button:disabled {
   color: #ffffff;
 }
 
-.assist {
-  background: #6941c6;
-  border-color: #6941c6;
-  color: #ffffff;
-}
-
-.disclosure {
-  color: #667085;
-  font-size: 10px;
-  line-height: 1.4;
-}
-
 .notice {
   background: #f2f4f7;
   border-radius: 8px;

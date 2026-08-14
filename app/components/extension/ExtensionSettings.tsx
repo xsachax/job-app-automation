@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import { cls } from "../ui";
 import { useChromeExtensionStatus } from "./useChromeExtensionStatus";
@@ -101,20 +100,6 @@ export function ExtensionSettings() {
         <code>apps/chrome-extension</code>, then return to this dashboard. It connects
         automatically.
       </p>
-
-      <div className="mt-4 rounded-lg border border-indigo-200 bg-indigo-50 p-4 text-sm text-indigo-950 dark:border-indigo-900 dark:bg-indigo-950 dark:text-indigo-100">
-        <p className="font-semibold">Optional AI-assisted pass</p>
-        <p className="mt-1 text-xs leading-5">
-          After normal autofill, choose <strong>AI assist remaining fields</strong>.
-          Only then will the extension send unresolved required-field text and your
-          saved profile to the OpenAI/Anthropic provider configured in{" "}
-          <Link className="underline" href="/settings">
-            Settings
-          </Link>
-          . If that provider has no key or fails, the server tries your local
-          Copilot CLI. Answers are filled for review and never submitted.
-        </p>
-      </div>
 
       {actionError && (
         <p role="alert" className="mt-3 text-sm font-medium text-red-700 dark:text-red-300">

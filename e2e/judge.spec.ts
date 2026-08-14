@@ -304,16 +304,16 @@ test.describe("judge hub", () => {
     page,
   }) => {
     await page.goto("/settings");
-    await expect(
-      page.getByText("Copilot Judge not marked connected"),
-    ).toBeVisible();
+    await expect(page.getByText("Copilot not marked connected")).toBeVisible();
 
-    await page.getByLabel("External AI provider").selectOption("openai");
+    await page
+      .getByLabel("Enhanced fallback provider")
+      .selectOption("openai");
     const key = page.getByLabel("OpenAI API key");
     await key.fill("sk-e2e-offline-key-9876");
-    await page.getByRole("button", { name: "Save AI provider" }).click();
+    await page.getByRole("button", { name: "Save Judge provider" }).click();
     await expect(
-      page.getByText("OpenAI AI provider settings saved."),
+      page.getByText("OpenAI Judge settings saved."),
     ).toBeVisible();
     await expect(key).toHaveValue("");
     await expect(key).toHaveAttribute(

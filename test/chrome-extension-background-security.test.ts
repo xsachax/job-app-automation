@@ -101,7 +101,7 @@ describe("Chrome extension background security", () => {
     expect(launchSource).toContain("profile = sanitizeProfile(payload.profile)");
     expect(launchSource).not.toContain("replaceProfile(payload.profile)");
     expect(backgroundSource).toMatch(
-      /const session = createSession\(context, tab\.id, dashboardOrigin\);[\s\S]*saveNewSession\(session\);[\s\S]*saveSessionProfile\(session\.id, profile\)/,
+      /const session = createSession\(context, tab\.id\);[\s\S]*saveNewSession\(session\);[\s\S]*saveSessionProfile\(session\.id, profile\)/,
     );
     expect(backgroundSource).toMatch(
       /async function injectPanel[\s\S]*profileForSession\(session\.id\)/,
@@ -111,28 +111,15 @@ describe("Chrome extension background security", () => {
     );
   });
 
-  it("pins assisted requests to a trusted loopback dashboard origin", () => {
+  it("uses Chrome's manifest allowlist without a second configured origin", () => {
     expect(manifest.externally_connectable?.matches).toEqual([
       "http://localhost/*",
       "https://localhost/*",
       "http://127.0.0.1/*",
       "https://127.0.0.1/*",
     ]);
-    expect(backgroundSource).toMatch(
-      /function cleanDashboardOrigin[\s\S]*\["localhost", "127\.0\.0\.1"\]/,
-    );
-    expect(backgroundSource).toMatch(
-      /handleExternalMessage\(message, sender\)[\s\S]*rememberDashboardOrigin\(sender\)/,
-    );
-    expect(backgroundSource).toMatch(
-      /session\.dashboardOrigin \|\| stored\.dashboardOrigin/,
-    );
-    expect(backgroundSource).toContain(
-      '`${dashboardOrigin}/api/autofill/assist`',
-    );
-    expect(backgroundSource).toContain(
-      '"X-Job-Autofill-Extension": chrome.runtime.id',
-    );
+    expect(backgroundSource).not.toContain("dashboardOrigin");
+    expect(backgroundSource).not.toContain("isAllowedDashboardSender");
     expect(manifest.options_page).toBeUndefined();
   });
 });

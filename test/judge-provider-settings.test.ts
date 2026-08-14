@@ -4,7 +4,6 @@ import { prisma } from "../lib/db";
 import {
   getExternalJudgeProviderConfig,
   getJudgeProviderPublicSettings,
-  getSelectedExternalJudgeProviderConfig,
 } from "../lib/judge/provider-settings";
 import {
   GET,
@@ -109,10 +108,6 @@ describe("Judge provider settings API", () => {
       apiKey: "sk-openai-second-2222",
     });
     expect(await getExternalJudgeProviderConfig("anthropic")).toMatchObject({
-      apiKey: "sk-ant-private-3333",
-    });
-    expect(await getSelectedExternalJudgeProviderConfig()).toMatchObject({
-      provider: "anthropic",
       apiKey: "sk-ant-private-3333",
     });
 
