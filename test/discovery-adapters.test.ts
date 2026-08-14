@@ -280,6 +280,91 @@ describe("uber careers adapter", () => {
   });
 });
 
+describe("netflix careers adapter", () => {
+  it("paginates native country searches and hydrates job descriptions", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = new URL(String(input));
+      const detailId = url.pathname.match(/\/jobs\/(\d+)$/)?.[1];
+      if (detailId) {
+        return jsonResponse({
+          id: Number(detailId),
+          display_job_id: `JR${detailId}`,
+          name: "Software Engineer 3",
+          location: "Los Angeles,California,United States of America",
+          job_description: "<p>2 years of software engineering experience.</p>",
+          canonicalPositionUrl: `https://explore.jobs.netflix.net/careers/job/${detailId}?microsite=netflix.com`,
+        });
+      }
+
+      const location = url.searchParams.get("location");
+      const start = Number(url.searchParams.get("start"));
+      if (location === "Canada") {
+        return jsonResponse({ count: 0, positions: [] });
+      }
+      const id = start === 0 ? 101 : 102;
+      return jsonResponse({
+        count: 2,
+        positions: [
+          {
+            id,
+            display_job_id: `JR${id}`,
+            name: start === 0 ? "Software Engineer 3" : "Software Engineer Intern",
+            location: "Los Angeles,California,United States of America",
+            job_description:
+              start === 0 ? "" : "<p>Build streaming products.</p>",
+            canonicalPositionUrl: `https://explore.jobs.netflix.net/careers/job/${id}`,
+            t_create: 1_700_000_000,
+          },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const company = API_COMPANIES.find(
+      (candidate) => candidate.name === "Netflix",
+    )!;
+
+    const posts = await fetchCompanyPostings(company);
+
+    expect(posts).toHaveLength(2);
+    expect(
+      fetchMock.mock.calls.some(([input]) => {
+        const url = new URL(String(input));
+        return (
+          url.searchParams.get("location") === "United States" &&
+          url.searchParams.get("start") === "1"
+        );
+      }),
+    ).toBe(true);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://explore.jobs.netflix.net/api/apply/v2/jobs/101?domain=netflix.com",
+      expect.any(Object),
+    );
+    expect(posts[0]).toMatchObject({
+      externalId: "JR101",
+      country: "US",
+      description: "2 years of software engineering experience.",
+      applyUrl:
+        "https://explore.jobs.netflix.net/careers/job/101?microsite=netflix.com",
+    });
+    expect(posts[1]).toMatchObject({
+      externalId: "JR102",
+      country: "US",
+      description: "Build streaming products.",
+    });
+  });
+
+  it("rejects malformed list responses", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ positions: null })));
+    const company = API_COMPANIES.find(
+      (candidate) => candidate.name === "Netflix",
+    )!;
+
+    await expect(fetchCompanyPostings(company)).rejects.toThrow(
+      "Netflix response did not contain a positions array",
+    );
+  });
+});
+
 describe("talentbrew adapter (Radancy HTML fragments)", () => {
   it("parses job tiles into postings and classifies country", async () => {
     const html = `
