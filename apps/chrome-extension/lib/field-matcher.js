@@ -1136,10 +1136,33 @@
     );
   }
 
+  function phoneExtensionDefinitionMatches(definition, signals) {
+    if (definition.key !== "phoneExtension") {
+      return true;
+    }
+    return (signals || [])
+      .filter(
+        (signal) => !["description", "section"].includes(signal.source)
+      )
+      .some((signal) =>
+        (definition.aliases || []).some(
+          (alias) => scoreText(signal.text, alias) >= MINIMUM_SCORE
+        )
+      );
+  }
+
   function isExcluded(definition, signals) {
     const excludedSignals = signals.filter((signal) =>
-      (definition.excludeAliases || []).some((excludedAlias) =>
-        literalPhraseMatches(signal.text, excludedAlias)
+      (definition.excludeAliases || []).some(
+        (excludedAlias) =>
+          literalPhraseMatches(signal.text, excludedAlias) &&
+          !(
+            definition.key === "phone" &&
+            ["description", "section"].includes(signal.source) &&
+            ["phone extension", "phone number extension"].includes(
+              normalizeText(excludedAlias)
+            )
+          )
       )
     );
     if (!excludedSignals.length) {
@@ -1614,6 +1637,7 @@
       !experienceDefinitionMatches(definition, context.signals) ||
       !availableStartDateDefinitionMatches(definition, context.signals) ||
       !ageDefinitionMatches(definition, context.signals) ||
+      !phoneExtensionDefinitionMatches(definition, context.signals) ||
       !canPerformDefinitionMatches(definition, context.signals) ||
       !workplaceDefinitionMatches(definition, context.signals) ||
       hasUnsupportedChoiceNegation(definition, context.signals)

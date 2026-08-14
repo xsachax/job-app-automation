@@ -909,6 +909,25 @@ test("fills split phone and location controls with canonical values", async ({
   await expect(page.locator("#country")).toHaveValue("CA");
 });
 
+test("never substitutes a phone extension for the phone number", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `
+      <label for="phone">Phone number</label>
+      <input id="phone" type="tel" aria-describedby="phone-help">
+      <p id="phone-help">Include your extension if applicable.</p>
+    `,
+    profile: {
+      phone: "+1 (416) 555-0199",
+      phoneExtension: "42",
+    },
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 1 });
+  await expect(page.locator("#phone")).toHaveValue("+1 (416) 555-0199");
+});
+
 test("fills only controls marked mandatory by semantic or ATS signals", async ({
   page,
 }) => {

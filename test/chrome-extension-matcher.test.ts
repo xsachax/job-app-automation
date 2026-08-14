@@ -774,7 +774,7 @@ describe("Chrome extension field matching", () => {
     }
 
     for (const [label, description, expectedKey] of [
-      ["Phone", "Phone extension", "phoneExtension"],
+      ["Phone", "Phone extension", "phone"],
       ["Degree", "Degree field", "fieldOfStudy"],
       ["Country", "Country calling code", "phoneCountryCode"],
     ]) {
@@ -792,6 +792,22 @@ describe("Chrome extension field matching", () => {
         `${label}: ${description}`,
       ).toBe(expectedKey);
     }
+
+    expect(
+      matcher.findBestDefinition(
+        {
+          signals: [
+            {
+              text: "Include an extension if applicable",
+              weight: 0.74,
+              source: "description",
+            },
+          ],
+          controlKind: "text",
+        },
+        profileSchema.fields,
+      ),
+    ).toBeNull();
   });
 
   it("maps common structured profile values to ATS options", () => {
