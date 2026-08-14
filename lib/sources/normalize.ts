@@ -18,12 +18,14 @@ export function detectAts(url: string): AtsType {
   return "unknown";
 }
 
-// Strip tracking params + fragments so the same posting maps to one canonical URL.
+// Strip tracking params + fragments while preserving parameters that identify a job.
 export function normalizeUrl(url: string): string {
   try {
     const u = new URL(url.trim());
+    const greenhouseJobId = u.searchParams.get("gh_jid");
     u.hash = "";
     u.search = "";
+    if (greenhouseJobId) u.searchParams.set("gh_jid", greenhouseJobId);
     let s = u.toString();
     if (s.endsWith("/")) s = s.slice(0, -1);
     return s;
