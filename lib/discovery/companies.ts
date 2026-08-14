@@ -109,7 +109,7 @@ const SWE = ["software engineer", "software developer"];
 const SWE_BROAD = ["software engineer", "software developer", "machine learning", "devops"];
 
 // ---------------------------------------------------------------------------
-// API companies (78) — direct public JSON endpoints, verified live. Includes a
+// API companies (80) — direct public JSON endpoints, verified live. Includes a
 // block of quant / trading firms at the end.
 // ---------------------------------------------------------------------------
 
@@ -138,6 +138,7 @@ export const API_COMPANIES: ApiCompany[] = [
   { name: "Waymo", method: "api", system: "greenhouse", token: "waymo", countryFilter: "post", queryTerms: SWE_BROAD },
   { name: "Together AI", method: "api", system: "greenhouse", token: "togetherai", countryFilter: "post", queryTerms: SWE_BROAD },
   { name: "Scale AI", method: "api", system: "greenhouse", token: "scaleai", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Vercel", method: "api", system: "greenhouse", token: "vercel", countryFilter: "post", queryTerms: SWE_BROAD },
 
   // ---- Ashby: https://api.ashbyhq.com/posting-api/job-board/<token>
   { name: "OpenAI", method: "api", system: "ashby", token: "openai", countryFilter: "post", queryTerms: SWE_BROAD },
@@ -154,6 +155,7 @@ export const API_COMPANIES: ApiCompany[] = [
   { name: "Mercor", method: "api", system: "ashby", token: "mercor", countryFilter: "post", queryTerms: SWE_BROAD },
   { name: "Sierra", method: "api", system: "ashby", token: "sierra", countryFilter: "post", queryTerms: SWE_BROAD },
   { name: "Harvey", method: "api", system: "ashby", token: "harvey", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Replit", method: "api", system: "ashby", token: "replit", countryFilter: "post", queryTerms: SWE_BROAD },
 
   // ---- Bespoke public JSON endpoints
   { name: "Amazon", method: "api", system: "amazon", countryFilter: "native", queryTerms: SWE },

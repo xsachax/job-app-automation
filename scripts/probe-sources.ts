@@ -133,7 +133,7 @@ const CANDIDATES: Cand[] = [
   // ---- Ashby ----
   AS("ramp", "Ramp", ["yc", "a16z"]),
   AS("linear", "Linear", ["known"]),
-  AS("vercel", "Vercel", ["a16z", "greylock"]),
+  GH("vercel", "Vercel", ["a16z", "greylock"]),
   AS("mistral", "Mistral AI", ["a16z"]),
   AS("runwayml", "Runway", ["greylock"]),
   AS("replit", "Replit", ["a16z", "yc"]),

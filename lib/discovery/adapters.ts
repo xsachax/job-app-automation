@@ -117,13 +117,9 @@ function requireValidPostingRows<T>(
   return rows;
 }
 
-// Best-effort HTML fetch used by the YC ATS resolver. Never throws — a missing
-// or blocked page just yields "" so the resolver moves on to the next candidate.
-async function fetchText(
-  url: string,
-  timeoutMs = 8000,
-  onWarning?: (message: string) => void,
-): Promise<string> {
+// Best-effort HTML fetch used by the YC ATS resolver. Missing pages yield an
+// empty result; transient blocks throw so the resolver retries them next run.
+async function fetchText(url: string, timeoutMs = 8000): Promise<string> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -140,13 +136,6 @@ async function fetchText(
       );
     }
     return await res.text();
-  } catch (error) {
-    onWarning?.(
-      `YC ATS probe failed for ${url}: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
-    throw error;
   } finally {
     clearTimeout(t);
   }
@@ -984,8 +973,15 @@ async function ycombinator(c: ApiCompany, ctx: FetchContext): Promise<DiscoveryP
 
   const boards = await resolveYcBoards(selected, {
     prisma,
-    fetchText: (url) => fetchText(url, 8000, ctx.onWarning),
+    fetchText: (url) => fetchText(url, 8000),
     concurrency: yc.concurrency,
+    onProbeFailure: (company, error) => {
+      console.warn(
+        `YC ATS discovery unavailable for ${company.name}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    },
   });
 
   const perBoard = await mapPool(boards, yc.concurrency, async (b) => {
@@ -1000,6 +996,17 @@ async function ycombinator(c: ApiCompany, ctx: FetchContext): Promise<DiscoveryP
     try {
       return await FETCHERS[b.system](synthetic, ctx);
     } catch (error) {
+      if (
+        error instanceof FetchHttpError &&
+        [404, 410].includes(error.status)
+      ) {
+        // ATS links can outlive the board they point to. Remove terminal misses
+        // so the next run re-resolves the company instead of retrying stale data.
+        await prisma.ycAtsCache.deleteMany({
+          where: { slug: b.slug, system: b.system, token: b.token },
+        });
+        return [];
+      }
       ctx.onWarning?.(
         `YC board ${b.name} (${b.system}) failed: ${
           error instanceof Error ? error.message : String(error)

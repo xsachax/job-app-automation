@@ -9,6 +9,62 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe("Vercel and Replit career sources", () => {
+  it.each([
+    ["Vercel", "greenhouse", "vercel", "https://boards-api.greenhouse.io/v1/boards/vercel/jobs?content=true"],
+    ["Replit", "ashby", "replit", "https://api.ashbyhq.com/posting-api/job-board/replit"],
+  ] as const)(
+    "uses the official %s %s board",
+    async (name, system, token, expectedUrl) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () =>
+          system === "greenhouse"
+            ? jsonResponse({
+                jobs: [
+                  {
+                    id: 123,
+                    title: "Software Engineer I",
+                    absolute_url: "https://job-boards.greenhouse.io/vercel/jobs/123",
+                    location: { name: "San Francisco, California" },
+                    content: "<p>Build developer tools.</p>",
+                    updated_at: "2026-08-01T00:00:00Z",
+                  },
+                ],
+              })
+            : jsonResponse({
+                jobs: [
+                  {
+                    id: "replit-123",
+                    title: "Software Engineer I",
+                    applyUrl: "https://jobs.ashbyhq.com/replit/replit-123/application",
+                    location: "Foster City, CA",
+                    descriptionPlain: "Build developer tools.",
+                    publishedAt: "2026-08-01T00:00:00Z",
+                  },
+                ],
+              }),
+        ),
+      );
+      const company = API_COMPANIES.find((candidate) => candidate.name === name);
+
+      expect(company).toMatchObject({ system, token, countryFilter: "post" });
+      expect(DISCOVERY_SOURCES).toContain(company);
+      const postings = await fetchCompanyPostings(company!);
+
+      expect(fetch).toHaveBeenCalledWith(expectedUrl, expect.any(Object));
+      expect(postings).toMatchObject([
+        {
+          company: name,
+          title: "Software Engineer I",
+          system,
+          country: "US",
+        },
+      ]);
+    },
+  );
+});
+
 describe("microsoft adapter (pcsx)", () => {
   it("maps positions to postings with country + apply URL", async () => {
     vi.stubGlobal(
@@ -413,10 +469,11 @@ describe("authoritative ATS response validation", () => {
   });
 });
 
-describe("Y Combinator adapter warnings", () => {
-  it("does not cache transient ATS probe failures as no-board results", async () => {
+describe("Y Combinator adapter", () => {
+  it("keeps transient ATS discovery failures from degrading the source run", async () => {
     const slug = "adapter-transient-probe";
     await prisma.ycAtsCache.deleteMany({ where: { slug } });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       if (String(input) === YC_SOURCE.yc?.directoryUrl) {
         return jsonResponse([
@@ -451,12 +508,137 @@ describe("Y Combinator adapter warnings", () => {
     });
 
     expect(postings).toEqual([]);
-    expect(onWarning).toHaveBeenCalledWith(
-      expect.stringMatching(/YC ATS probe failed .*HTTP 503/),
+    expect(onWarning).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringMatching(/YC ATS discovery unavailable for Transient Probe: HTTP 503/),
     );
     expect(
       await prisma.ycAtsCache.findUnique({ where: { slug } }),
     ).toBeNull();
+  });
+
+  it("invalidates stale cached boards without degrading the source run", async () => {
+    const slug = "adapter-stale-board";
+    await prisma.ycAtsCache.upsert({
+      where: { slug },
+      update: {},
+      create: {
+        slug,
+        name: "Stale Board",
+        website: "https://stale-board.example",
+        batch: "Summer 2026",
+        system: "ashby",
+        token: "stale-board",
+      },
+    });
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url === YC_SOURCE.yc?.directoryUrl) {
+        return jsonResponse([
+          {
+            name: "Stale Board",
+            slug,
+            website: "https://stale-board.example",
+            batch: "Summer 2026",
+            status: "Active",
+            team_size: 50,
+            isHiring: true,
+            regions: ["United States of America"],
+            all_locations: "Remote, United States",
+          },
+        ]);
+      }
+      if (
+        url ===
+        "https://api.ashbyhq.com/posting-api/job-board/stale-board"
+      ) {
+        return new Response("", { status: 404 });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const onWarning = vi.fn();
+
+    const postings = await fetchCompanyPostings(YC_SOURCE, {
+      onWarning,
+      countries: ["US", "CA"],
+      yc: {
+        yearsBack: 5,
+        minTeamSize: 1,
+        maxTeamSize: 2_000,
+        maxCompanies: 10,
+        concurrency: 1,
+      },
+    });
+
+    expect(postings).toEqual([]);
+    expect(onWarning).not.toHaveBeenCalled();
+    expect(
+      await prisma.ycAtsCache.findUnique({ where: { slug } }),
+    ).toBeNull();
+  });
+
+  it("reports transient failures from a known board as partial results", async () => {
+    const slug = "adapter-transient-board";
+    await prisma.ycAtsCache.upsert({
+      where: { slug },
+      update: {},
+      create: {
+        slug,
+        name: "Transient Board",
+        website: "https://transient-board.example",
+        batch: "Summer 2026",
+        system: "ashby",
+        token: "transient-board",
+      },
+    });
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url === YC_SOURCE.yc?.directoryUrl) {
+        return jsonResponse([
+          {
+            name: "Transient Board",
+            slug,
+            website: "https://transient-board.example",
+            batch: "Summer 2026",
+            status: "Active",
+            team_size: 50,
+            isHiring: true,
+            regions: ["United States of America"],
+            all_locations: "Remote, United States",
+          },
+        ]);
+      }
+      if (
+        url ===
+        "https://api.ashbyhq.com/posting-api/job-board/transient-board"
+      ) {
+        return new Response("", { status: 503 });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const onWarning = vi.fn();
+
+    const postings = await fetchCompanyPostings(YC_SOURCE, {
+      onWarning,
+      countries: ["US", "CA"],
+      yc: {
+        yearsBack: 5,
+        minTeamSize: 1,
+        maxTeamSize: 2_000,
+        maxCompanies: 10,
+        concurrency: 1,
+      },
+    });
+
+    expect(postings).toEqual([]);
+    expect(onWarning).toHaveBeenCalledWith(
+      expect.stringMatching(/YC board Transient Board .*HTTP 503/),
+    );
+    expect(
+      await prisma.ycAtsCache.findUnique({ where: { slug } }),
+    ).toMatchObject({ system: "ashby", token: "transient-board" });
   });
 });
 
