@@ -3422,155 +3422,8 @@
     return { ok: true, filled };
   }
 
-  function isAssistedQuestion(question) {
-    if (
-      !question.required ||
-      question.answered ||
-      ![
-        "manual",
-        "unknown",
-        "uncertain",
-        "missing-profile",
-        "failed"
-      ].includes(question.status) ||
-      ![
-        "text",
-        "textarea",
-        "select",
-        "choice",
-        "combobox",
-        "check-many"
-      ].includes(question.kind)
-    ) {
-      return false;
-    }
-    const first = question.elements[0];
-    return !(
-      question.kind !== "check-many" &&
-      (inputType(first) === "checkbox" || elementRole(first) === "checkbox")
-    );
-  }
-
-  function assistedFieldPayload(question, index) {
-    const first = question.elements[0];
-    const nativeMaxLength = Number.parseInt(
-      first.getAttribute?.("maxlength") || "",
-      10
-    );
-    return {
-      id: `field-${index + 1}`,
-      label: String(question.label || "Unlabeled field").slice(0, 500),
-      context: Array.from(
-        new Set(question.signals.map((signal) => signal.text).filter(Boolean))
-      )
-        .join(" | ")
-        .slice(0, 2000),
-      controlKind: question.kind,
-      inputType: inputType(first),
-      options: questionOptionTexts(question.elements, question.kind)
-        .slice(0, 100)
-        .map((option) => String(option).slice(0, 500)),
-      maxLength:
-        Number.isInteger(nativeMaxLength) && nativeMaxLength > 0
-          ? nativeMaxLength
-          : null,
-      pattern: String(first.getAttribute?.("pattern") || "").slice(0, 500),
-      required: true,
-      status: question.status
-    };
-  }
-
-  async function fillAssistedQuestion(question, value, assertActive) {
-    if (question.kind === "check-many") {
-      return fillCheckMany(question, value, assertActive);
-    }
-    if (["choice", "select", "combobox"].includes(question.kind)) {
-      return fillChoice(question, value, assertActive);
-    }
-    return fillText(question, value, assertActive);
-  }
-
-  async function fillAssistedFields() {
-    if (
-      !state.session ||
-      !sessionScope.isAllowedUrl(state.session, location.href)
-    ) {
-      throw new Error("This page is outside the approved application site.");
-    }
-    const sessionId = state.session.id;
-    const sessionGeneration = state.sessionGeneration;
-    const assertActive = () =>
-      assertAutofillSession(sessionId, sessionGeneration);
-    const initialQuestions = collectQuestions(collectRoots()).filter(
-      isAssistedQuestion
-    );
-    if (!initialQuestions.length) {
-      return { ok: true, filled: 0, assisted: 0, provider: null };
-    }
-    const entries = initialQuestions.slice(0, 25).map((question, index) => ({
-      field: assistedFieldPayload(question, index),
-      key: question.key
-    }));
-    const response = await sendMessage({
-      type: "JOB_AUTOFILL_REQUEST_ASSISTANCE",
-      sessionId,
-      fields: entries.map((entry) => entry.field)
-    });
-    assertActive();
-    if (!response?.ok || !Array.isArray(response.suggestions)) {
-      throw new Error(response?.error || "Assisted autofill is unavailable.");
-    }
-
-    const keys = new Map(entries.map((entry) => [entry.field.id, entry.key]));
-    let filled = 0;
-    for (const suggestion of response.suggestions) {
-      assertActive();
-      const key = keys.get(suggestion?.fieldId);
-      const value =
-        typeof suggestion?.answer === "string" ? suggestion.answer.trim() : "";
-      if (!key || !value) {
-        continue;
-      }
-      const question = collectQuestions(collectRoots()).find(
-        (candidate) => candidate.key === key
-      );
-      if (!question || !isAssistedQuestion(question)) {
-        continue;
-      }
-      const succeeded = await fillAssistedQuestion(
-        question,
-        value,
-        assertActive
-      );
-      assertActive();
-      if (succeeded) {
-        filled += 1;
-        state.fillIssues.delete(question.key);
-        highlight(question.committedElements || question.elements);
-      } else {
-        state.fillIssues.set(
-          question.key,
-          question.failureReason ||
-            "The AI-assisted answer could not be committed to this field."
-        );
-      }
-    }
-    scan();
-    scheduleScan(500);
-    return {
-      ok: true,
-      filled,
-      assisted: filled,
-      provider: response.provider || null,
-      fallbackFrom: response.fallbackFrom || null
-    };
-  }
-
   async function handlePanelAutofill() {
     const button = state.shadow?.querySelector("[data-autofill]");
-    const assistedButton = state.shadow?.querySelector(
-      "[data-assisted-autofill]"
-    );
     const sessionId = state.session?.id;
     const sessionGeneration = state.sessionGeneration;
     if (!button || button.disabled || !sessionId) {
@@ -3578,7 +3431,6 @@
     }
 
     button.disabled = true;
-    if (assistedButton) assistedButton.disabled = true;
     button.textContent = "Autofilling...";
     try {
       const local = await fillKnownFields();
@@ -3605,79 +3457,6 @@
       if (state.shadow && button.isConnected) {
         button.disabled = false;
         button.textContent = "Autofill required fields";
-        if (assistedButton?.isConnected) assistedButton.disabled = false;
-      }
-    }
-  }
-
-  async function handlePanelAssistedAutofill() {
-    const button = state.shadow?.querySelector("[data-assisted-autofill]");
-    const knownButton = state.shadow?.querySelector("[data-autofill]");
-    const sessionId = state.session?.id;
-    const sessionGeneration = state.sessionGeneration;
-    if (!button || button.disabled || !sessionId) {
-      return;
-    }
-
-    button.disabled = true;
-    if (knownButton) knownButton.disabled = true;
-    button.textContent = "Asking AI...";
-    const status = state.shadow?.querySelector("[data-status]");
-    if (status) {
-      status.textContent =
-        "Filling known fields before asking AI about the remaining fields...";
-    }
-    try {
-      const known = await fillKnownFields();
-      assertAutofillSession(sessionId, sessionGeneration);
-      const assisted = await fillAssistedFields();
-      assertAutofillSession(sessionId, sessionGeneration);
-      const embedded = await sendMessage({
-        type: "JOB_AUTOFILL_ASSIST_EMBEDDED",
-        sessionId
-      });
-      assertAutofillSession(sessionId, sessionGeneration);
-
-      const assistedCount =
-        Number(assisted.assisted || 0) + Number(embedded?.assisted || 0);
-      const total =
-        Number(known.filled || 0) +
-        Number(assisted.filled || 0) +
-        Number(embedded?.filled || 0);
-      const providers = Array.from(
-        new Set(
-          [
-            assisted.provider,
-            ...(Array.isArray(embedded?.providers) ? embedded.providers : [])
-          ].filter(Boolean)
-        )
-      );
-      const providerLabel = providers
-        .map((provider) =>
-          provider === "openai"
-            ? "OpenAI"
-            : provider === "anthropic"
-              ? "Anthropic"
-              : "Copilot"
-        )
-        .join(" + ");
-      if (status) {
-        status.textContent = assistedCount
-          ? `Filled ${total} field${total === 1 ? "" : "s"}, including ${assistedCount} AI-assisted via ${providerLabel}. Review every answer.`
-          : total
-            ? `Filled ${total} known field${total === 1 ? "" : "s"}. AI found no supported additional answers.`
-            : "AI found no profile-supported answers for the remaining fields.";
-      }
-    } catch (error) {
-      if (status) {
-        status.textContent =
-          error instanceof Error ? error.message : String(error);
-      }
-    } finally {
-      if (state.shadow && button.isConnected) {
-        button.disabled = false;
-        button.textContent = "AI assist remaining fields";
-        if (knownButton?.isConnected) knownButton.disabled = false;
       }
     }
   }
@@ -3809,20 +3588,6 @@
           width: 100%;
         }
         .autofill-button:hover { background: #1849a9; }
-        .assist-button {
-          background: #6941c6;
-          border-color: #6941c6;
-          color: #ffffff;
-          margin-top: 8px;
-          width: 100%;
-        }
-        .assist-button:hover { background: #53389e; }
-        .assist-disclosure {
-          color: #667085;
-          font-size: 10px;
-          line-height: 1.4;
-          margin-top: 6px;
-        }
         .status {
           color: #475467;
           font-size: 12px;
@@ -3895,8 +3660,6 @@
             <strong>Ready to autofill?</strong>
             <p>Fill recognized required fields, then review every answer before submitting.</p>
             <button class="autofill-button" data-autofill type="button">Autofill required fields</button>
-            <button class="assist-button" data-assisted-autofill type="button">AI assist remaining fields</button>
-            <p class="assist-disclosure">Optional. Sends your saved profile and unresolved required-field text to the configured AI provider or local Copilot fallback. Nothing is submitted.</p>
           </div>
           <p class="status" data-status>Nothing is submitted automatically.</p>
           <h2>Needs your answer</h2>
@@ -3930,9 +3693,6 @@
     state.shadow
       .querySelector("[data-autofill]")
       .addEventListener("click", () => void handlePanelAutofill());
-    state.shadow
-      .querySelector("[data-assisted-autofill]")
-      .addEventListener("click", () => void handlePanelAssistedAutofill());
     state.shadow.querySelector("[data-rescan]").addEventListener("click", scan);
     state.shadow.querySelector("[data-close]").addEventListener("click", () => {
       const sessionId = state.session?.id;
@@ -4128,26 +3888,6 @@
     }
     if (message.type === "JOB_AUTOFILL_FILL") {
       fillKnownFields()
-        .then(sendResponse)
-        .catch((error) =>
-          sendResponse({
-            ok: false,
-            error: error instanceof Error ? error.message : String(error)
-          })
-        );
-      return true;
-    }
-    if (message.type === "JOB_AUTOFILL_ASSIST") {
-      (async () => {
-        const known = await fillKnownFields();
-        const assisted = await fillAssistedFields();
-        return {
-          ok: true,
-          filled: Number(known.filled || 0) + Number(assisted.filled || 0),
-          assisted: Number(assisted.assisted || 0),
-          provider: assisted.provider || null
-        };
-      })()
         .then(sendResponse)
         .catch((error) =>
           sendResponse({

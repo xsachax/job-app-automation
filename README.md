@@ -238,11 +238,7 @@ unpacked is enough for local use:
    `apps/chrome-extension` directory.
 3. Add your application details on **Profile → Application autofill**, then save.
 4. On **Jobs**, click a posting title or **Open** action. The extension opens the application
-   with a progress panel. Click **Autofill required fields**, then review every answer.
-5. Optionally click **AI assist remaining fields**. This explicit second pass sends the saved
-   profile and unresolved required-field text to the selected OpenAI/Anthropic provider. It
-   falls back to the locally authenticated Copilot CLI when the key is absent or the external
-   request fails.
+   with a progress panel. Click **Autofill ready fields**, then review every answer.
 
 The app profile is the source of truth. A mapped autofill copy and application progress stay
 in that Chrome profile via `chrome.storage.local`.
@@ -272,9 +268,6 @@ Greenhouse-style school/degree lists and delayed portal dropdowns are matched se
 Multi-location questions select only locations ranked S through C on the location tier board;
 consent checkboxes and other uploads stay manual. The extension never submits an application.
 Application pages receive only field-availability flags until you explicitly click autofill.
-The AI-assisted pass is separately opt-in, ignores signatures, financial identifiers, consent,
-and legal attestations, validates returned option text against the live form, and highlights
-filled answers for review.
 Turn it off globally from its browser-owned popup. If it is off, disconnected, or not configured,
 dashboard job links behave as normal external links. The unpacked extension has a stable ID, so
 no ID copy/paste is needed.
@@ -458,9 +451,7 @@ Enhanced provider resolution is explicit and conservative:
 Provider keys are stored only in the server's local SQLite database. `GET
 /api/settings/judge-provider` returns provider/model, configured booleans, and a masked suffix;
 it never returns plaintext. Leaving the key field blank preserves it, entering a new key
-replaces it, and **Clear API key** explicitly removes only the selected provider's key. The same
-selected key also powers the extension's explicitly triggered AI-assisted autofill pass; that
-path tries the local Copilot CLI if the key is unavailable or its request fails.
+replaces it, and **Clear API key** explicitly removes only the selected provider's key.
 
 ```bash
 npm run judge                     # deterministic pass over every eligible job

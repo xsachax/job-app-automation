@@ -25,7 +25,6 @@ export interface ContentPanelOptions {
   country?: string;
   company?: string;
   profileAvailability?: Record<string, boolean>;
-  assistResponse?: Record<string, unknown>;
   requiredByDefault?: boolean;
   url?: string;
 }
@@ -42,7 +41,6 @@ export async function installContentPanel(
     country = "",
     company = "",
     profileAvailability,
-    assistResponse,
     requiredByDefault = true,
     url,
   }: ContentPanelOptions,
@@ -82,12 +80,8 @@ export async function installContentPanel(
     });
   }
   await page.evaluate(
-    ({ savedProfile, savedResumeFile, savedAssistResponse, deferred }) => {
-      type Message = {
-        type: string;
-        sessionId?: string;
-        fields?: Record<string, unknown>[];
-      };
+    ({ savedProfile, savedResumeFile, deferred }) => {
+      type Message = { type: string; sessionId?: string };
       type Listener = (
         message: Message & {
           session?: {
@@ -119,7 +113,6 @@ export async function installContentPanel(
         : Promise.resolve(profileResponse);
       const harness = {
         listener: null as Listener | null,
-        messages: [] as Message[],
         profileRequested: false,
         resolveProfile: () => resolveProfile?.(profileResponse),
         invoke(message: Parameters<Listener>[0]) {
@@ -141,26 +134,9 @@ export async function installContentPanel(
         value: {
           runtime: {
             sendMessage(message: Message) {
-              harness.messages.push(message);
               if (message.type === "JOB_AUTOFILL_GET_PROFILE") {
                 harness.profileRequested = true;
                 return profilePromise;
-              }
-              if (message.type === "JOB_AUTOFILL_REQUEST_ASSISTANCE") {
-                return Promise.resolve(
-                  savedAssistResponse ?? {
-                    ok: false,
-                    error: "No assisted response was configured.",
-                  },
-                );
-              }
-              if (message.type === "JOB_AUTOFILL_ASSIST_EMBEDDED") {
-                return Promise.resolve({
-                  ok: true,
-                  filled: 0,
-                  assisted: 0,
-                  providers: [],
-                });
               }
               return Promise.resolve({ ok: true });
             },
@@ -177,7 +153,6 @@ export async function installContentPanel(
     {
       savedProfile: profile,
       savedResumeFile: resumeFile ?? null,
-      savedAssistResponse: assistResponse ?? null,
       deferred: deferProfile,
     },
   );
