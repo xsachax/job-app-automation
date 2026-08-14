@@ -454,38 +454,103 @@ async function uber(c: ApiCompany): Promise<DiscoveryPosting[]> {
 
 // ---------------------------------- Netflix ----------------------------------
 
-async function netflix(c: ApiCompany): Promise<DiscoveryPosting[]> {
-  const out: DiscoveryPosting[] = [];
+async function netflix(
+  c: ApiCompany,
+  ctx: FetchContext = {},
+): Promise<DiscoveryPosting[]> {
+  type NetflixJob = {
+    id?: number;
+    display_job_id?: string;
+    name?: string;
+    location?: string;
+    locations?: string[];
+    job_description?: string;
+    canonicalPositionUrl?: string;
+    t_create?: number;
+  };
+  type NetflixJobWithCountry = NetflixJob & { nativeCountry: "US" | "CA" };
+
+  const rows: NetflixJobWithCountry[] = [];
+  const seen = new Set<string>();
   const q = c.queryTerms[0];
-  for (const country of ["United States", "Canada"] as const) {
-    const url =
-      `https://explore.jobs.netflix.net/api/apply/v2/jobs?domain=netflix.com` +
-      `&query=${encodeURIComponent(q)}&location=${encodeURIComponent(country)}&start=0&num=100`;
-    const data = (await fetchJson(url)) as {
-      positions?: {
-        id?: number;
-        display_job_id?: string;
-        name?: string;
-        location?: string;
-        job_description?: string;
-        canonicalPositionUrl?: string;
-        t_create?: number;
-      }[];
-    };
-    for (const j of data.positions ?? []) {
-      out.push(
-        mk("netflix", c.name, {
-          title: j.name ?? "",
-          location: j.location ?? "",
-          applyUrl: j.canonicalPositionUrl ?? "",
-          externalId: j.display_job_id ?? String(j.id ?? ""),
-          description: stripHtml(j.job_description),
-          postedAt: toDate(j.t_create),
-        }),
+  for (const [locationFilter, nativeCountry] of [
+    ["United States", "US"],
+    ["Canada", "CA"],
+  ] as const) {
+    let start = 0;
+    let total: number | null = null;
+    while (total === null || start < total) {
+      const url =
+        `https://explore.jobs.netflix.net/api/apply/v2/jobs?domain=netflix.com` +
+        `&query=${encodeURIComponent(q)}&location=${encodeURIComponent(locationFilter)}` +
+        `&start=${start}&num=10`;
+      const data = (await fetchJson(url)) as {
+        count?: number;
+        positions?: NetflixJob[];
+      };
+      if (!Array.isArray(data.positions)) {
+        throw new Error("Netflix response did not contain a positions array");
+      }
+      const positions = requireValidPostingRows(
+        "Netflix",
+        data.positions,
+        (job) => Number.isFinite(job?.id) && isNonEmptyString(job?.name),
       );
+      const reportedCount = Number(data.count);
+      total =
+        Number.isFinite(reportedCount) && reportedCount >= 0
+          ? reportedCount
+          : null;
+      for (const job of positions) {
+        const key = job.display_job_id ?? String(job.id);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        rows.push({ ...job, nativeCountry });
+      }
+      if (positions.length === 0) break;
+      start += positions.length;
+      if (total === null && positions.length < 10) break;
     }
   }
-  return out;
+
+  let detailFailures = 0;
+  const hydrated = await mapPool(rows, 5, async (job) => {
+    if (isNonEmptyString(job.job_description)) return job;
+    try {
+      const detail = (await fetchJson(
+        `https://explore.jobs.netflix.net/api/apply/v2/jobs/${job.id}?domain=netflix.com`,
+      )) as NetflixJob;
+      if (!isNonEmptyString(detail.job_description)) {
+        detailFailures++;
+        return job;
+      }
+      return { ...job, ...detail, nativeCountry: job.nativeCountry };
+    } catch {
+      detailFailures++;
+      return job;
+    }
+  });
+  if (detailFailures > 0) {
+    const warning =
+      `Netflix detail unavailable for ${detailFailures} posting` +
+      `${detailFailures === 1 ? "" : "s"}; using list data`;
+    console.warn(`[discovery] ${warning}`);
+    ctx.onWarning?.(warning);
+  }
+
+  return hydrated.map((job) => ({
+    ...mk("netflix", c.name, {
+      title: job.name ?? "",
+      location: (job.locations ?? []).join(" | ") || job.location || "",
+      applyUrl:
+        job.canonicalPositionUrl ??
+        `https://explore.jobs.netflix.net/careers/job/${job.id}`,
+      externalId: job.display_job_id ?? String(job.id ?? ""),
+      description: stripHtml(job.job_description),
+      postedAt: toDate(job.t_create),
+    }),
+    country: job.nativeCountry,
+  }));
 }
 
 // ------------------------------------ Snap ------------------------------------
