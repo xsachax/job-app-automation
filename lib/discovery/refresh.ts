@@ -110,7 +110,7 @@ export interface DiscoveryRefreshAvailability {
   canRun: boolean;
   cooldownMs: number;
   cooldownRemainingMs: number;
-  lastStartedAt: string | null;
+  lastSucceededAt: string | null;
   nextAllowedAt: string | null;
 }
 
@@ -131,7 +131,7 @@ export class DiscoveryRefreshCooldownError extends Error {
   readonly retryAfterMs: number;
 
   constructor(availability: DiscoveryRefreshAvailability) {
-    super("Scrapes can run once every 2 hours.");
+    super("Successful scrapes can run once every 2 hours.");
     this.name = "DiscoveryRefreshCooldownError";
     this.nextAllowedAt = availability.nextAllowedAt ?? "";
     this.retryAfterMs = availability.cooldownRemainingMs;
@@ -155,27 +155,27 @@ let refreshProgress: DiscoveryRefreshProgress = {
 };
 
 export function calculateDiscoveryRefreshAvailability(
-  lastStartedAt: Date | null,
+  lastSucceededAt: Date | null,
   now = Date.now(),
 ): DiscoveryRefreshAvailability {
-  const lastStartedMs = lastStartedAt?.getTime();
-  if (lastStartedMs === undefined || !Number.isFinite(lastStartedMs)) {
+  const lastSucceededMs = lastSucceededAt?.getTime();
+  if (lastSucceededMs === undefined || !Number.isFinite(lastSucceededMs)) {
     return {
       canRun: true,
       cooldownMs: DISCOVERY_REFRESH_COOLDOWN_MS,
       cooldownRemainingMs: 0,
-      lastStartedAt: null,
+      lastSucceededAt: null,
       nextAllowedAt: null,
     };
   }
 
-  const nextAllowedMs = lastStartedMs + DISCOVERY_REFRESH_COOLDOWN_MS;
+  const nextAllowedMs = lastSucceededMs + DISCOVERY_REFRESH_COOLDOWN_MS;
   const cooldownRemainingMs = Math.max(0, nextAllowedMs - now);
   return {
     canRun: cooldownRemainingMs === 0,
     cooldownMs: DISCOVERY_REFRESH_COOLDOWN_MS,
     cooldownRemainingMs,
-    lastStartedAt: new Date(lastStartedMs).toISOString(),
+    lastSucceededAt: new Date(lastSucceededMs).toISOString(),
     nextAllowedAt: new Date(nextAllowedMs).toISOString(),
   };
 }
@@ -185,9 +185,9 @@ export async function getDiscoveryRefreshAvailability(
 ): Promise<DiscoveryRefreshAvailability> {
   const state = await prisma.discoveryRunState.findUnique({
     where: { id: "default" },
-    select: { lastStartedAt: true },
+    select: { lastSucceededAt: true },
   });
-  return calculateDiscoveryRefreshAvailability(state?.lastStartedAt ?? null, now);
+  return calculateDiscoveryRefreshAvailability(state?.lastSucceededAt ?? null, now);
 }
 
 export async function reserveDiscoveryRefreshStart(
@@ -202,7 +202,21 @@ export async function reserveDiscoveryRefreshStart(
     create: { id: "default", lastStartedAt: startedAt },
     update: { lastStartedAt: startedAt },
   });
-  return calculateDiscoveryRefreshAvailability(startedAt, startedAt.getTime());
+  return availability;
+}
+
+export async function recordDiscoveryRefreshSuccess(
+  finishedAt = new Date(),
+): Promise<void> {
+  await prisma.discoveryRunState.upsert({
+    where: { id: "default" },
+    create: {
+      id: "default",
+      lastStartedAt: finishedAt,
+      lastSucceededAt: finishedAt,
+    },
+    update: { lastSucceededAt: finishedAt },
+  });
 }
 
 export async function getDiscoveryRefreshProgress(): Promise<DiscoveryRefreshStatus> {
@@ -457,6 +471,7 @@ export async function runDiscoveryRefresh(): Promise<DiscoveryRefreshResult> {
 
   try {
     const result = await refresh;
+    await recordDiscoveryRefreshSuccess(new Date(result.finishedAt));
     updateProgress({
       running: false,
       phase: "complete",

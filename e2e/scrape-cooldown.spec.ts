@@ -39,7 +39,9 @@ test("scrape control counts down and unlocks without a refresh", async ({
   const button = page.getByRole("button", { name: /Run scrape/ });
   await expect(button).toHaveText(/Run scrape in /);
   await expect(button).toBeDisabled();
-  await expect(page.getByText("2-hour scrape cooldown")).toBeVisible();
+  await expect(
+    page.getByText("2-hour cooldown after a successful scrape"),
+  ).toBeVisible();
 
   await expect(button).toHaveText("Run scrape", { timeout: 7_000 });
   await expect(button).toBeEnabled();

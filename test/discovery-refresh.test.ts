@@ -7,6 +7,7 @@ import {
   DISCOVERY_REFRESH_COOLDOWN_MS,
   DiscoveryRefreshCooldownError,
   getDiscoveryRefreshAvailability,
+  recordDiscoveryRefreshSuccess,
   reserveDiscoveryRefreshStart,
   scoreNewDiscoveryJobs,
 } from "../lib/discovery/refresh";
@@ -24,51 +25,75 @@ afterEach(() => {
 });
 
 describe("discovery refresh cooldown", () => {
-  it("allows the first run and unlocks exactly two hours after the last start", () => {
-    const startedAt = new Date("2026-08-08T01:00:00.000Z");
+  it("allows the first run and unlocks exactly two hours after the last success", () => {
+    const succeededAt = new Date("2026-08-08T01:00:00.000Z");
     expect(
       calculateDiscoveryRefreshAvailability(
-        startedAt,
-        startedAt.getTime() + DISCOVERY_REFRESH_COOLDOWN_MS - 1,
+        succeededAt,
+        succeededAt.getTime() + DISCOVERY_REFRESH_COOLDOWN_MS - 1,
       ),
     ).toMatchObject({
       canRun: false,
       cooldownRemainingMs: 1,
-      lastStartedAt: startedAt.toISOString(),
+      lastSucceededAt: succeededAt.toISOString(),
       nextAllowedAt: "2026-08-08T03:00:00.000Z",
     });
 
     expect(
       calculateDiscoveryRefreshAvailability(
-        startedAt,
-        startedAt.getTime() + DISCOVERY_REFRESH_COOLDOWN_MS,
+        succeededAt,
+        succeededAt.getTime() + DISCOVERY_REFRESH_COOLDOWN_MS,
       ).canRun,
     ).toBe(true);
     expect(calculateDiscoveryRefreshAvailability(null).canRun).toBe(true);
   });
 
-  it("persists the reservation and rejects another start during the cooldown", async () => {
+  it("starts the cooldown only after a scrape succeeds", async () => {
     const startedAt = new Date("2026-08-08T01:00:00.000Z");
     await reserveDiscoveryRefreshStart(startedAt);
+    await expect(
+      getDiscoveryRefreshAvailability(startedAt.getTime() + 1),
+    ).resolves.toMatchObject({
+      canRun: true,
+      cooldownRemainingMs: 0,
+      lastSucceededAt: null,
+      nextAllowedAt: null,
+    });
+
+    const succeededAt = new Date("2026-08-08T01:05:00.000Z");
+    await recordDiscoveryRefreshSuccess(succeededAt);
 
     await expect(
-      reserveDiscoveryRefreshStart(new Date("2026-08-08T02:59:59.999Z")),
+      reserveDiscoveryRefreshStart(new Date("2026-08-08T03:04:59.999Z")),
     ).rejects.toBeInstanceOf(DiscoveryRefreshCooldownError);
     await expect(
       getDiscoveryRefreshAvailability(
-        startedAt.getTime() + DISCOVERY_REFRESH_COOLDOWN_MS - 1,
+        succeededAt.getTime() + DISCOVERY_REFRESH_COOLDOWN_MS - 1,
       ),
     ).resolves.toMatchObject({
       canRun: false,
       cooldownRemainingMs: 1,
-      nextAllowedAt: "2026-08-08T03:00:00.000Z",
+      nextAllowedAt: "2026-08-08T03:05:00.000Z",
     });
 
     await expect(
-      reserveDiscoveryRefreshStart(new Date("2026-08-08T03:00:00.000Z")),
+      reserveDiscoveryRefreshStart(new Date("2026-08-08T03:05:00.000Z")),
     ).resolves.toMatchObject({
-      canRun: false,
-      cooldownRemainingMs: DISCOVERY_REFRESH_COOLDOWN_MS,
+      canRun: true,
+      cooldownRemainingMs: 0,
+    });
+  });
+
+  it("allows an immediate retry after an unsuccessful attempt", async () => {
+    const startedAt = new Date("2026-08-08T01:00:00.000Z");
+    await reserveDiscoveryRefreshStart(startedAt);
+
+    await expect(
+      reserveDiscoveryRefreshStart(new Date(startedAt.getTime() + 1)),
+    ).resolves.toMatchObject({
+      canRun: true,
+      cooldownRemainingMs: 0,
+      lastSucceededAt: null,
     });
   });
 });
