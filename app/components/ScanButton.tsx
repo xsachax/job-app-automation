@@ -315,7 +315,7 @@ export function ScanButton({ onComplete }: { onComplete?: () => void }) {
           role="status"
           aria-live="polite"
         >
-          2-hour scrape cooldown · unlocks automatically.
+          2-hour cooldown after a successful scrape · unlocks automatically.
         </p>
       )}
       {isRunning && progress && (

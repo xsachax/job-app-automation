@@ -180,9 +180,10 @@ model DiscoveryConfig {
 // Durable singleton used to enforce the dashboard's scrape cooldown across
 // page reloads and app restarts.
 model DiscoveryRunState {
-  id            String    @id @default("default")
-  lastStartedAt DateTime?
-  updatedAt     DateTime  @updatedAt
+  id              String    @id @default("default")
+  lastStartedAt   DateTime?
+  lastSucceededAt DateTime?
+  updatedAt       DateTime  @updatedAt
 }
 
 // Server-only singleton for the enhanced Judge fallback. API keys remain in
