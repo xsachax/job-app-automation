@@ -1673,8 +1673,12 @@
     };
   }
 
-  function formatControlValue(value, controlKind) {
-    const rawValue = String(value || "").trim();
+  function formatControlValue(value, controlKind, fieldKey = "") {
+    const stringValue = String(value || "");
+    if (controlKind === "textarea" && fieldKey === "exceptionalWork") {
+      return stringValue.trimStart();
+    }
+    const rawValue = stringValue.trim();
     return ["textarea", "check-many"].includes(controlKind)
       ? rawValue
       : rawValue.replace(/\s+/g, " ");
@@ -1821,7 +1825,12 @@
       const maxLength =
         field.maxLength || (field.key === "coverLetter" ? 20_000 : 1_000);
       let value =
-        typeof rawValue === "string" ? rawValue.trim().slice(0, maxLength) : "";
+        typeof rawValue === "string"
+          ? (field.key === "exceptionalWork"
+              ? rawValue.trimStart()
+              : rawValue.trim()
+            ).slice(0, maxLength)
+          : "";
 
       if (
         [
