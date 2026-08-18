@@ -134,6 +134,7 @@ describe("Chrome extension profile storage", () => {
       caWorkAuthorization: "no",
       spacexEmploymentHistory: "Never employed",
       coverLetter: ` ${"x".repeat(20_100)} `,
+      exceptionalWork: ` ${"y".repeat(20_100)} `,
       unexpectedSecret: "drop me",
     });
 
@@ -167,6 +168,7 @@ describe("Chrome extension profile storage", () => {
     expect(profile.caLocation).toBe("Toronto, ON");
     expect(profile.caWorkAuthorization).toBe("no");
     expect(profile.coverLetter).toHaveLength(20_000);
+    expect(profile.exceptionalWork).toHaveLength(20_000);
     expect(profile).not.toHaveProperty("unexpectedSecret");
     expect(profile).not.toHaveProperty("spacexEmploymentHistory");
     expect(
@@ -207,6 +209,27 @@ describe("Chrome extension profile storage", () => {
         { jobTitle: "Software Engineer" },
       ).coverLetter,
     ).toBe("");
+  });
+
+  it("keeps phone extensions out of phone number values", () => {
+    expect(
+      profileSchema.buildEffectiveProfile({
+        phone: "+1 (416) 555-0199 ext. 42",
+      }),
+    ).toMatchObject({
+      phone: "+1 (416) 555-0199",
+      phoneNational: "(416) 555-0199",
+      phoneExtension: "42",
+    });
+    expect(
+      profileSchema.buildEffectiveProfile({
+        phone: "+1 (416) 555-0199 x99",
+        phoneExtension: "42",
+      }),
+    ).toMatchObject({
+      phone: "+1 (416) 555-0199",
+      phoneExtension: "42",
+    });
   });
 
   it("derives the application country without storing an address", () => {
@@ -372,11 +395,21 @@ describe("Chrome extension field matching", () => {
       },
       profileSchema.fields,
     );
+    const exceptionalWork = matcher.findBestDefinition(
+      {
+        signals: [
+          { text: "Demonstration of exceptional work", weight: 1 },
+        ],
+        controlKind: "textarea",
+      },
+      profileSchema.fields,
+    );
 
     expect(email?.definition.key).toBe("email");
     expect(email?.score).toBe(132);
     expect(linkedIn?.definition.key).toBe("linkedinUrl");
     expect(github?.definition.key).toBe("githubUrl");
+    expect(exceptionalWork?.definition.key).toBe("exceptionalWork");
   });
 
   it("resolves composite and paraphrased applicant fields without exact labels", () => {

@@ -1395,6 +1395,23 @@
       controls: ["file"]
     },
     {
+      key: "exceptionalWork",
+      label: "Demonstration of exceptional work",
+      group: "eligibility",
+      input: "textarea",
+      aliases: [
+        "demonstration of exceptional work",
+        "demonstrate exceptional work",
+        "example of exceptional work",
+        "evidence of exceptional work",
+        "exceptional work"
+      ],
+      exactAliases: ["demonstration of exceptional work", "exceptional work"],
+      controls: ["text", "textarea"],
+      maxLength: 20000,
+      placeholder: "Describe a specific example of exceptional work."
+    },
+    {
       key: "coverLetter",
       label: "Default cover letter",
       group: "eligibility",
@@ -1444,9 +1461,20 @@
   }
 
   function phoneParts(value, country) {
-    const phone = String(value || "").trim();
+    const rawPhone = String(value || "").trim();
+    const extensionMatch = rawPhone.match(
+      /\s*(?:ext(?:ension)?\.?|x|#)\s*(\d{1,10})\s*$/i
+    );
+    const phone = extensionMatch
+      ? rawPhone.slice(0, extensionMatch.index).trim()
+      : rawPhone;
     if (!phone) {
-      return { countryCode: "", national: "" };
+      return {
+        number: "",
+        countryCode: "",
+        national: "",
+        extension: extensionMatch?.[1] || ""
+      };
     }
     const northAmerican = ["ca", "canada", "us", "usa", "united states"].includes(
       String(country || "").trim().toLowerCase()
@@ -1458,7 +1486,12 @@
     const national = countryCode
       ? phone.replace(new RegExp(`^\\${countryCode}[\\s.-]*`), "")
       : phone;
-    return { countryCode, national };
+    return {
+      number: phone,
+      countryCode,
+      national,
+      extension: extensionMatch?.[1] || ""
+    };
   }
 
   function validExactDate(value) {
@@ -1596,11 +1629,15 @@
 
     return {
       ...profile,
+      phone: phoneValues.number,
       preferredName: String(profile.preferredName || firstName).trim(),
       fullName: [firstName, lastName].filter(Boolean).join(" "),
       emailConfirmation: String(profile.email || "").trim(),
       phoneCountryCode: String(
         profile.phoneCountryCode || phoneValues.countryCode
+      ).trim(),
+      phoneExtension: String(
+        profile.phoneExtension || phoneValues.extension
       ).trim(),
       phoneNational: phoneValues.national,
       location,

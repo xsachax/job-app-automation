@@ -41,6 +41,42 @@ test("section headings prevent applicant data from filling reference fields", as
   );
 });
 
+test("fills optional professional links and exceptional-work answers", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `
+      <label>LinkedIn URL (optional) <input id="linkedin" type="url"></label>
+      <label>GitHub URL (optional) <input id="github" type="url"></label>
+      <label>Website URL (optional) <input id="website" type="url"></label>
+      <label>
+        Demonstration of exceptional work *
+        <textarea id="exceptional-work" required></textarea>
+      </label>
+      <label>Phone number (optional) <input id="phone" type="tel"></label>
+    `,
+    profile: {
+      linkedinUrl: "https://www.linkedin.com/in/sacha",
+      githubUrl: "https://github.com/sacha",
+      portfolioUrl: "https://sacha.example",
+      exceptionalWork: "Built a deployment platform used by 40 teams.",
+      phone: "+1 (416) 555-0199",
+    },
+    requiredByDefault: false,
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 4 });
+  await expect(page.locator("#linkedin")).toHaveValue(
+    "https://www.linkedin.com/in/sacha",
+  );
+  await expect(page.locator("#github")).toHaveValue("https://github.com/sacha");
+  await expect(page.locator("#website")).toHaveValue("https://sacha.example");
+  await expect(page.locator("#exceptional-work")).toHaveValue(
+    "Built a deployment platform used by 40 teams.",
+  );
+  await expect(page.locator("#phone")).toHaveValue("");
+});
+
 test("disabling the extension cancels an in-flight profile fill", async ({ page }) => {
   await installContentPanel(page, {
     html: `<label>Email address <input id="applicant-email" autocomplete="email" required></label>`,
@@ -104,7 +140,7 @@ test("closing the panel cancels an in-flight fill before embedded work starts", 
 
   const panel = page.locator("#job-autofill-extension-panel");
   await panel
-    .getByRole("button", { name: "Autofill required fields" })
+    .getByRole("button", { name: "Autofill application fields" })
     .click();
   await expect
     .poll(() =>
@@ -238,7 +274,7 @@ test("preserves prefilled editable comboboxes without aria-expanded", async ({
   await expect(page.locator("body")).not.toHaveAttribute("data-combobox-inputs");
 });
 
-test("does not retry a committed button combobox across autofill passes", async ({
+test("fills a committed button combobox once", async ({
   page,
 }) => {
   await installContentPanel(page, {
@@ -430,6 +466,7 @@ test("a trusted option click releases retained query ownership", async ({ page }
   await page.locator("#manual-source").click();
 
   await expect(page.locator("#source")).toHaveValue("LinkedIn");
+  await invokePanel(page, { type: "JOB_AUTOFILL_SCAN" });
   await expect(page.locator("#source")).not.toHaveAttribute(
     "data-job-autofill-review",
   );
@@ -564,7 +601,7 @@ test("matches composite applicant fields from labels, help text, and ATS metadat
     requiredByDefault: false,
   });
 
-  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 3 });
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 5 });
   await expect(page.locator("#required-linkedin")).toHaveValue(
     "https://www.linkedin.com/in/sacha",
   );
@@ -572,8 +609,12 @@ test("matches composite applicant fields from labels, help text, and ATS metadat
   await expect(page.locator("#github-profile")).toHaveValue(
     "https://github.com/sacha",
   );
-  await expect(page.locator("#optional-linkedin")).toHaveValue("");
-  await expect(page.locator("#explicitly-optional-linkedin")).toHaveValue("");
+  await expect(page.locator("#optional-linkedin")).toHaveValue(
+    "https://www.linkedin.com/in/sacha",
+  );
+  await expect(page.locator("#explicitly-optional-linkedin")).toHaveValue(
+    "https://www.linkedin.com/in/sacha",
+  );
   await expect(page.locator("#ambiguous-profile")).toHaveValue("");
   await expect(page.locator("#ambiguous-profile")).toHaveAttribute(
     "data-job-autofill-review",
@@ -919,7 +960,7 @@ test("never substitutes a phone extension for the phone number", async ({
       <p id="phone-help">Include your extension if applicable.</p>
     `,
     profile: {
-      phone: "+1 (416) 555-0199",
+      phone: "+1 (416) 555-0199 ext. 42",
       phoneExtension: "42",
     },
   });
@@ -1792,7 +1833,7 @@ test("does not substitute a remote office for a saved concrete city", async ({
   await expect(page.locator("#remote-office")).not.toBeChecked();
 });
 
-test("rescans fields added by a hydrated application step", async ({ page }) => {
+test("autofill sweeps fields present when it is invoked", async ({ page }) => {
   await installContentPanel(page, {
     html: `<main id="application"></main>`,
     profile: { email: "applicant@example.com" },
@@ -1808,14 +1849,17 @@ test("rescans fields added by a hydrated application step", async ({ page }) => 
   });
 
   const panel = page.locator("#job-autofill-extension-panel");
-  await expect(panel.locator("[data-attention-count]")).toHaveText("1");
+  await page.waitForTimeout(400);
+  await expect(panel.locator("[data-progress-label]")).toHaveText(
+    "0 of 0 answered",
+  );
   expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 1 });
   await expect(page.locator("#hydrated-email")).toHaveValue(
     "applicant@example.com",
   );
 });
 
-test("rescans controls added inside wrapped shadow roots and frames", async ({
+test("explicit scans include current shadow roots and frames", async ({
   page,
 }) => {
   await installContentPanel(page, {
@@ -1837,17 +1881,20 @@ test("rescans controls added inside wrapped shadow roots and frames", async ({
     wrapper.append(host);
     document.querySelector("#application")?.append(wrapper);
   });
+  await invokePanel(page, { type: "JOB_AUTOFILL_SCAN" });
   await expect(panel.locator("[data-ready-count]")).toHaveText("1");
 
   await page.locator("#shadow-wrapper").evaluate((wrapper: HTMLElement) => {
     wrapper.style.display = "none";
   });
+  await invokePanel(page, { type: "JOB_AUTOFILL_SCAN" });
   await expect(panel.locator("[data-progress-label]")).toHaveText(
     "0 of 0 answered",
   );
   await page.locator("#shadow-wrapper").evaluate((wrapper: HTMLElement) => {
     wrapper.style.display = "";
   });
+  await invokePanel(page, { type: "JOB_AUTOFILL_SCAN" });
   await expect(panel.locator("[data-ready-count]")).toHaveText("1");
 
   await page.evaluate(() => {
@@ -1858,10 +1905,12 @@ test("rescans controls added inside wrapped shadow roots and frames", async ({
     wrapper.append(frame);
     document.querySelector("#application")?.append(wrapper);
   });
+  await page.locator("iframe").last().waitFor();
+  await invokePanel(page, { type: "JOB_AUTOFILL_SCAN" });
   await expect(panel.locator("[data-ready-count]")).toHaveText("2");
 });
 
-test("rescans a shadow root attached to an existing host", async ({ page }) => {
+test("an explicit scan finds a newly attached shadow root", async ({ page }) => {
   await installContentPanel(page, {
     html: `<main id="application"><div id="late-host"></div></main>`,
     profile: { email: "applicant@example.com" },
@@ -1879,10 +1928,11 @@ test("rescans a shadow root attached to an existing host", async ({ page }) => {
     shadow.innerHTML =
       '<label>Email address <input autocomplete="email" required></label>';
   });
+  await invokePanel(page, { type: "JOB_AUTOFILL_SCAN" });
   await expect(panel.locator("[data-ready-count]")).toHaveText("1");
 });
 
-test("uses one root walk per scan without panel self-rescans and ignores unrelated DOM churn", async ({
+test("runs only explicit scans without monitoring DOM churn", async ({
   page,
 }) => {
   const noise = Array.from(
@@ -1972,18 +2022,28 @@ test("uses one root walk per scan without panel self-rescans and ignores unrelat
     input.required = true;
     document.querySelector("#application")?.append(input);
   });
-  await expect
-    .poll(() =>
-      page.evaluate(
-        () =>
-          (
-            globalThis as unknown as {
-              __autofillScanMetrics: { rootWalks: number };
-            }
-          ).__autofillScanMetrics.rootWalks,
-      ),
-    )
-    .toBe(1);
+  await page.waitForTimeout(400);
+  expect(
+    await page.evaluate(
+      () =>
+        (
+          globalThis as unknown as {
+            __autofillScanMetrics: { rootWalks: number };
+          }
+        ).__autofillScanMetrics.rootWalks,
+    ),
+  ).toBe(0);
+  await invokePanel(page, { type: "JOB_AUTOFILL_SCAN" });
+  expect(
+    await page.evaluate(
+      () =>
+        (
+          globalThis as unknown as {
+            __autofillScanMetrics: { rootWalks: number };
+          }
+        ).__autofillScanMetrics.rootWalks,
+    ),
+  ).toBe(1);
 
   await page.evaluate(() => {
     const metrics = (
@@ -1997,21 +2057,31 @@ test("uses one root walk per scan without panel self-rescans and ignores unrelat
       field.style.display = "none";
     }
   });
-  await expect
-    .poll(() =>
-      page.evaluate(
-        () =>
-          (
-            globalThis as unknown as {
-              __autofillScanMetrics: { rootWalks: number };
-            }
-          ).__autofillScanMetrics.rootWalks,
-      ),
-    )
-    .toBe(1);
+  await page.waitForTimeout(400);
+  expect(
+    await page.evaluate(
+      () =>
+        (
+          globalThis as unknown as {
+            __autofillScanMetrics: { rootWalks: number };
+          }
+        ).__autofillScanMetrics.rootWalks,
+    ),
+  ).toBe(0);
+  await invokePanel(page, { type: "JOB_AUTOFILL_SCAN" });
+  expect(
+    await page.evaluate(
+      () =>
+        (
+          globalThis as unknown as {
+            __autofillScanMetrics: { rootWalks: number };
+          }
+        ).__autofillScanMetrics.rootWalks,
+    ),
+  ).toBe(1);
 });
 
-test("rescans meaningful control and question state changes", async ({ page }) => {
+test("explicit scans reflect current control and question state", async ({ page }) => {
   await installContentPanel(page, {
     html: `
       <section id="step">
@@ -2033,6 +2103,7 @@ test("rescans meaningful control and question state changes", async ({ page }) =
   await page.locator("#email").evaluate((input: HTMLInputElement) => {
     input.required = false;
   });
+  await invokePanel(page, { type: "JOB_AUTOFILL_SCAN" });
   await expect(panel.locator("[data-progress-label]")).toHaveText(
     "0 of 0 answered",
   );
@@ -2040,11 +2111,13 @@ test("rescans meaningful control and question state changes", async ({ page }) =
   await page.locator("#step").evaluate((step) => {
     step.setAttribute("data-required", "true");
   });
+  await invokePanel(page, { type: "JOB_AUTOFILL_SCAN" });
   await expect(panel.locator("[data-ready-count]")).toHaveText("1");
 
   await page.locator("#step").evaluate((step) => {
     step.removeAttribute("data-required");
   });
+  await invokePanel(page, { type: "JOB_AUTOFILL_SCAN" });
   await expect(panel.locator("[data-progress-label]")).toHaveText(
     "0 of 0 answered",
   );
@@ -2053,6 +2126,7 @@ test("rescans meaningful control and question state changes", async ({ page }) =
     input.required = true;
     input.disabled = true;
   });
+  await invokePanel(page, { type: "JOB_AUTOFILL_SCAN" });
   await expect(panel.locator("[data-progress-label]")).toHaveText(
     "0 of 0 answered",
   );
@@ -2060,11 +2134,13 @@ test("rescans meaningful control and question state changes", async ({ page }) =
   await page.locator("#email").evaluate((input: HTMLInputElement) => {
     input.disabled = false;
   });
+  await invokePanel(page, { type: "JOB_AUTOFILL_SCAN" });
   await expect(panel.locator("[data-ready-count]")).toHaveText("1");
 
   await page.locator("#step").evaluate((step: HTMLElement) => {
     step.style.display = "none";
   });
+  await invokePanel(page, { type: "JOB_AUTOFILL_SCAN" });
   await expect(panel.locator("[data-progress-label]")).toHaveText(
     "0 of 0 answered",
   );
@@ -2072,16 +2148,18 @@ test("rescans meaningful control and question state changes", async ({ page }) =
   await page.locator("#step").evaluate((step: HTMLElement) => {
     step.style.display = "";
   });
+  await invokePanel(page, { type: "JOB_AUTOFILL_SCAN" });
   await expect(panel.locator("[data-ready-count]")).toHaveText("1");
 
   await page.locator("#email-label").evaluate((label) => {
     label.firstChild!.textContent = "Security clearance code *";
   });
+  await invokePanel(page, { type: "JOB_AUTOFILL_SCAN" });
   await expect(panel.locator("[data-ready-count]")).toHaveText("0");
   await expect(panel.locator("[data-attention-count]")).toHaveText("1");
 });
 
-test("rescans text changes in standalone associated labels", async ({ page }) => {
+test("an explicit scan reflects standalone label text changes", async ({ page }) => {
   await installContentPanel(page, {
     html: `
       <label id="email-label" for="email">Email address</label>
@@ -2099,11 +2177,14 @@ test("rescans text changes in standalone associated labels", async ({ page }) =>
   await page.locator("#email-label").evaluate((label) => {
     label.firstChild!.textContent = "Security clearance code *";
   });
+  await invokePanel(page, { type: "JOB_AUTOFILL_SCAN" });
   await expect(panel.locator("[data-ready-count]")).toHaveText("0");
   await expect(panel.locator("[data-attention-count]")).toHaveText("1");
 });
 
-test("rescans standalone labels added for existing controls", async ({ page }) => {
+test("an explicit scan finds standalone labels added to existing controls", async ({
+  page,
+}) => {
   await installContentPanel(page, {
     html: `<input id="candidate-response" required>`,
     profile: { email: "applicant@example.com" },
@@ -2120,11 +2201,12 @@ test("rescans standalone labels added for existing controls", async ({ page }) =
     label.textContent = "Email address";
     document.body.prepend(label);
   });
+  await invokePanel(page, { type: "JOB_AUTOFILL_SCAN" });
   await expect(panel.locator("[data-ready-count]")).toHaveText("1");
   await expect(panel.locator("[data-attention-count]")).toHaveText("0");
 });
 
-test("close and teardown stop scans while reopening restores observers", async ({
+test("autofill and teardown do not leave form monitors running", async ({
   page,
 }) => {
   await installContentPanel(page, {
@@ -2180,7 +2262,7 @@ test("close and teardown stop scans while reopening restores observers", async (
     const frame = document.querySelector("#embedded") as HTMLIFrameElement;
     frame.srcdoc = "<input required>";
   });
-  await page.waitForTimeout(5_200);
+  await page.waitForTimeout(500);
   expect(
     await page.evaluate(
       () =>
@@ -2210,27 +2292,37 @@ test("close and teardown stop scans while reopening restores observers", async (
   await expect(page.locator("#job-autofill-extension-panel")).toHaveCount(1);
 
   await page.evaluate(() => {
+    const email = document.querySelector("#email") as HTMLInputElement;
+    email.required = true;
+  });
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 1 });
+  await page.evaluate(() => {
     (
       globalThis as unknown as {
         __autofillScanMetrics: { rootWalks: number };
       }
     ).__autofillScanMetrics.rootWalks = 0;
-    const input = document.createElement("textarea");
+    const label = document.createElement("label");
+    label.textContent = "Secondary email";
+    const input = document.createElement("input");
+    input.id = "late-email";
+    input.autocomplete = "email";
     input.required = true;
-    document.querySelector("#application")?.append(input);
+    label.append(input);
+    document.querySelector("#application")?.append(label);
   });
-  await expect
-    .poll(() =>
-      page.evaluate(
-        () =>
-          (
-            globalThis as unknown as {
-              __autofillScanMetrics: { rootWalks: number };
-            }
-          ).__autofillScanMetrics.rootWalks,
-      ),
-    )
-    .toBe(1);
+  await page.waitForTimeout(5_200);
+  expect(
+    await page.evaluate(
+      () =>
+        (
+          globalThis as unknown as {
+            __autofillScanMetrics: { rootWalks: number };
+          }
+        ).__autofillScanMetrics.rootWalks,
+    ),
+  ).toBe(0);
+  await expect(page.locator("#late-email")).toHaveValue("");
 
   await invokePanel(page, { type: "JOB_AUTOFILL_EXTENSION_DISABLED" });
   await expect(page.locator("#job-autofill-extension-panel")).toHaveCount(0);
@@ -2574,12 +2666,12 @@ test("panel fits a narrow viewport and autofills from its own button", async ({
   expect(countBox!.x + countBox!.width).toBeLessThanOrEqual(labelBox!.x);
 
   await panelHost
-    .getByRole("button", { name: "Autofill required fields" })
+    .getByRole("button", { name: "Autofill application fields" })
     .click();
   await expect(page.locator("#applicant-email")).toHaveValue(
     "applicant@example.com",
   );
   await expect(
-    panelHost.getByText("Filled 1 required field. Review every answer."),
+    panelHost.getByText("Filled 1 field. Review every answer."),
   ).toBeVisible();
 });

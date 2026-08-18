@@ -168,6 +168,9 @@ test.describe("profile page", () => {
     await expect(page.getByLabel("Add security clearance")).toBeVisible();
     await expect(page.getByLabel("Undergraduate GPA")).toBeVisible();
     await expect(page.getByLabel("SAT score")).toBeVisible();
+    await expect(
+      page.getByLabel("Demonstration of exceptional work"),
+    ).toBeVisible();
     await expect(page.getByLabel("Default cover letter")).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Workday application details" }),
