@@ -300,15 +300,6 @@ export function WorkdayProfileFields({ profile, onChange }: Props) {
             <option value="Work">Work</option>
           </select>
         </Field>
-        <Field label="Phone extension">
-          <input
-            aria-label="Phone extension"
-            className={cls.input}
-            autoComplete="tel-extension"
-            value={profile.phoneExtension}
-            onChange={(event) => onChange("phoneExtension", event.target.value)}
-          />
-        </Field>
       </div>
 
       <div className="mt-6 space-y-6">

@@ -143,11 +143,13 @@ test.describe("profile page", () => {
 
   test("keeps application autofill details in the app profile", async ({ page }) => {
     await page.goto("/profile");
-    await expect(
-      page.getByRole("heading", { name: "Application autofill" }),
-    ).toBeVisible();
+    const applicationAutofill = page
+      .getByRole("heading", { name: "Application autofill" })
+      .locator("..");
+    await expect(applicationAutofill).toBeVisible();
     await expect(page.getByLabel("First name")).toBeVisible();
     await expect(page.getByLabel("Email", { exact: true })).toBeVisible();
+    await expect(applicationAutofill.getByLabel("Phone extension")).toBeVisible();
     await expect(page.getByLabel("Address line 1")).toBeVisible();
     const usSection = page.getByRole("region", {
       name: "Jobs in the United States",
