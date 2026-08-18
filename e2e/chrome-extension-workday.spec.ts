@@ -4,6 +4,7 @@ import { expect, test, type Page } from "@playwright/test";
 import {
   installContentPanel,
   invokeAutofill,
+  invokePanel,
 } from "./helpers/chrome-extension-harness";
 
 function fixture(name: string): string {
@@ -328,7 +329,7 @@ test("treats review pages as read-only and never clicks final Submit", async ({
   ).toBe(0);
 });
 
-test("rescans after user-driven transitions without advancing or overwriting", async ({
+test("rescans explicitly after user-driven transitions without advancing or overwriting", async ({
   page,
 }) => {
   await installWorkday(page, "rerender", {
@@ -347,6 +348,7 @@ test("rescans after user-driven transitions without advancing or overwriting", a
 
   await page.locator("#next").click();
   await expect(page.locator("#last-name")).toBeVisible();
+  await invokePanel(page, { type: "JOB_AUTOFILL_SCAN" });
   await expect(
     page.locator("#job-autofill-extension-panel [data-ready-count]"),
   ).toHaveText("1");
