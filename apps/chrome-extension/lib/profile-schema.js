@@ -1460,11 +1460,39 @@
     };
   }
 
-  function phoneParts(value, country) {
+  function phoneParts(value, country, savedExtension = "") {
     const rawPhone = String(value || "").trim();
-    const extensionMatch = rawPhone.match(
-      /\s*(?:ext(?:ension)?\.?|x|#)\s*(\d{1,10})\s*$/i
+    const northAmerican =
+      rawPhone.startsWith("+1") ||
+      ["ca", "canada", "us", "usa", "united states"].includes(
+        String(country || "").trim().toLowerCase()
+      );
+    const markedExtensionMatch = rawPhone.match(
+      /\s*(?:\(\s*)?(?:(?:ext(?:ension)?|extn)\.?\s*(?:[:=#-]\s*)?|x\s*|#\s*|;\s*ext\s*=\s*)(\d{1,10})\s*\)?\s*$/i
     );
+    let unmarkedExtensionMatch = null;
+    const savedExtensionDigits = String(savedExtension || "").trim();
+    if (
+      !markedExtensionMatch &&
+      /^\d{1,10}$/.test(savedExtensionDigits)
+    ) {
+      const candidate = rawPhone.match(
+        new RegExp(`(?:\\s+|[,;])(${savedExtensionDigits})\\s*$`)
+      );
+      if (candidate) {
+        const basePhone = rawPhone.slice(0, candidate.index).trim();
+        const baseDigitCount = (basePhone.match(/\d/g) || []).length;
+        const plausibleBase = northAmerican
+          ? baseDigitCount === (basePhone.startsWith("+1") ? 11 : 10)
+          : /[,;]/.test(candidate[0]) &&
+            baseDigitCount >= 7 &&
+            baseDigitCount <= 15;
+        if (plausibleBase) {
+          unmarkedExtensionMatch = candidate;
+        }
+      }
+    }
+    const extensionMatch = markedExtensionMatch || unmarkedExtensionMatch;
     const phone = extensionMatch
       ? rawPhone.slice(0, extensionMatch.index).trim()
       : rawPhone;
@@ -1476,9 +1504,6 @@
         extension: extensionMatch?.[1] || ""
       };
     }
-    const northAmerican = ["ca", "canada", "us", "usa", "united states"].includes(
-      String(country || "").trim().toLowerCase()
-    );
     const explicitCountryCode = phone.startsWith("+1")
       ? "+1"
       : phone.match(/^\+\d{1,3}(?=[\s(.-]|$)/)?.[0] || "";
@@ -1611,7 +1636,11 @@
           ).trim()
         : "";
     const locationValues = locationParts(location);
-    const phoneValues = phoneParts(profile.phone, country);
+    const phoneValues = phoneParts(
+      profile.phone,
+      country,
+      profile.phoneExtension
+    );
     const graduationValues = graduationParts(
       profile.graduationDate,
       profile.graduationDateExact

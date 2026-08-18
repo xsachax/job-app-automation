@@ -239,6 +239,23 @@ describe("Chrome extension profile storage", () => {
       phone: "+1 (416) 555-0199",
       phoneExtension: "42",
     });
+    for (const phone of [
+      "+1 (416) 555-0199 extension: 42",
+      "+1 (416) 555-0199 (ext. #42)",
+      "+1 (416) 555-0199;ext=42",
+      "+1 (416) 555-0199 42",
+    ]) {
+      expect(
+        profileSchema.buildEffectiveProfile({
+          phone,
+          phoneExtension: "42",
+        }),
+      ).toMatchObject({
+        phone: "+1 (416) 555-0199",
+        phoneNational: "(416) 555-0199",
+        phoneExtension: "42",
+      });
+    }
   });
 
   it("derives the application country without storing an address", () => {

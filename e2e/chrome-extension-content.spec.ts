@@ -950,7 +950,7 @@ test("fills split phone and location controls with canonical values", async ({
   await expect(page.locator("#country")).toHaveValue("CA");
 });
 
-test("never substitutes a phone extension for the phone number", async ({
+test("keeps extensions out of Greenhouse phone fields", async ({
   page,
 }) => {
   await installContentPanel(page, {
@@ -960,9 +960,10 @@ test("never substitutes a phone extension for the phone number", async ({
       <p id="phone-help">Include your extension if applicable.</p>
     `,
     profile: {
-      phone: "+1 (416) 555-0199 ext. 42",
+      phone: "+1 (416) 555-0199 extension: 42",
       phoneExtension: "42",
     },
+    url: "https://boards.greenhouse.io/acme/jobs/123",
   });
 
   expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 1 });
