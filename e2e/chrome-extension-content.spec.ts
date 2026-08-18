@@ -59,7 +59,7 @@ test("fills optional professional links and exceptional-work answers", async ({
       linkedinUrl: "https://www.linkedin.com/in/sacha",
       githubUrl: "https://github.com/sacha",
       portfolioUrl: "https://sacha.example",
-      exceptionalWork: "Built a deployment platform used by 40 teams.",
+      exceptionalWork: "Built a deployment platform used by 40 teams.\n\n  ",
       phone: "+1 (416) 555-0199",
     },
     requiredByDefault: false,
@@ -72,7 +72,7 @@ test("fills optional professional links and exceptional-work answers", async ({
   await expect(page.locator("#github")).toHaveValue("https://github.com/sacha");
   await expect(page.locator("#website")).toHaveValue("https://sacha.example");
   await expect(page.locator("#exceptional-work")).toHaveValue(
-    "Built a deployment platform used by 40 teams.",
+    "Built a deployment platform used by 40 teams.\n\n  ",
   );
   await expect(page.locator("#phone")).toHaveValue("");
 });

@@ -118,6 +118,13 @@ describe("structured application profile", () => {
     });
   });
 
+  it("preserves trailing whitespace in exceptional work", async () => {
+    const exceptionalWork = "Exceptional delivery example.\n\n  ";
+    await saveProfile({ exceptionalWork });
+
+    await expect(getProfile()).resolves.toMatchObject({ exceptionalWork });
+  });
+
   it("migrates a blank relocation preference to Yes and preserves explicit No", async () => {
     await prisma.profile.create({
       data: {

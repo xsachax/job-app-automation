@@ -90,7 +90,11 @@ interface ProfileSchema {
       country?: string;
     },
   ): Record<string, string>;
-  formatControlValue(value: string, controlKind: string): string;
+  formatControlValue(
+    value: string,
+    controlKind: string,
+    fieldKey?: string,
+  ): string;
   sanitizeStoredProfile(profile: unknown): Record<string, string>;
 }
 
@@ -169,6 +173,11 @@ describe("Chrome extension profile storage", () => {
     expect(profile.caWorkAuthorization).toBe("no");
     expect(profile.coverLetter).toHaveLength(20_000);
     expect(profile.exceptionalWork).toHaveLength(20_000);
+    expect(
+      profileSchema.sanitizeStoredProfile({
+        exceptionalWork: "Exceptional delivery example.\n\n  ",
+      }).exceptionalWork,
+    ).toBe("Exceptional delivery example.\n\n  ");
     expect(profile).not.toHaveProperty("unexpectedSecret");
     expect(profile).not.toHaveProperty("spacexEmploymentHistory");
     expect(
@@ -2122,5 +2131,12 @@ describe("Chrome extension field matching", () => {
     expect(profileSchema.formatControlValue("  Sacha\nChen  ", "text")).toBe(
       "Sacha Chen",
     );
+    expect(
+      profileSchema.formatControlValue(
+        " Exceptional delivery example.\n\n  ",
+        "textarea",
+        "exceptionalWork",
+      ),
+    ).toBe("Exceptional delivery example.\n\n  ");
   });
 });

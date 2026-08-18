@@ -290,6 +290,12 @@ function boundedText(value: unknown, maxLength = 1_000): string {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
 }
 
+function boundedTextPreservingEnd(value: unknown, maxLength: number): string {
+  return typeof value === "string"
+    ? value.trimStart().slice(0, maxLength)
+    : "";
+}
+
 function triState(value: unknown): boolean | null {
   return value === true ? true : value === false ? false : null;
 }
@@ -429,7 +435,10 @@ function normalizeProfileData(data: ProfileData): ProfileData {
   profile.homeRegion = boundedText(profile.homeRegion, 200);
   profile.homePostalCode = boundedText(profile.homePostalCode, 40);
   profile.homeCountry = boundedText(profile.homeCountry, 200);
-  profile.exceptionalWork = boundedText(profile.exceptionalWork, 20_000);
+  profile.exceptionalWork = boundedTextPreservingEnd(
+    profile.exceptionalWork,
+    20_000,
+  );
   profile.additionalWebsites = normalizeWebsites(profile.additionalWebsites);
   profile.educationStartDate = monthValue(profile.educationStartDate);
   profile.graduationDateExact = dateValue(profile.graduationDateExact);

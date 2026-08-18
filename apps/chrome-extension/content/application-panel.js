@@ -914,7 +914,11 @@
     if (adapterResolution) {
       return {
         ...adapterResolution,
-        value: profileSchema.formatControlValue(adapterResolution.value, kind),
+        value: profileSchema.formatControlValue(
+          adapterResolution.value,
+          kind,
+          match.definition.key
+        ),
         available: state.profileLoaded
           ? adapterResolution.available
           : state.profileAvailability.has(adapterResolution.availabilityKey)
@@ -1096,7 +1100,8 @@
     return {
       value: profileSchema.formatControlValue(
         effectiveProfile[match.definition.key],
-        kind
+        kind,
+        match.definition.key
       ),
       safe: true,
       available: state.profileAvailability.has(match.definition.key)

@@ -251,6 +251,12 @@ function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function multilineText(value: unknown, maxLength: number): string {
+  return typeof value === "string"
+    ? value.trimStart().slice(0, maxLength)
+    : "";
+}
+
 function choice(value: unknown): "" | "yes" | "no" {
   return value === true ? "yes" : value === false ? "no" : "";
 }
@@ -432,7 +438,7 @@ export function buildAutofillProfile(
     linkedinUrl: text(profile.linkedin),
     githubUrl: text(profile.github),
     portfolioUrl: text(profile.website) || text(profile.portfolio),
-    exceptionalWork: text(profile.exceptionalWork),
+    exceptionalWork: multilineText(profile.exceptionalWork, 20_000),
     additionalWebsites: websites,
     school: text(profile.school),
     degree: text(profile.degree),
