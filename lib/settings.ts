@@ -102,6 +102,7 @@ export interface ProfileData {
   github?: string;
   website?: string;
   portfolio?: string;
+  exceptionalWork?: string;
   additionalWebsites?: ProfileWebsite[];
   summary?: string;
   skills?: string[];
@@ -197,6 +198,7 @@ export const DEFAULT_PROFILE: ProfileData = {
   github: "",
   website: "",
   portfolio: "",
+  exceptionalWork: "",
   additionalWebsites: [],
   summary: "",
   skills: [],
@@ -427,6 +429,7 @@ function normalizeProfileData(data: ProfileData): ProfileData {
   profile.homeRegion = boundedText(profile.homeRegion, 200);
   profile.homePostalCode = boundedText(profile.homePostalCode, 40);
   profile.homeCountry = boundedText(profile.homeCountry, 200);
+  profile.exceptionalWork = boundedText(profile.exceptionalWork, 20_000);
   profile.additionalWebsites = normalizeWebsites(profile.additionalWebsites);
   profile.educationStartDate = monthValue(profile.educationStartDate);
   profile.graduationDateExact = dateValue(profile.graduationDateExact);

@@ -687,6 +687,20 @@ export default function ProfilePage() {
               </FieldShell>
             </div>
 
+            <div className="mt-4">
+              <FieldShell
+                label="Demonstration of exceptional work"
+                hint="Save a reusable example that application forms can autofill."
+              >
+                <textarea
+                  aria-label="Demonstration of exceptional work"
+                  className={`${cls.input} min-h-32`}
+                  value={profile.exceptionalWork ?? ""}
+                  onChange={(e) => setField("exceptionalWork", e.target.value)}
+                />
+              </FieldShell>
+            </div>
+
             <div className="mt-6 grid gap-4 lg:grid-cols-2">
               <CountryAutofillSection
                 title="Jobs in the United States"

@@ -140,6 +140,7 @@ const PROFILE = {
   linkedin: " https://www.linkedin.com/in/jane ",
   github: " https://github.com/jane ",
   website: " https://jane.dev ",
+  exceptionalWork: " Built a deployment platform used by 40 teams. ",
   coverLetterTemplate: " Hello hiring team.\n\nThank you. ",
 } satisfies ProfileData;
 
@@ -219,6 +220,7 @@ describe("Chrome extension identity and profile mapping", () => {
       linkedinUrl: "https://www.linkedin.com/in/jane",
       githubUrl: "https://github.com/jane",
       portfolioUrl: "https://jane.dev",
+      exceptionalWork: "Built a deployment platform used by 40 teams.",
       additionalWebsites: [
         {
           label: "LinkedIn",

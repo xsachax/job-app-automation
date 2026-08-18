@@ -834,22 +834,6 @@
     allowsHiddenControl,
     allowsSingleCheckbox,
     prepareRepeatedSections,
-    observerOptions: Object.freeze({
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: [
-        "aria-expanded",
-        "aria-hidden",
-        "aria-required",
-        "class",
-        "data-automation-id",
-        "data-required",
-        "disabled",
-        "required",
-        "style"
-      ]
-    }),
     repeatConfigs,
     structuredDefinitions
   });

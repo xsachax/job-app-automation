@@ -162,6 +162,7 @@ export interface AutofillProfile {
   linkedinUrl: string;
   githubUrl: string;
   portfolioUrl: string;
+  exceptionalWork: string;
   additionalWebsites: AutofillWebsite[];
   school: string;
   degree: string;
@@ -431,6 +432,7 @@ export function buildAutofillProfile(
     linkedinUrl: text(profile.linkedin),
     githubUrl: text(profile.github),
     portfolioUrl: text(profile.website) || text(profile.portfolio),
+    exceptionalWork: text(profile.exceptionalWork),
     additionalWebsites: websites,
     school: text(profile.school),
     degree: text(profile.degree),
