@@ -269,6 +269,38 @@ async function extensionState(
   }, applicationUrl);
 }
 
+async function scanApplication(
+  popup: Page,
+  applicationUrl: string,
+): Promise<{ ok: boolean; error?: string }> {
+  return popup.evaluate(async (url) => {
+    const chromeApi = (
+      globalThis as unknown as {
+        chrome: {
+          tabs: {
+            query(queryInfo: object): Promise<{ id?: number; url?: string }[]>;
+            sendMessage(
+              tabId: number,
+              message: unknown,
+              options: { frameId: number },
+            ): Promise<{ ok: boolean; error?: string }>;
+          };
+        };
+      }
+    ).chrome;
+    const tabs = await chromeApi.tabs.query({});
+    const tab = tabs.find((candidate) => candidate.url?.startsWith(url));
+    if (!tab?.id) {
+      throw new Error("The reactive ATS application tab was not found.");
+    }
+    return chromeApi.tabs.sendMessage(
+      tab.id,
+      { type: "JOB_AUTOFILL_SCAN" },
+      { frameId: 0 },
+    );
+  }, applicationUrl);
+}
+
 function eventsFor(state: FixtureState, target: string): string[] {
   return state.events
     .filter((event) => event.target === target)
@@ -1058,7 +1090,13 @@ test.describe("unpacked extension non-text runtime", () => {
       );
 
       await rejectedSource.fill("Manual choice");
+      expect(await scanApplication(popup, applicationUrl)).toMatchObject({
+        ok: true,
+      });
       await rejectedSource.fill("");
+      expect(await scanApplication(popup, applicationUrl)).toMatchObject({
+        ok: true,
+      });
       await expect
         .poll(() => extensionState(popup, applicationUrl))
         .toMatchObject({
