@@ -2766,55 +2766,66 @@
       wait
     });
     assertActive();
-    const roots = collectRoots();
-    const questions = collectQuestions(roots);
+    const attemptedQuestions = new Set();
     let filled = 0;
-    for (const question of questions) {
-      assertActive();
-      if (
-        (!question.required &&
-          !optionalAutofillFieldKeys.has(question.match?.definition?.key)) ||
-        !shouldAttemptQuestion(question)
-      ) {
-        continue;
-      }
-      if (!questionRemainsReady(question)) {
-        continue;
-      }
+    for (let pass = 0; pass < 20; pass += 1) {
+      const questions = collectQuestions(collectRoots());
+      let filledThisPass = 0;
+      for (const question of questions) {
+        assertActive();
+        if (
+          attemptedQuestions.has(question.key) ||
+          (!question.required &&
+            !optionalAutofillFieldKeys.has(question.match?.definition?.key)) ||
+          !shouldAttemptQuestion(question)
+        ) {
+          continue;
+        }
+        if (!questionRemainsReady(question)) {
+          continue;
+        }
+        attemptedQuestions.add(question.key);
 
-      const succeeded =
-        question.kind === "file"
-          ? await fillFile(question, question.matchedValue, assertActive)
-          : question.kind === "check-many"
-            ? await fillCheckMany(
-                question,
-                question.matchedValue,
-                assertActive
-              )
-            : ["choice", "select", "combobox"].includes(question.kind)
-              ? await fillChoice(
+        const succeeded =
+          question.kind === "file"
+            ? await fillFile(question, question.matchedValue, assertActive)
+            : question.kind === "check-many"
+              ? await fillCheckMany(
                   question,
                   question.matchedValue,
                   assertActive
                 )
-              : await fillText(
-                  question,
-                  question.matchedValue,
-                  assertActive
-                );
-      assertActive();
+              : ["choice", "select", "combobox"].includes(question.kind)
+                ? await fillChoice(
+                    question,
+                    question.matchedValue,
+                    assertActive
+                  )
+                : await fillText(
+                    question,
+                    question.matchedValue,
+                    assertActive
+                  );
+        assertActive();
 
-      if (succeeded) {
-        filled += 1;
-        state.fillIssues.delete(question.key);
-        highlight(question.committedElements || question.elements);
-      } else {
-        state.fillIssues.set(
-          question.key,
-          question.failureReason ||
-            `The field matched ${question.match.definition.label.toLowerCase()}, but its value could not be committed.`
-        );
+        if (succeeded) {
+          filled += 1;
+          filledThisPass += 1;
+          state.fillIssues.delete(question.key);
+          highlight(question.committedElements || question.elements);
+        } else {
+          state.fillIssues.set(
+            question.key,
+            question.failureReason ||
+              `The field matched ${question.match.definition.label.toLowerCase()}, but its value could not be committed.`
+          );
+        }
       }
+      if (!filledThisPass) {
+        break;
+      }
+      await wait(0);
+      assertActive();
     }
 
     const status = state.shadow?.querySelector("[data-status]");
