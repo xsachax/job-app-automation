@@ -2824,7 +2824,6 @@
         : "No additional known fields could be filled.";
     }
     scan();
-    scan();
     return { ok: true, filled };
   }
 

@@ -24,7 +24,7 @@ describe("Chrome extension panel security", () => {
   it("retries unanswered failures without dropping their diagnostics", () => {
     const fillSource = panelSource.slice(
       panelSource.indexOf("async function fillKnownFields"),
-      panelSource.indexOf("function handleFieldChange"),
+      panelSource.indexOf("async function handlePanelAutofill"),
     );
     expect(fillSource).not.toContain("state.fillIssues.clear();");
     expect(panelSource).toMatch(
