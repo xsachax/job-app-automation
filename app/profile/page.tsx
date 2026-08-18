@@ -628,7 +628,7 @@ export default function ProfilePage() {
               </FieldShell>
             </div>
 
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <div className="mt-4 grid gap-4 md:grid-cols-3">
               <FieldShell label="Email">
                 <input
                   aria-label="Email"
@@ -647,6 +647,18 @@ export default function ProfilePage() {
                   value={profile.phone ?? ""}
                   autoComplete="tel"
                   onChange={(e) => setField("phone", e.target.value)}
+                />
+              </FieldShell>
+              <FieldShell
+                label="Phone extension"
+                hint="Enter only the extension, without the phone number."
+              >
+                <input
+                  aria-label="Phone extension"
+                  className={cls.input}
+                  value={profile.phoneExtension ?? ""}
+                  autoComplete="tel-extension"
+                  onChange={(e) => setField("phoneExtension", e.target.value)}
                 />
               </FieldShell>
             </div>
