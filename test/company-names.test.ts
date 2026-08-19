@@ -9,6 +9,7 @@ beforeEach(resetDb);
 describe("canonicalCompanyName", () => {
   it("collapses curated brand and legal-entity aliases", () => {
     expect(canonicalCompanyName("Nvidia")).toBe("NVIDIA");
+    expect(canonicalCompanyName("Cursor (Anysphere)")).toBe("Cursor");
     expect(canonicalCompanyName("Uber Technologies, Inc.")).toBe("Uber");
     expect(canonicalCompanyName("Citadel Securities")).toBe("Citadel");
     expect(canonicalCompanyName("Twitch Interactive, Inc.")).toBe("Twitch");

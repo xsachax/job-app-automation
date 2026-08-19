@@ -9,10 +9,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("Vercel and Replit career sources", () => {
+describe("curated Greenhouse and Ashby career sources", () => {
   it.each([
     ["Vercel", "greenhouse", "vercel", "https://boards-api.greenhouse.io/v1/boards/vercel/jobs?content=true"],
+    ["Zipline", "greenhouse", "flyzipline", "https://boards-api.greenhouse.io/v1/boards/flyzipline/jobs?content=true"],
     ["Replit", "ashby", "replit", "https://api.ashbyhq.com/posting-api/job-board/replit"],
+    ["Cursor", "ashby", "cursor", "https://api.ashbyhq.com/posting-api/job-board/cursor"],
   ] as const)(
     "uses the official %s %s board",
     async (name, system, token, expectedUrl) => {
@@ -936,6 +938,7 @@ describe("discovery catalog", () => {
     expect(bySystem("Granola")).toBe("ashby");
     expect(bySystem("Together AI")).toBe("greenhouse");
     expect(bySystem("Scale AI")).toBe("greenhouse");
+    expect(bySystem("Zipline")).toBe("greenhouse");
     expect(bySystem("Mercor")).toBe("ashby");
     expect(bySystem("Sierra")).toBe("ashby");
     expect(bySystem("Harvey")).toBe("ashby");

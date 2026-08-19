@@ -72,6 +72,7 @@ export const COMPANY_CATALOG: CatalogCompany[] = [
   { name: "2U", kind: "greenhouse", token: "2u", tags: ["known"], region: "US" },
   { name: "DoorDash", kind: "greenhouse", token: "doordashusa", tags: ["known"], region: "US" },
   { name: "Vercel", kind: "greenhouse", token: "vercel", tags: ["a16z", "greylock"], region: "US" },
+  { name: "Zipline", kind: "greenhouse", token: "flyzipline", tags: ["known"], region: "US" },
 
   // ---------------- Lever ----------------
   { name: "Veeva", kind: "lever", token: "veeva", tags: ["known"], region: "US" },

@@ -109,7 +109,7 @@ const SWE = ["software engineer", "software developer"];
 const SWE_BROAD = ["software engineer", "software developer", "machine learning", "devops"];
 
 // ---------------------------------------------------------------------------
-// API companies (80) — direct public JSON endpoints, verified live. Includes a
+// API companies (81) — direct public JSON endpoints, verified live. Includes a
 // block of quant / trading firms at the end.
 // ---------------------------------------------------------------------------
 
@@ -133,6 +133,7 @@ export const API_COMPANIES: ApiCompany[] = [
   { name: "Datadog", method: "api", system: "greenhouse", token: "datadog", countryFilter: "post", queryTerms: SWE_BROAD },
   { name: "xAI", method: "api", system: "greenhouse", token: "xai", countryFilter: "post", queryTerms: SWE_BROAD },
   { name: "SpaceX", method: "api", system: "greenhouse", token: "spacex", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Zipline", method: "api", system: "greenhouse", token: "flyzipline", countryFilter: "post", queryTerms: SWE_BROAD },
   { name: "Thinking Machines", method: "api", system: "ashby", token: "thinkingmachines", countryFilter: "post", queryTerms: SWE_BROAD },
   { name: "Nuro", method: "api", system: "greenhouse", token: "nuro", countryFilter: "post", queryTerms: SWE_BROAD },
   { name: "Waymo", method: "api", system: "greenhouse", token: "waymo", countryFilter: "post", queryTerms: SWE_BROAD },

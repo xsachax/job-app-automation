@@ -112,6 +112,7 @@ const CANDIDATES: Cand[] = [
   GH("crypto", "Crypto.com", ["known"]),
   GH("waymo", "Waymo", ["bigtech"]),
   GH("2u", "2U", ["known"]),
+  GH("flyzipline", "Zipline", ["known"]),
   // ---- Lever ----
   LV("netflix", "Netflix", ["bigtech"]),
   LV("palantir", "Palantir", ["known"]),

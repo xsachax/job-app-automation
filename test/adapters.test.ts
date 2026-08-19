@@ -3,6 +3,7 @@ import { greenhouse } from "../lib/sources/adapters/greenhouse";
 import { lever } from "../lib/sources/adapters/lever";
 import { ashby } from "../lib/sources/adapters/ashby";
 import { json } from "../lib/sources/adapters/json";
+import { COMPANY_CATALOG, catalogSources } from "../lib/sources/catalog";
 import { mockFetchJson, jsonResponse } from "./helpers";
 
 afterEach(() => {
@@ -95,5 +96,23 @@ describe("json adapter", () => {
     const jobs = await json.fetch({ url: "https://x.com", itemsPath: "data.jobs" });
     expect(jobs).toHaveLength(1);
     expect(jobs[0].title).toBe("Nested");
+  });
+});
+
+describe("curated source catalog", () => {
+  it.each([
+    ["Zipline", "greenhouse", "flyzipline"],
+    ["Cursor (Anysphere)", "ashby", "cursor"],
+  ] as const)("registers %s with its live ATS board", (name, kind, token) => {
+    expect(COMPANY_CATALOG).toContainEqual(
+      expect.objectContaining({ name, kind, token, region: "US" }),
+    );
+    expect(catalogSources()).toContainEqual(
+      expect.objectContaining({
+        name: `${name} (${kind === "greenhouse" ? "Greenhouse" : "Ashby"})`,
+        kind,
+        config: expect.objectContaining({ company: token, companyName: name }),
+      }),
+    );
   });
 });
