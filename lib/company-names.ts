@@ -1,4 +1,5 @@
 const COMPANY_ALIASES = new Map<string, string>([
+  ["cursoranysphere", "Cursor"],
   ["nvidia", "NVIDIA"],
   ["ubertechnologiesinc", "Uber"],
   ["citadelsecurities", "Citadel"],

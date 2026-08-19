@@ -51,7 +51,8 @@ const BIGTECH = new Set(
 const AI = new Set(
   [
     "Anthropic", "xAI", "Thinking Machines", "Thinking Machines Lab", "Together AI",
-    "Scale AI", "OpenAI", "Cohere", "ElevenLabs", "Baseten", "Cursor", "Cognition",
+    "Scale AI", "OpenAI", "Cohere", "ElevenLabs", "Baseten", "Cursor",
+    "Cursor (Anysphere)", "Cognition",
     "Lovable", "Granola", "Mercor", "Sierra", "Harvey", "DeepMind", "Mistral",
     // Well-known AI labs / applied-AI companies (many surface via YC + boards).
     "Perplexity", "Perplexity AI", "Hugging Face", "Runway", "Runway ML",
@@ -101,7 +102,7 @@ const DEFENSE = new Set(
 const STARTUP = new Set(
   [
     "Databricks", "Stripe", "Figma", "Discord", "SpaceX", "Nuro", "Notion",
-    "Ramp", "Wealthsimple", "Vercel", "Replit",
+    "Ramp", "Wealthsimple", "Vercel", "Replit", "Zipline",
   ].map(norm),
 );
 
