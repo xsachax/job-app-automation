@@ -150,6 +150,7 @@ test.describe("profile page", () => {
     await expect(page.getByLabel("First name")).toBeVisible();
     await expect(page.getByLabel("Email", { exact: true })).toBeVisible();
     await expect(applicationAutofill.getByLabel("Phone extension")).toBeVisible();
+    await expect(page.getByLabel("Current or last employer")).toBeVisible();
     await expect(page.getByLabel("Address line 1")).toBeVisible();
     const usSection = page.getByRole("region", {
       name: "Jobs in the United States",
@@ -373,6 +374,7 @@ test.describe("profile page", () => {
             certifications: [],
             heardAboutJob: "",
             heardAboutJobOther: "",
+            currentOrLastEmployer: "",
             previousEmployers: [],
             compensationExpectation: "",
             securityClearances: [],
@@ -413,6 +415,7 @@ test.describe("profile page", () => {
       await page
         .getByLabel("Please specify how you heard about this job")
         .fill("Community meetup");
+      await page.getByLabel("Current or last employer").fill("Rivian");
       await page.getByLabel("Add previous employer").fill("Cisco");
       await page.getByLabel("Add previous employer").press("Enter");
       await page
@@ -470,6 +473,9 @@ test.describe("profile page", () => {
       await expect(
         page.getByLabel("Please specify how you heard about this job"),
       ).toHaveValue("Community meetup");
+      await expect(page.getByLabel("Current or last employer")).toHaveValue(
+        "Rivian",
+      );
       await expect(
         page.getByRole("button", { name: "Remove None" }),
       ).toBeVisible();
@@ -504,6 +510,7 @@ test.describe("profile page", () => {
           ],
           heardAboutJob: "Other",
           heardAboutJobOther: "Community meetup",
+          currentOrLastEmployer: "Rivian",
           previousEmployers: ["Cisco"],
           compensationExpectation: "$150,000 USD",
           securityClearances: ["None"],

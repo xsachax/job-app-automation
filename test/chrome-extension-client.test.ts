@@ -113,6 +113,7 @@ const PROFILE = {
   greScore: "325",
   heardAboutJob: "LinkedIn",
   heardAboutJobOther: "Conference",
+  currentOrLastEmployer: " Rivian ",
   previousEmployers: ["Cisco", "Rivian"],
   compensationExpectation: "$150,000 USD",
   compensationCurrency: " USD ",
@@ -308,6 +309,7 @@ describe("Chrome extension identity and profile mapping", () => {
       greScore: "325",
       heardAboutJob: "LinkedIn",
       heardAboutJobOther: "",
+      currentOrLastEmployer: "Rivian",
       previousEmployers: "Cisco\nRivian",
       compensationExpectation: "$150,000 USD",
       compensationCurrency: "USD",
@@ -407,6 +409,30 @@ describe("Chrome extension identity and profile mapping", () => {
         ],
       }).previousEmployers,
     ).toBe("Uber\nArtera Technologies");
+    expect(
+      buildAutofillProfile({
+        workExperiences: [
+          {
+            company: "Previous Co",
+            title: "",
+            location: "",
+            startDate: "",
+            endDate: "2024-01",
+            currentRole: false,
+            description: "",
+          },
+          {
+            company: "Current Co",
+            title: "",
+            location: "",
+            startDate: "",
+            endDate: "",
+            currentRole: true,
+            description: "",
+          },
+        ],
+      }).currentOrLastEmployer,
+    ).toBe("Current Co");
   });
 
   it("supports legacy portfolio URLs and cleared eligibility answers", () => {

@@ -1183,6 +1183,19 @@ export default function ProfilePage() {
                 </FieldShell>
               )}
               <FieldShell
+                label="Current or last employer"
+                hint="Used for questions asking where you are currently employed or were most recently employed."
+              >
+                <input
+                  aria-label="Current or last employer"
+                  className={cls.input}
+                  value={profile.currentOrLastEmployer ?? ""}
+                  onChange={(event) =>
+                    setField("currentOrLastEmployer", event.target.value)
+                  }
+                />
+              </FieldShell>
+              <FieldShell
                 label="Previous employers"
                 hint='Add every company you have worked for. The extension treats this as a complete list when answering "Have you worked at X?" and leaves the question manual when the list is empty.'
               >
