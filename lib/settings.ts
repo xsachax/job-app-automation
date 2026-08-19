@@ -133,6 +133,7 @@ export interface ProfileData {
   heardAboutJobOther?: string;
   referrerName?: string;
   referrerEmail?: string;
+  currentOrLastEmployer?: string;
   previousEmployers?: string[];
   compensationExpectation?: string;
   compensationCurrency?: string;
@@ -229,6 +230,7 @@ export const DEFAULT_PROFILE: ProfileData = {
   heardAboutJobOther: "",
   referrerName: "",
   referrerEmail: "",
+  currentOrLastEmployer: "",
   previousEmployers: [],
   compensationExpectation: "",
   compensationCurrency: "",
@@ -453,6 +455,10 @@ function normalizeProfileData(data: ProfileData): ProfileData {
   profile.languages = normalizeLanguages(profile.languages);
   profile.referrerName = boundedText(profile.referrerName, 300);
   profile.referrerEmail = boundedText(profile.referrerEmail, 320);
+  profile.currentOrLastEmployer = boundedText(
+    profile.currentOrLastEmployer,
+    300,
+  );
   profile.compensationCurrency = boundedText(profile.compensationCurrency, 40);
   profile.compensationFrequency = boundedText(profile.compensationFrequency, 80);
   profile.availableStartDate = dateValue(profile.availableStartDate);

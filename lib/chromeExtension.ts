@@ -188,6 +188,7 @@ export interface AutofillProfile {
   heardAboutJobOther: string;
   referrerName: string;
   referrerEmail: string;
+  currentOrLastEmployer: string;
   previousEmployers: string;
   compensationExpectation: string;
   compensationCurrency: string;
@@ -368,6 +369,11 @@ export function buildAutofillProfile(
     currentRole: choice(entry.currentRole),
     description: text(entry.description),
   }));
+  const currentOrLastEmployer =
+    text(profile.currentOrLastEmployer) ||
+    workExperiences.find((entry) => entry.currentRole === "yes")?.company ||
+    workExperiences[0]?.company ||
+    "";
   const websites = [
     { label: "LinkedIn", url: text(profile.linkedin) },
     { label: "GitHub", url: text(profile.github) },
@@ -476,6 +482,7 @@ export function buildAutofillProfile(
         : "",
     referrerName: text(profile.referrerName),
     referrerEmail: text(profile.referrerEmail),
+    currentOrLastEmployer,
     previousEmployers: companyListText([
       ...(profile.previousEmployers ?? []),
       ...workExperiences.map((entry) => entry.company),

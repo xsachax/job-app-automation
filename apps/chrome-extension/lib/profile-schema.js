@@ -867,6 +867,30 @@
       controls: ["text"]
     },
     {
+      key: "currentOrLastEmployer",
+      label: "Current or last employer",
+      group: "eligibility",
+      input: "text",
+      maxLength: 300,
+      aliases: [
+        "where are you currently employed or where were you last employed",
+        "where are you currently employed",
+        "where were you last employed",
+        "currently employed or last employed",
+        "current employer or last employer",
+        "current or last employer",
+        "current employer",
+        "last employer",
+        "most recent employer"
+      ],
+      exactAliases: [
+        "current employer",
+        "last employer",
+        "current or last employer"
+      ],
+      controls: ["text"]
+    },
+    {
       key: "previousEmployers",
       label: "Previous employers",
       group: "eligibility",

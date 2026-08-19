@@ -970,6 +970,93 @@ test("keeps extensions out of Greenhouse phone fields", async ({
   await expect(page.locator("#phone")).toHaveValue("+1 (416) 555-0199");
 });
 
+test("fills current Greenhouse phone and employer controls", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `
+      <fieldset class="phone-input">
+        <legend>Phone</legend>
+        <div class="phone-input__country">
+          <label>Country *
+            <select id="country" required>
+              <option value="">Select</option>
+              <option value="CA">Canada +1</option>
+              <option value="US">United States +1</option>
+            </select>
+          </label>
+        </div>
+        <div class="phone-input__phone">
+          <label>Phone * <input id="phone" type="tel" data-intl-tel-input-id="0" required></label>
+        </div>
+      </fieldset>
+      <label>
+        Where are you currently employed or where were you last employed? *
+        <input id="current-or-last-employer" required>
+      </label>
+    `,
+    profile: {
+      phone: "+1 (416) 555-0199",
+      currentOrLastEmployer: "Acme",
+    },
+    country: "CA",
+    requiredByDefault: false,
+    url: "https://job-boards.greenhouse.io/acme/jobs/123",
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 3 });
+  await expect(page.locator("#country")).toHaveValue("CA");
+  await expect(page.locator("#phone")).toHaveValue("(416) 555-0199");
+  await expect(page.locator("#current-or-last-employer")).toHaveValue("Acme");
+});
+
+test("waits for a Greenhouse React resume replacement to commit", async ({
+  page,
+}) => {
+  await installContentPanel(page, {
+    html: `
+      <div
+        id="resume-upload"
+        class="file-upload"
+        role="group"
+        aria-labelledby="resume-upload-label"
+        aria-required="true"
+      >
+        <div id="resume-upload-label" class="upload-label">Resume/CV *</div>
+        <label>Attach <input id="resume" type="file" accept=".pdf"></label>
+      </div>
+      <script>
+        document.querySelector("#resume").addEventListener("change", (event) => {
+          const fileName = event.target.files?.[0]?.name;
+          if (!fileName) return;
+          const upload = document.querySelector("#resume-upload");
+          upload.innerHTML =
+            '<div id="resume-upload-label" class="upload-label">Resume/CV *</div>' +
+            '<div class="file-upload__progress">Uploading</div>';
+          setTimeout(() => {
+            upload.innerHTML =
+              '<div id="resume-upload-label" class="upload-label">Resume/CV *</div>' +
+              '<div class="file-upload__filename"><p>' + fileName + '</p>' +
+              '<button type="button" aria-label="Remove file">Remove</button></div>';
+          }, 300);
+        });
+      </script>
+    `,
+    profile: {},
+    resumeFile: {
+      fileName: "jane-resume.pdf",
+      mimeType: "application/pdf",
+      base64: "JVBERi0xLjQKJUVPRg==",
+    },
+    requiredByDefault: false,
+    url: "https://job-boards.greenhouse.io/acme/jobs/123",
+  });
+
+  expect(await invokeAutofill(page)).toMatchObject({ ok: true, filled: 1 });
+  await expect(page.locator("#resume-upload")).toContainText("jane-resume.pdf");
+  await expect(page.locator("#resume")).toHaveCount(0);
+});
+
 test("fills only controls marked mandatory by semantic or ATS signals", async ({
   page,
 }) => {

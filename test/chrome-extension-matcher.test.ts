@@ -709,6 +709,17 @@ describe("Chrome extension field matching", () => {
       ],
       ["Have you previously worked for Cisco?", "select", "previousEmployers"],
       [
+        "Where are you currently employed or where were you last employed?",
+        "text",
+        "currentOrLastEmployer",
+      ],
+      ["Current employer", "text", "currentOrLastEmployer"],
+      [
+        "What is your notice period to your current employer?",
+        "select",
+        "noticePeriod",
+      ],
+      [
         "This role is open to candidates who can work from the following office locations.",
         "check-many",
         "preferredOfficeLocations",

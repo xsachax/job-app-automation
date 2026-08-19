@@ -882,6 +882,34 @@
     ].join("::");
   }
 
+  function phoneUsesSeparateCountryControl(phoneElement, controls) {
+    const group = phoneElement?.closest?.(
+      "fieldset.phone-input, fieldset, [role='group']"
+    );
+    if (!group) {
+      return false;
+    }
+    if (group.querySelector?.(".phone-input__country")) {
+      return true;
+    }
+    return controls.some((control) => {
+      if (control === phoneElement || !group.contains(control)) {
+        return false;
+      }
+      const controlSignals = signalsForQuestion([control], false);
+      return (
+        matcher.findBestDefinition(
+          {
+            autocomplete: control.getAttribute("autocomplete"),
+            signals: controlSignals,
+            controlKind: controlKind([control])
+          },
+          profileSchema.fields
+        )?.definition.key === "phoneCountryCode"
+      );
+    });
+  }
+
   function resolveMatchedValue(
     match,
     kind,
@@ -890,7 +918,8 @@
     nativeInputType,
     adapterDetails,
     nativePattern,
-    controls
+    controls,
+    questionElements
   ) {
     if (!match) {
       return { value: "", safe: false };
@@ -1030,19 +1059,7 @@
     if (
       match.definition.key === "phone" &&
       effectiveProfile.phoneNational &&
-      controls.some((control) => {
-        const controlSignals = signalsForQuestion([control], false);
-        return (
-          matcher.findBestDefinition(
-            {
-              autocomplete: control.getAttribute("autocomplete"),
-              signals: controlSignals,
-              controlKind: controlKind([control])
-            },
-            profileSchema.fields
-          )?.definition.key === "phoneCountryCode"
-        );
-      })
+      phoneUsesSeparateCountryControl(questionElements[0], controls)
     ) {
       return {
         value: profileSchema.formatControlValue(
@@ -1167,7 +1184,8 @@
         inputType(elements[0]),
         adapterDetails,
         elements[0].getAttribute("pattern"),
-        controls
+        controls,
+        elements
       );
       const key =
         stableQuestionIdentity(elements, kind, label, match) || groupKey;
@@ -2654,6 +2672,9 @@
   async function fillFile(question, savedFile, assertActive) {
     const element = question.elements[0];
     const reference = interactions.controlReference(element);
+    const replacementContainer =
+      element.closest?.("fieldset, [role='group'], .file-upload") ||
+      reference.contextNode;
     if (
       !isInput(element) ||
       inputType(element) !== "file" ||
@@ -2690,13 +2711,26 @@
         "The saved resume PDF could not be attached to this field."
       );
     }
-    await wait(50);
-    assertActive();
-    const current = committedElement(question, reference);
-    if (current?.files?.[0]?.name === file.name) {
-      state.extensionValues.set(current, file.name);
-      return true;
-    }
+    const commitDeadline = Date.now() + 5000;
+    do {
+      await wait(50);
+      assertActive();
+      const current = committedElement(question, reference);
+      if (current?.files?.[0]?.name === file.name) {
+        state.extensionValues.set(current, file.name);
+        return true;
+      }
+      const replacementFileName = Array.from(
+        replacementContainer?.querySelectorAll?.(
+          "[class*='filename'], [class*='filename'] *, [class*='file-name'], [class*='file-name'] *, [data-testid*='filename'], [data-testid*='filename'] *"
+        ) || []
+      ).find((candidate) => text(candidate.textContent) === text(file.name));
+      if (replacementContainer?.isConnected && replacementFileName) {
+        question.committedElements = [replacementContainer];
+        state.extensionValues.set(replacementContainer, file.name);
+        return true;
+      }
+    } while (Date.now() < commitDeadline);
     return fillFailure(
       question,
       "The resume field matched, but the PDF attachment did not remain committed."

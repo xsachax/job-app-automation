@@ -46,6 +46,7 @@ describe("structured application profile", () => {
             },
           ],
           availableStartDate: "2026-02-31",
+          currentOrLastEmployer: " Acme ",
           willingToTravel: false,
           maxTravelPercentage: "25",
         }),
@@ -85,6 +86,7 @@ describe("structured application profile", () => {
         },
       ],
       availableStartDate: "",
+      currentOrLastEmployer: "Acme",
       maxTravelPercentage: "",
     });
   });
