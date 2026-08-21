@@ -139,10 +139,11 @@ const RULES: Partial<Record<BrowserSystem, SiteRule>> = {
       !/\b(senior|staff|managers?|lead|director|head|principal|internships?|co-op)\b/i.test(title),
     hydrate: async (page, card) => {
       await page.goto(card.href, { waitUntil: "domcontentloaded", timeout: 45000 });
-      await page.getByText("About the role", { exact: true }).waitFor({ timeout: 30000 });
-      const description = await page
+      const posting = page
         .locator('[itemtype="https://schema.org/JobPosting"]')
-        .innerText();
+        .first();
+      await posting.waitFor({ timeout: 30000 });
+      const description = await posting.innerText();
       return { ...card, description };
     },
   },
