@@ -1,7 +1,7 @@
 # Job Application Pipeline
 
 A local-first pipeline that **discovers currently-open entry-level software roles**
-(SWE, DevOps, ML, and related) at 70+ big-tech / well-known / VC-backed companies and
+(SWE, DevOps, ML, and related) at 90+ big-tech / Canadian / well-known / VC-backed companies and
 surfaces them in a dashboard as two separate queues — **United States** and **Canada** —
 sorted newest-first with date filters. Each card links straight to the real posting; you
 apply yourself, or optionally launch a local Chrome extension that fills known fields and
@@ -24,9 +24,11 @@ The queue targets roles that are **entry-level or ask for ≤ 2 years of experie
 
 ## Discovery pipeline
 
-Postings are pulled directly from each company's careers backend. 80 companies expose a
-usable public JSON API (Greenhouse, Ashby, Lever, Amazon, Uber, Netflix, Snap, Phenom,
-Spotify, Workday CXS) — including a block of quant / high-frequency trading firms (Jane
+Postings are pulled directly from each company's careers backend. 90+ companies expose a
+usable public feed (Greenhouse, Ashby, Lever, Workable, Teamtailor, Amazon, Uber, Netflix,
+Snap, Phenom, Spotify, Workday CXS) — including a Canada-first cohort concentrated in
+Montreal and Quebec (Genetec, Behaviour Interactive, TrackTik, AlayaCare, Hopper, Nuvei,
+Vention) and a block of quant / high-frequency trading firms (Jane
 Street, Point72, Optiver, Jump, IMC, Tower Research, Squarepoint, Qube, WorldQuant, AQR,
 DRW, HRT…) — and are fetched server-side; the rest are client-rendered or bot-gated and
 are either scraped with Playwright (Apple and Shopify) or surfaced via a pinned search URL.
@@ -82,7 +84,7 @@ sightings. A posting moves through `open → suspect → closed` using conservat
 - failed, degraded, disabled, or implausibly truncated runs never count as misses. A clean
   limited feed may trigger **Rechecking** and direct URL verification, but neither degraded nor
   limited runs can archive a posting from disappearance alone;
-- a successful full-board Greenhouse, Lever, or Ashby response is authoritative, while
+- a successful full-board Greenhouse, Lever, Ashby, Workable, or Teamtailor response is authoritative, while
   search-limited APIs, browser scrapes, YC expansion, and community boards cannot prove
   closure by disappearance alone;
 - a newly missing posting is marked **Rechecking** and verified through its direct URL with
@@ -99,9 +101,10 @@ If a direct source sees the same requisition again, that row reopens instead of 
 
 ## Features
 
-- **Company-site discovery** — 80 public-API companies (incl. quant / HFT firms) + Playwright
-  scraping for Apple and Shopify, plus community GitHub job boards (SimplifyJobs, vanshb03) for the long
-  tail of employers, classified to US/Canada entry-level roles. See [Discovery pipeline](#discovery-pipeline).
+- **Company-site discovery** — 90+ public-feed companies (including Canada-first and
+  quant / HFT firms) + Playwright scraping for Apple and Shopify, plus five community
+  GitHub boards including Canada-specific new-grad and internship feeds for the long tail
+  of employers. See [Discovery pipeline](#discovery-pipeline).
 - **Two separate queues** — US and Canada, newest-first, with last-24h / 7d / 30d filters.
 - **Rate-safe dashboard refreshes** — the shared scrape control enforces a durable two-hour
   cooldown and shows a live countdown before the next run can start.

@@ -22,6 +22,8 @@ describe("classifyCountry", () => {
     expect(classifyCountry("Vancouver, British Columbia")).toBe("CA");
     expect(classifyCountry("Remote - Canada: Select locations")).toBe("CA");
     expect(classifyCountry("Montréal, QC")).toBe("CA");
+    expect(classifyCountry("Sherbrooke, Québec")).toBe("CA");
+    expect(classifyCountry("Longueuil")).toBe("CA");
   });
 
   it("returns OTHER for non-US/CA and empty", () => {
@@ -47,6 +49,7 @@ describe("isSoftwareRole", () => {
     expect(isSoftwareRole("Sales Engineer")).toBe(false);
     expect(isSoftwareRole("Mechanical Engineer")).toBe(false);
     expect(isSoftwareRole("Product Designer")).toBe(false);
+    expect(isSoftwareRole("Legal Operations Specialist, Technology and AI")).toBe(false);
   });
 });
 

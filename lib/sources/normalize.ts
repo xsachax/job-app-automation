@@ -15,6 +15,7 @@ export function detectAts(url: string): AtsType {
   if (host.includes("myworkdayjobs.com") || host.includes("workday")) return "workday";
   if (host.includes("icims.com")) return "icims";
   if (host.includes("workable.com")) return "workable";
+  if (host.includes("teamtailor.com")) return "teamtailor";
   return "unknown";
 }
 

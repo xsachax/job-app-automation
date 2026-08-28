@@ -7,6 +7,7 @@ export type AtsType =
   | "workday"
   | "icims"
   | "workable"
+  | "teamtailor"
   | "unknown";
 
 export type SourceKind =

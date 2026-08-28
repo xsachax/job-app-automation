@@ -54,6 +54,7 @@ const AI = new Set(
     "Scale AI", "OpenAI", "Cohere", "ElevenLabs", "Baseten", "Cursor",
     "Cursor (Anysphere)", "Cognition",
     "Lovable", "Granola", "Mercor", "Sierra", "Harvey", "DeepMind", "Mistral",
+    "Ada",
     // Well-known AI labs / applied-AI companies (many surface via YC + boards).
     "Perplexity", "Perplexity AI", "Hugging Face", "Runway", "Runway ML",
     "Character AI", "Character.AI", "Glean", "Writer", "Adept", "Inflection",
@@ -103,6 +104,8 @@ const STARTUP = new Set(
   [
     "Databricks", "Stripe", "Figma", "Discord", "SpaceX", "Nuro", "Notion",
     "Ramp", "Wealthsimple", "Vercel", "Replit", "Zipline",
+    "Behaviour Interactive", "TrackTik", "AlayaCare", "League", "Hootsuite",
+    "Clearco", "1Password", "Hopper", "Genetec", "Nuvei", "Vention",
   ].map(norm),
 );
 

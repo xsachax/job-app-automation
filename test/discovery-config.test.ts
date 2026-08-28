@@ -24,6 +24,26 @@ describe("config-driven classifier", () => {
     expect(classifyEntryLevel({ title }, opts).isEntryLevel).toBe(true);
   });
 
+  it("honors a structured internship level supplied by an ATS", () => {
+    const input = {
+      title: "Software Developer",
+      description: "Experience level: Internship.",
+    };
+    expect(classifyEntryLevel(input).isEntryLevel).toBe(false);
+    expect(
+      classifyEntryLevel(input, { includeInternships: true }).isEntryLevel,
+    ).toBe(true);
+  });
+
+  it("rejects a structured mid-senior level supplied by an ATS", () => {
+    const verdict = classifyEntryLevel({
+      title: "Software Developer",
+      description: "Experience level: Mid-Senior level.",
+    });
+    expect(verdict.hasSeniorTitle).toBe(true);
+    expect(verdict.isEntryLevel).toBe(false);
+  });
+
   it("raises the YoE ceiling when configured", () => {
     const desc = "5 years of experience required.";
     expect(classifyEntryLevel({ title: "Software Engineer", description: desc }).isEntryLevel).toBe(false);
