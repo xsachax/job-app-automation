@@ -39,6 +39,36 @@ describe("cross-source dedup (discovery persist)", () => {
     expect(job.applyUrl).toContain("greenhouse");
   });
 
+  it("promotes a pre-existing board card when the native source appears later", async () => {
+    await ingestPostings(
+      [
+        posting({
+          system: "githubboard",
+          externalId: "board-1",
+          applyUrl: "https://example.com/careers?jobId=1",
+        }),
+      ],
+      true,
+    );
+
+    await ingestPostings(
+      [
+        posting({
+          externalId: "native-1",
+          applyUrl: "https://boards.greenhouse.io/acme/jobs/native-1",
+        }),
+      ],
+      true,
+    );
+
+    expect(await prisma.job.count()).toBe(1);
+    expect(await prisma.job.findFirstOrThrow()).toMatchObject({
+      dedupeKey: "greenhouse:native-1",
+      discoverySystem: "greenhouse",
+      applyUrl: "https://boards.greenhouse.io/acme/jobs/native-1",
+    });
+  });
+
   it("does NOT collapse an employer's distinct same-title reqs from one system", async () => {
     await ingestPostings(
       [

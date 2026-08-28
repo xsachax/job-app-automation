@@ -727,6 +727,144 @@ describe("discovery posting lifecycle", () => {
     ).toMatchObject({ availabilityStatus: JOB_AVAILABILITY.CLOSED });
   });
 
+  it("verifies a non-authoritative job even when its source saw it this cycle", async () => {
+    const observed = await successfulRun(
+      BOARD_SOURCE,
+      [
+        posting({
+          system: "githubboard",
+          externalId: "board-123",
+          applyUrl: "https://example.test/jobs/board-123",
+        }),
+      ],
+      1,
+    );
+    const verify = vi.fn(async () => ({
+      status: "closed" as const,
+      reason: "posting returned HTTP 404",
+      httpStatus: 404,
+    }));
+
+    const result = await verifyUntrackedDiscoveryJobs(
+      observed.context.startedAt,
+      { verify, countries: ["US"] },
+    );
+
+    expect(verify).toHaveBeenCalledTimes(1);
+    expect(result.closed).toBe(1);
+    expect(await prisma.job.findFirstOrThrow()).toMatchObject({
+      availabilityStatus: JOB_AVAILABILITY.CLOSED,
+      closureReason: "posting returned HTTP 404",
+    });
+  });
+
+  it("archives a community listing that only links to a generic jobs page", async () => {
+    const observed = await successfulRun(
+      BOARD_SOURCE,
+      [
+        posting({
+          system: "githubboard",
+          externalId: "generic-board-row",
+          applyUrl: "https://example.test/jobs?utm_source=community",
+        }),
+      ],
+      1,
+    );
+    const verify = vi.fn();
+
+    const result = await verifyUntrackedDiscoveryJobs(
+      observed.context.startedAt,
+      { verify, countries: ["US"] },
+    );
+
+    expect(verify).not.toHaveBeenCalled();
+    expect(result.closed).toBe(1);
+    expect(await prisma.job.findFirstOrThrow()).toMatchObject({
+      availabilityStatus: JOB_AVAILABILITY.CLOSED,
+      closureReason: "community source did not provide a job-specific URL",
+    });
+  });
+
+  it("keeps a currently observed direct listing open when verification is inconclusive", async () => {
+    const observed = await successfulRun(
+      LIMITED_SOURCE,
+      [
+        posting({
+          system: "apple",
+          externalId: "apple-current",
+          applyUrl: "https://jobs.apple.com/details/apple-current",
+        }),
+      ],
+      1,
+    );
+
+    const result = await verifyUntrackedDiscoveryJobs(
+      observed.context.startedAt,
+      { verify: inconclusive, countries: ["US"] },
+    );
+
+    expect(result.suspect).toBe(0);
+    expect(await prisma.job.findFirstOrThrow()).toMatchObject({
+      availabilityStatus: JOB_AVAILABILITY.OPEN,
+      lastVerificationResult: "inconclusive",
+    });
+  });
+
+  it("does not immediately reopen a recently verified closure from a limited source", async () => {
+    const limitedPosting = posting({
+      system: "apple",
+      externalId: "apple-closed",
+      applyUrl: "https://jobs.apple.com/details/apple-closed",
+    });
+    const first = await beginDiscoverySourceRun(LIMITED_SOURCE);
+    await ingestPostings([limitedPosting], true, undefined, {
+      sourceRun: first,
+    });
+    const job = await prisma.job.findFirstOrThrow();
+    await prisma.job.update({
+      where: { id: job.id },
+      data: {
+        availabilityStatus: JOB_AVAILABILITY.CLOSED,
+        lastVerifiedAt: new Date(),
+        lastVerificationResult: "closed",
+        closedAt: new Date(),
+        closureReason: "posting returned HTTP 404",
+      },
+    });
+
+    const unchanged = await beginDiscoverySourceRun(LIMITED_SOURCE);
+    await ingestPostings([limitedPosting], true, undefined, {
+      sourceRun: unchanged,
+    });
+    expect(
+      await prisma.job.findUniqueOrThrow({ where: { id: job.id } }),
+    ).toMatchObject({
+      availabilityStatus: JOB_AVAILABILITY.CLOSED,
+      lastVerificationResult: "closed",
+    });
+
+    const changed = await beginDiscoverySourceRun(LIMITED_SOURCE);
+    await ingestPostings(
+      [
+        {
+          ...limitedPosting,
+          applyUrl: "https://jobs.apple.com/details/apple-closed-new",
+        },
+      ],
+      true,
+      undefined,
+      { sourceRun: changed },
+    );
+    expect(
+      await prisma.job.findUniqueOrThrow({ where: { id: job.id } }),
+    ).toMatchObject({
+      availabilityStatus: JOB_AVAILABILITY.SUSPECT,
+      applyUrl: "https://jobs.apple.com/details/apple-closed-new",
+      lastVerifiedAt: null,
+      lastVerificationResult: null,
+    });
+  });
+
   it("uses only hard HTTP or explicit page evidence for targeted closure", async () => {
     const request = vi
       .fn()

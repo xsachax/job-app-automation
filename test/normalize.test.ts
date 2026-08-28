@@ -22,7 +22,7 @@ describe("detectAts", () => {
 });
 
 describe("normalizeUrl", () => {
-  it("strips query + fragment + trailing slash", () => {
+  it("strips tracking query parameters, fragments, and trailing slashes", () => {
     expect(normalizeUrl("https://x.com/jobs/9/?utm_source=foo#apply")).toBe(
       "https://x.com/jobs/9",
     );
@@ -37,6 +37,18 @@ describe("normalizeUrl", () => {
       "https://www.hudsonrivertrading.com/careers/job/?gh_jid=7972593",
     ],
   ])("preserves Greenhouse job identifiers in %s", (input, expected) => {
+    expect(normalizeUrl(input)).toBe(expected);
+  });
+  it.each([
+    [
+      "https://ibmglobal.avature.net/en_US/careers/JobDetail?jobId=61672&source=SN_LinkedIn",
+      "https://ibmglobal.avature.net/en_US/careers/JobDetail?jobId=61672",
+    ],
+    [
+      "https://boards.greenhouse.io/embed/job_app?token=123&utm_medium=board",
+      "https://boards.greenhouse.io/embed/job_app?token=123",
+    ],
+  ])("preserves non-Greenhouse job identifiers in %s", (input, expected) => {
     expect(normalizeUrl(input)).toBe(expected);
   });
   it("returns input unchanged when not a URL", () => {

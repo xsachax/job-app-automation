@@ -19,14 +19,37 @@ export function detectAts(url: string): AtsType {
   return "unknown";
 }
 
+const TRACKING_QUERY_PARAMS = new Set([
+  "bga",
+  "gh_src",
+  "height",
+  "iis",
+  "iisn",
+  "jan1offset",
+  "jun1offset",
+  "mobile",
+  "needsredirect",
+  "ref",
+  "referrer",
+  "source",
+  "src",
+  "width",
+]);
+
+function isTrackingQueryParam(name: string): boolean {
+  const normalized = name.toLowerCase();
+  return normalized.startsWith("utm_") || TRACKING_QUERY_PARAMS.has(normalized);
+}
+
 // Strip tracking params + fragments while preserving parameters that identify a job.
 export function normalizeUrl(url: string): string {
   try {
     const u = new URL(url.trim());
-    const greenhouseJobId = u.searchParams.get("gh_jid");
     u.hash = "";
-    u.search = "";
-    if (greenhouseJobId) u.searchParams.set("gh_jid", greenhouseJobId);
+    for (const name of [...u.searchParams.keys()]) {
+      if (isTrackingQueryParam(name)) u.searchParams.delete(name);
+    }
+    u.searchParams.sort();
     let s = u.toString();
     if (s.endsWith("/")) s = s.slice(0, -1);
     return s;

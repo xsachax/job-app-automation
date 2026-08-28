@@ -238,9 +238,9 @@ const AUTHORITATIVE_SYSTEMS = new Set([
   "teamtailor",
 ]);
 const COMPLETE_SEARCH_SYSTEMS = new Set(["phenom", "spotify", "githubboard"]);
-const VERIFICATION_CACHE_MS = 6 * 60 * 60 * 1000;
+export const POSTING_VERIFICATION_CACHE_MS = 6 * 60 * 60 * 1000;
 const DEFAULT_MAX_VERIFICATIONS = 60;
-const DEFAULT_MAX_ORPHAN_VERIFICATIONS = 30;
+const DEFAULT_MAX_ORPHAN_VERIFICATIONS = 60;
 const MAX_VERIFICATION_BODY_BYTES = 250_000;
 const MAX_VERIFICATION_REDIRECTS = 5;
 
@@ -619,6 +619,29 @@ function hostFor(url: string): string {
   }
 }
 
+const GENERIC_POSTING_PATHS = new Set([
+  "/career",
+  "/careers",
+  "/careers-listing",
+  "/careers/jobs",
+  "/company/jobs",
+  "/embed/job_app",
+  "/job",
+  "/jobs",
+  "/open-positions",
+]);
+
+function isGenericPostingUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    if ([...url.searchParams.keys()].length > 0) return false;
+    const path = url.pathname.replace(/\/+$/, "").toLowerCase() || "/";
+    return GENERIC_POSTING_PATHS.has(path);
+  } catch {
+    return false;
+  }
+}
+
 async function mapPool<T, R>(
   values: T[],
   concurrency: number,
@@ -673,7 +696,8 @@ function recentOpenVerification(
   return (
     job.lastVerificationResult === "open" &&
     job.lastVerifiedAt != null &&
-    now.getTime() - job.lastVerifiedAt.getTime() < VERIFICATION_CACHE_MS
+    now.getTime() - job.lastVerifiedAt.getTime() <
+      POSTING_VERIFICATION_CACHE_MS
   );
 }
 
@@ -1296,33 +1320,98 @@ export async function verifyUntrackedDiscoveryJobs(
   options: {
     verify?: PostingVerifier;
     maxVerifications?: number;
+    countries?: string[];
   } = {},
 ): Promise<AvailabilityReconciliationResult> {
   const verify = options.verify ?? verifyPostingUrl;
   const now = new Date();
-  const cacheCutoff = new Date(now.getTime() - VERIFICATION_CACHE_MS);
-  const jobs = await prisma.job.findMany({
-    where: {
-      isEntryLevel: true,
-      discoverySystem: { not: null },
-      availabilityStatus: { not: JOB_AVAILABILITY.CLOSED },
-      lastSeenAt: { lt: cycleStartedAt },
-      // Jobs backed only by capped/search-limited sources need periodic direct
-      // verification. The same fallback covers disabled or currently incomplete
-      // sources without turning their absence into a reconciliation miss.
-      discoverySightings: {
-        none: { source: { lastCompleteRunAt: { gte: cycleStartedAt } } },
-      },
-      OR: [
-        { lastVerifiedAt: null },
-        { lastVerifiedAt: { lt: cacheCutoff } },
-      ],
-    },
-    orderBy: { lastSeenAt: "asc" },
-    take:
-      options.maxVerifications ?? DEFAULT_MAX_ORPHAN_VERIFICATIONS,
-  });
-  const results = await verifyWithHostLimits(jobs, verify);
+  const cacheCutoff = new Date(
+    now.getTime() - POSTING_VERIFICATION_CACHE_MS,
+  );
+  const maxVerifications =
+    options.maxVerifications ?? DEFAULT_MAX_ORPHAN_VERIFICATIONS;
+  const configuredCountries = options.countries?.filter(Boolean) ?? [];
+  const countries = [
+    ...new Set(configuredCountries.length ? configuredCountries : ["US", "CA"]),
+  ];
+  const pools =
+    maxVerifications > 0
+      ? await Promise.all(
+          countries.map((country) =>
+            prisma.job.findMany({
+              where: {
+                country,
+                isEntryLevel: true,
+                discoverySystem: { not: null },
+                availabilityStatus: { not: JOB_AVAILABILITY.CLOSED },
+                // A current authoritative sighting is sufficient proof of an open
+                // posting. Search indexes, browser scrapes, and community boards
+                // still need periodic direct URL verification even when they saw
+                // the row during this refresh.
+                discoverySightings: {
+                  none: {
+                    lastSeenAt: { gte: cycleStartedAt },
+                    source: { authoritative: true },
+                  },
+                },
+                OR: [
+                  { lastVerifiedAt: null },
+                  { lastVerifiedAt: { lt: cacheCutoff } },
+                ],
+              },
+              orderBy: [
+                { lastVerifiedAt: "asc" },
+                { postedAt: "asc" },
+                { firstSeenAt: "asc" },
+              ],
+              include: {
+                discoverySightings: {
+                  where: { lastSeenAt: { gte: cycleStartedAt } },
+                  select: {
+                    source: { select: { positiveEvidence: true } },
+                  },
+                },
+              },
+              take: maxVerifications,
+            }),
+          ),
+        )
+      : [];
+  const jobs: (typeof pools)[number] = [];
+  for (let index = 0; jobs.length < maxVerifications; index++) {
+    let added = false;
+    for (const pool of pools) {
+      const job = pool[index];
+      if (!job || jobs.length >= maxVerifications) continue;
+      jobs.push(job);
+      added = true;
+    }
+    if (!added) break;
+  }
+  const invalidSecondaryIds = new Set(
+    jobs
+      .filter((job) => {
+        const evidence = job.discoverySightings.map(
+          (sighting) => sighting.source.positiveEvidence,
+        );
+        return (
+          evidence.length > 0 &&
+          evidence.every((kind) => kind === "secondary") &&
+          isGenericPostingUrl(job.applyUrl)
+        );
+      })
+      .map((job) => job.id),
+  );
+  const results = await verifyWithHostLimits(
+    jobs.filter((job) => !invalidSecondaryIds.has(job.id)),
+    verify,
+  );
+  for (const id of invalidSecondaryIds) {
+    results.set(id, {
+      status: "closed",
+      reason: "community source did not provide a job-specific URL",
+    });
+  }
   const summary: AvailabilityReconciliationResult = {
     checkedRuns: 0,
     missing: jobs.length,
@@ -1349,7 +1438,13 @@ export async function verifyUntrackedDiscoveryJobs(
         },
       });
       summary.closed++;
-    } else if (result.status === "open") {
+    } else if (
+      result.status === "open" ||
+      (result.status === "inconclusive" &&
+        job.discoverySightings.some(
+          (sighting) => sighting.source.positiveEvidence === "direct",
+        ))
+    ) {
       await prisma.job.update({
         where: { id: job.id },
         data: {
@@ -1369,6 +1464,8 @@ export async function verifyUntrackedDiscoveryJobs(
           consecutiveMisses: Math.max(1, job.consecutiveMisses),
           lastVerifiedAt: now,
           lastVerificationResult: result.status,
+          closedAt: null,
+          closureReason: result.reason,
         },
       });
       summary.suspect++;

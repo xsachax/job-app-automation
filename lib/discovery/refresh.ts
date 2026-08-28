@@ -394,6 +394,7 @@ async function executeRefresh(started: number): Promise<DiscoveryRefreshResult> 
   api.lifecycle = sourceLifecycle;
   const untrackedLifecycle = await verifyUntrackedDiscoveryJobs(
     new Date(started),
+    { countries: config.countries },
   );
 
   updateProgress({
