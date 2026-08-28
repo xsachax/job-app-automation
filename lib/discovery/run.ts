@@ -17,6 +17,7 @@ import {
   failDiscoverySourceRun,
   reconcileDiscoverySourceRuns,
   recordDiscoveryJobObservation,
+  POSTING_VERIFICATION_CACHE_MS,
   type AvailabilityReconciliationResult,
   type CompletedDiscoverySourceRun,
   type DiscoverySourceDescriptor,
@@ -92,7 +93,19 @@ interface ExistingPosting {
   kind: "exact" | "cross-source";
   availabilityStatus: string;
   applyUrl: string;
+  discoverySystem: string | null;
+  lastVerifiedAt: Date | null;
+  lastVerificationResult: string | null;
 }
+
+const existingPostingSelect = {
+  id: true,
+  availabilityStatus: true,
+  applyUrl: true,
+  discoverySystem: true,
+  lastVerifiedAt: true,
+  lastVerificationResult: true,
+} as const;
 
 async function findExistingPosting(
   p: DiscoveryPosting,
@@ -101,22 +114,66 @@ async function findExistingPosting(
 ): Promise<ExistingPosting | null> {
   const exact = await prisma.job.findUnique({
     where: { dedupeKey },
-    select: { id: true, availabilityStatus: true, applyUrl: true },
+    select: existingPostingSelect,
   });
   if (exact) return { ...exact, kind: "exact" };
 
   const isBoard = p.system === "githubboard";
+  const preferred = await prisma.job.findFirst({
+    where: isBoard
+      ? { fingerprint, discoverySystem: { not: "githubboard" } }
+      : { fingerprint, discoverySystem: "githubboard" },
+    orderBy: { firstSeenAt: "asc" },
+    select: existingPostingSelect,
+  });
+  if (preferred) return { ...preferred, kind: "cross-source" };
+
   const crossSource = await prisma.job.findFirst({
     where: isBoard
       ? { fingerprint }
       : { fingerprint, discoverySystem: { not: p.system } },
-    select: { id: true, availabilityStatus: true, applyUrl: true },
+    orderBy: { firstSeenAt: "asc" },
+    select: existingPostingSelect,
   });
   return crossSource ? { ...crossSource, kind: "cross-source" } : null;
 }
 
-function confirmedOpenData(sourceRun?: DiscoverySourceRunContext) {
-  if (sourceRun?.descriptor.positiveEvidence === "secondary") return {};
+function confirmedOpenData(
+  sourceRun: DiscoverySourceRunContext | undefined,
+  existing?: ExistingPosting | null,
+  applyUrl = existing?.applyUrl,
+) {
+  const urlChanged = Boolean(existing && existing.applyUrl !== applyUrl);
+  if (sourceRun?.descriptor.positiveEvidence === "secondary") {
+    return urlChanged && existing?.availabilityStatus === JOB_AVAILABILITY.CLOSED
+      ? {
+          availabilityStatus: JOB_AVAILABILITY.SUSPECT,
+          consecutiveMisses: 0,
+          closedAt: null,
+          closureReason: "Posting URL changed; awaiting verification",
+        }
+      : {};
+  }
+  const hasRecentHardClosure =
+    sourceRun?.descriptor.authoritative === false &&
+    !urlChanged &&
+    existing?.lastVerificationResult === "closed" &&
+    existing.lastVerifiedAt != null &&
+    Date.now() - existing.lastVerifiedAt.getTime() <
+      POSTING_VERIFICATION_CACHE_MS;
+  if (hasRecentHardClosure) return {};
+  if (
+    urlChanged &&
+    sourceRun?.descriptor.authoritative === false &&
+    existing?.availabilityStatus === JOB_AVAILABILITY.CLOSED
+  ) {
+    return {
+      availabilityStatus: JOB_AVAILABILITY.SUSPECT,
+      consecutiveMisses: 0,
+      closedAt: null,
+      closureReason: "Posting URL changed; awaiting verification",
+    };
+  }
   return {
     availabilityStatus: JOB_AVAILABILITY.OPEN,
     consecutiveMisses: 0,
@@ -180,7 +237,7 @@ async function persist(
       data: {
         ...data,
         ...verificationCache,
-        ...confirmedOpenData(sourceRun),
+        ...confirmedOpenData(sourceRun, existing, applyUrl),
       },
     });
     recordDiscoveryJobObservation(sourceRun, existing.id);
@@ -192,11 +249,26 @@ async function persist(
   //    Board postings therefore dedupe against ANY existing card with the same
   //    fingerprint; native company postings only dedupe across a *different*
   //    system, so an employer's distinct same-title reqs (same system) are kept.
-  //    Company sites run before boards, so the richer native card always wins.
+  //    Company sites run before boards, so the richer native card normally wins.
+  //    Promote an older board-only row when a native source is added later.
   if (existing?.kind === "cross-source") {
+    const promoteNative =
+      p.system !== "githubboard" &&
+      existing.discoverySystem === "githubboard";
     await prisma.job.update({
       where: { id: existing.id },
-      data: { lastSeenAt: new Date(), ...confirmedOpenData(sourceRun) },
+      data: promoteNative
+        ? {
+            dedupeKey,
+            ...data,
+            lastVerifiedAt: null,
+            lastVerificationResult: null,
+            ...confirmedOpenData(sourceRun, existing, applyUrl),
+          }
+        : {
+            lastSeenAt: new Date(),
+            ...confirmedOpenData(sourceRun, existing, existing.applyUrl),
+          },
     });
     recordDiscoveryJobObservation(sourceRun, existing.id);
     return "updated";
@@ -223,6 +295,7 @@ async function recordExistingObservation(
 ) {
   if (!existing) return;
   const direct = sourceRun?.descriptor.positiveEvidence !== "secondary";
+  const applyUrl = normalizeUrl(p.applyUrl);
   const exactUpdate =
     direct && existing.kind === "exact" && markNotEntryLevel
       ? {
@@ -230,7 +303,7 @@ async function recordExistingObservation(
           company: canonicalCompanyName(p.company),
           location: p.location || null,
           remote: /remote/i.test(p.location),
-          applyUrl: normalizeUrl(p.applyUrl),
+          applyUrl,
           description: p.description || null,
           postedAt: p.postedAt,
           country: p.country,
@@ -240,7 +313,7 @@ async function recordExistingObservation(
   const verificationCache =
     direct &&
     existing.kind === "exact" &&
-    existing.applyUrl !== normalizeUrl(p.applyUrl)
+    existing.applyUrl !== applyUrl
       ? { lastVerifiedAt: null, lastVerificationResult: null }
       : {};
   await prisma.job.update({
@@ -249,7 +322,7 @@ async function recordExistingObservation(
       ...exactUpdate,
       ...verificationCache,
       lastSeenAt: new Date(),
-      ...confirmedOpenData(sourceRun),
+      ...confirmedOpenData(sourceRun, existing, applyUrl),
     },
   });
   recordDiscoveryJobObservation(sourceRun, existing.id);
