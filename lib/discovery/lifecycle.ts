@@ -230,7 +230,13 @@ export interface AvailabilityReconciliationResult {
   closed: number;
 }
 
-const AUTHORITATIVE_SYSTEMS = new Set(["greenhouse", "lever", "ashby"]);
+const AUTHORITATIVE_SYSTEMS = new Set([
+  "greenhouse",
+  "lever",
+  "ashby",
+  "workable",
+  "teamtailor",
+]);
 const COMPLETE_SEARCH_SYSTEMS = new Set(["phenom", "spotify", "githubboard"]);
 const VERIFICATION_CACHE_MS = 6 * 60 * 60 * 1000;
 const DEFAULT_MAX_VERIFICATIONS = 60;

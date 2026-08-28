@@ -31,6 +31,8 @@ export type DiscoverySystem =
   | "greenhouse"
   | "lever"
   | "ashby"
+  | "workable"
+  | "teamtailor"
   | "amazon"
   | "uber"
   | "netflix"
@@ -78,10 +80,16 @@ export interface ApiCompany {
   };
   // TalentBrew (Radancy) host, e.g. "jobs.intuit.com".
   talentbrew?: { host: string };
-  // GitHub-hosted aggregator board: a raw listings.json in a repo. The fetcher
-  // sets each posting's company from the feed row (not `name`), so one board
-  // entry contributes roles across many employers.
-  board?: { owner: string; repo: string; ref: string; path: string };
+  // GitHub-hosted aggregator board. JSON boards use the shared listings schema;
+  // Markdown boards use a Company / Role / Location / Apply / Status table.
+  // Each posting's company comes from the feed row (not `name`).
+  board?: {
+    owner: string;
+    repo: string;
+    ref: string;
+    path: string;
+    format?: "json" | "markdown";
+  };
   // Y Combinator directory-expansion source: a static JSON feed of currently
   // hiring YC companies. The runner resolves each company's ATS at scrape time
   // (see lib/discovery/yc.ts), so one entry covers hundreds of employers.
@@ -109,8 +117,8 @@ const SWE = ["software engineer", "software developer"];
 const SWE_BROAD = ["software engineer", "software developer", "machine learning", "devops"];
 
 // ---------------------------------------------------------------------------
-// API companies (81) — direct public JSON endpoints, verified live. Includes a
-// block of quant / trading firms at the end.
+// API companies (93) — direct public JSON endpoints, verified live. Includes
+// Canada-first and quant / trading blocks near the end.
 // ---------------------------------------------------------------------------
 
 export const API_COMPANIES: ApiCompany[] = [
@@ -188,6 +196,21 @@ export const API_COMPANIES: ApiCompany[] = [
       fetchDescriptions: true,
     },
   },
+
+  // ---- Canada-first technology companies. The Quebec cohort covers Montreal,
+  // Quebec City, Sherbrooke, and other provincial offices exposed by each board.
+  { name: "Behaviour Interactive", method: "api", system: "lever", token: "bhvr", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "TrackTik", method: "api", system: "lever", token: "tracktik", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "AlayaCare", method: "api", system: "greenhouse", token: "alayacare", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Ada", method: "api", system: "greenhouse", token: "ada18", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "League", method: "api", system: "greenhouse", token: "leagueinc", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Hootsuite", method: "api", system: "greenhouse", token: "hootsuite", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Clearco", method: "api", system: "ashby", token: "clearco", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "1Password", method: "api", system: "ashby", token: "1password", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Hopper", method: "api", system: "ashby", token: "hopper", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Genetec", method: "api", system: "workable", token: "genetec-inc", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Nuvei", method: "api", system: "workable", token: "nuvei", countryFilter: "post", queryTerms: SWE_BROAD },
+  { name: "Vention", method: "api", system: "teamtailor", token: "vention.na", countryFilter: "post", queryTerms: SWE_BROAD },
 
   // ---- Quant / high-frequency trading firms — verified live (Greenhouse /
   // Lever / Ashby). Only software roles (SWE / ML / infra / devops) survive the
@@ -312,6 +335,46 @@ export const BOARD_SOURCES: ApiCompany[] = [
     board: {
       owner: "vanshb03",
       repo: "New-Grad-2026",
+      ref: "main",
+      path: ".github/scripts/listings.json",
+    },
+  },
+  {
+    name: "Canada New-Grad 2026",
+    method: "api",
+    system: "githubboard",
+    countryFilter: "post",
+    queryTerms: SWE,
+    board: {
+      owner: "JeelTikiwala",
+      repo: "New-Grad-2026",
+      ref: "main",
+      path: "README.md",
+      format: "markdown",
+    },
+  },
+  {
+    name: "Canada Tech Internships 2027",
+    method: "api",
+    system: "githubboard",
+    countryFilter: "post",
+    queryTerms: SWE,
+    board: {
+      owner: "michelleokolie",
+      repo: "canada-tech-internships-summer-2027",
+      ref: "main",
+      path: ".github/scripts/listings.json",
+    },
+  },
+  {
+    name: "vanshb03 Summer2027 Internships",
+    method: "api",
+    system: "githubboard",
+    countryFilter: "post",
+    queryTerms: SWE,
+    board: {
+      owner: "vanshb03",
+      repo: "Summer2027-Internships",
       ref: "main",
       path: ".github/scripts/listings.json",
     },

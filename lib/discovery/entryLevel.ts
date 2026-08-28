@@ -50,7 +50,7 @@ const US_CITIES = [
 ];
 
 const CA_PROVINCES = [
-  "ontario", "quebec", "british columbia", "alberta", "manitoba",
+  "ontario", "quebec", "québec", "british columbia", "alberta", "manitoba",
   "saskatchewan", "nova scotia", "new brunswick", "newfoundland",
   "prince edward island",
 ];
@@ -60,7 +60,8 @@ const CA_PROVINCE_ABBR = ["ON", "QC", "BC", "AB", "MB", "SK", "NS", "NB", "NL", 
 const CA_CITIES = [
   "toronto", "vancouver", "montreal", "montréal", "waterloo", "ottawa",
   "calgary", "edmonton", "kitchener", "mississauga", "burnaby", "gatineau",
-  "victoria", "winnipeg", "halifax", "quebec city",
+  "victoria", "winnipeg", "halifax", "quebec city", "québec city",
+  "sherbrooke", "longueuil", "laval", "brossard", "trois-rivières", "saguenay",
 ];
 
 function hasWord(haystack: string, needles: string[]): boolean {
@@ -139,7 +140,7 @@ const NON_SOFTWARE = new RegExp(
     "packaging", "thermal", "materials", "recruiter", "account ",
     "marketing", "designer", "\\bux\\b", "product manager", "program manager",
     "technical program", "data analyst", "business analyst", "accountant",
-    "controller", "counsel", "attorney", "\\bhr\\b",
+    "controller", "counsel", "attorney", "\\blegal\\b", "\\bhr\\b",
   ].join("|"),
   "i",
 );
@@ -205,6 +206,8 @@ const INTERN_TITLE = new RegExp(
   ].join("|"),
   "i",
 );
+
+const STRUCTURED_SENIOR_LEVEL = /\bexperience level:\s*(?:mid-senior level|director|executive)\b/i;
 
 // Advanced degree explicitly REQUIRED (not merely preferred / "or").
 const ADVANCED_DEGREE_REQUIRED = new RegExp(
@@ -377,8 +380,12 @@ export function classifyEntryLevel(
   const blob = `${title}\n${desc}`;
 
   const isSoftware = isSoftwareRole(title, o);
-  const isInternship = INTERN_TITLE.test(title);
-  const hasExplicitSeniorTitle = EXPLICIT_SENIOR_TITLE.test(title);
+  const isInternship =
+    INTERN_TITLE.test(title) ||
+    /\bexperience level:\s*internship\b/i.test(desc);
+  const hasExplicitSeniorTitle =
+    EXPLICIT_SENIOR_TITLE.test(title) ||
+    STRUCTURED_SENIOR_LEVEL.test(desc);
   const hasNumericLevelTitle = NUMERIC_LEVEL_TITLE.test(title);
   const hasSeniorTitle = hasExplicitSeniorTitle || hasNumericLevelTitle;
   const hasEntrySignal = ENTRY_TITLE.test(title);
@@ -396,7 +403,7 @@ export function classifyEntryLevel(
   const reasons: string[] = [];
   if (!isSoftware) reasons.push("not a software role");
   if (isInternship && !o.includeInternships) reasons.push("internship / co-op");
-  if (blockedBySeniority) reasons.push("senior/mid title");
+  if (blockedBySeniority) reasons.push("senior/mid level");
   if (blockAdvanced) reasons.push("advanced degree required");
   if (hasHighYoE && !hasEntrySignal) reasons.push(`requires ${minYearsExperience}+ years`);
 

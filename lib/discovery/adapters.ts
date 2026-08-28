@@ -331,6 +331,177 @@ async function lever(c: ApiCompany): Promise<DiscoveryPosting[]> {
   });
 }
 
+// --------------------------------- Workable ---------------------------------
+
+async function workable(c: ApiCompany): Promise<DiscoveryPosting[]> {
+  if (!isNonEmptyString(c.token)) {
+    throw new Error("Workable source requires an account token");
+  }
+  const data = (await fetchJson(
+    `https://apply.workable.com/api/v1/widget/accounts/${encodeURIComponent(c.token)}`,
+  )) as {
+    jobs?: {
+      title?: string;
+      shortcode?: string;
+      url?: string;
+      application_url?: string;
+      published_on?: string;
+      country?: string;
+      city?: string;
+      state?: string;
+      education?: string;
+      experience?: string;
+      locations?: {
+        country?: string;
+        countryCode?: string;
+        city?: string;
+        region?: string;
+        hidden?: boolean;
+      }[];
+    }[];
+  };
+  if (!Array.isArray(data.jobs)) {
+    throw new Error("Workable response did not contain a jobs array");
+  }
+  const jobs = requireValidPostingRows(
+    "Workable",
+    data.jobs,
+    (job) =>
+      isNonEmptyString(job?.title) &&
+      isNonEmptyString(job?.shortcode) &&
+      (isHttpUrl(job?.url) || isHttpUrl(job?.application_url)),
+  );
+  return jobs.map((job) => {
+    const locations = (job.locations ?? [])
+      .filter((location) => !location.hidden)
+      .map((location) =>
+        [location.city, location.region, location.country ?? location.countryCode]
+          .filter(Boolean)
+          .join(", "),
+      )
+      .filter(Boolean);
+    const location =
+      locations.join(" | ") ||
+      [job.city, job.state, job.country].filter(Boolean).join(", ");
+    const metadata = [
+      job.experience ? `Experience level: ${job.experience}.` : "",
+      job.education ? `Education: ${job.education}.` : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    return mk("workable", c.name, {
+      title: job.title ?? "",
+      location,
+      applyUrl: job.url || job.application_url || "",
+      externalId: job.shortcode ?? "",
+      description: metadata,
+      postedAt: toDate(job.published_on),
+    });
+  });
+}
+
+// -------------------------------- Teamtailor --------------------------------
+
+interface TeamtailorAddress {
+  addressLocality?: string | null;
+  addressRegion?: string | null;
+  addressCountry?: string | { name?: string | null } | null;
+}
+
+interface TeamtailorPlace {
+  address?: TeamtailorAddress | null;
+}
+
+function schemaText(value: string | { name?: string | null } | null | undefined) {
+  if (typeof value === "string") return value;
+  return value?.name ?? "";
+}
+
+function teamtailorLocationFromHtml(html: string): string {
+  const scripts = html.matchAll(
+    /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
+  );
+  for (const script of scripts) {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(script[1]);
+    } catch {
+      continue;
+    }
+    const nodes = Array.isArray(raw) ? raw : [raw];
+    for (const node of nodes) {
+      if (!node || typeof node !== "object") continue;
+      const posting = node as {
+        "@type"?: string | string[];
+        jobLocation?: TeamtailorPlace | TeamtailorPlace[];
+      };
+      const types = Array.isArray(posting["@type"])
+        ? posting["@type"]
+        : [posting["@type"]];
+      if (!types.includes("JobPosting")) continue;
+      const places = Array.isArray(posting.jobLocation)
+        ? posting.jobLocation
+        : posting.jobLocation
+          ? [posting.jobLocation]
+          : [];
+      return places
+        .map((place) => {
+          const address = place.address;
+          const country = schemaText(address?.addressCountry)
+            .replace(/^CA$/i, "Canada")
+            .replace(/^US$/i, "United States");
+          return [...new Set(
+            [address?.addressLocality, address?.addressRegion, country]
+              .filter((part): part is string => Boolean(part?.trim()))
+              .map((part) => part.trim()),
+          )].join(", ");
+        })
+        .filter(Boolean)
+        .join(" | ");
+    }
+  }
+  throw new Error("Teamtailor detail did not contain JobPosting structured data");
+}
+
+async function teamtailor(c: ApiCompany): Promise<DiscoveryPosting[]> {
+  if (!isNonEmptyString(c.token)) {
+    throw new Error("Teamtailor source requires an account token");
+  }
+  const data = (await fetchJson(
+    `https://${c.token}.teamtailor.com/jobs.json`,
+  )) as {
+    items?: {
+      id?: string;
+      title?: string;
+      url?: string;
+      date_published?: string;
+      content_html?: string;
+    }[];
+  };
+  if (!Array.isArray(data.items)) {
+    throw new Error("Teamtailor response did not contain an items array");
+  }
+  const jobs = requireValidPostingRows(
+    "Teamtailor",
+    data.items,
+    (job) =>
+      isNonEmptyString(job?.id) &&
+      isNonEmptyString(job?.title) &&
+      isHttpUrl(job?.url),
+  );
+  return mapPool(jobs, 6, async (job) => {
+    const detailHtml = await fetchText(job.url ?? "");
+    return mk("teamtailor", c.name, {
+      title: job.title ?? "",
+      location: teamtailorLocationFromHtml(detailHtml),
+      applyUrl: job.url ?? "",
+      externalId: job.id ?? "",
+      description: stripHtml(job.content_html),
+      postedAt: toDate(job.date_published),
+    });
+  });
+}
+
 // ----------------------------------- Amazon -----------------------------------
 
 async function amazon(c: ApiCompany): Promise<DiscoveryPosting[]> {
@@ -928,11 +1099,9 @@ async function talentbrew(c: ApiCompany): Promise<DiscoveryPosting[]> {
 }
 
 // --------------------------------- GitHub board ---------------------------------
-// Community-maintained new-grad aggregators publish a raw listings.json. Each
-// row is a real posting at a real employer, so we set the posting's company from
-// the row (not c.name) and keep only currently-active + visible entries. The
-// apply URL is the row's direct link; dates are unix seconds. Country is
-// classified from the joined locations, so US/CA separation is automatic.
+// Community-maintained new-grad aggregators publish either listings.json or a
+// Markdown jobs table. Each row is a real posting at a real employer, so the
+// posting's company comes from the row rather than the board name.
 
 interface BoardListing {
   company_name?: string;
@@ -948,9 +1117,86 @@ interface BoardListing {
   sponsorship?: string;
 }
 
+function stripMarkdown(value: string): string {
+  return decodeEntities(
+    value
+      .replace(/<[^>]+>/g, " ")
+      .replace(/!\[[^\]]*]\([^)]*\)/g, " ")
+      .replace(/\[([^\]]+)]\([^)]*\)/g, "$1")
+      .replace(/[*_`~]/g, "")
+      .replace(/\s+/g, " ")
+      .trim(),
+  );
+}
+
+function markdownLink(value: string): string {
+  return (
+    value.match(/<a\s+[^>]*href=["']([^"']+)["']/i)?.[1] ??
+    value.match(/\[[^\]]*]\((https?:\/\/[^)\s]+)\)/i)?.[1] ??
+    value.match(/https?:\/\/[^\s<>"')]+/i)?.[0] ??
+    ""
+  );
+}
+
+function githubMarkdownBoard(c: ApiCompany, markdown: string): DiscoveryPosting[] {
+  const lines = markdown.split(/\r?\n/);
+  let columns:
+    | { company: number; title: number; location: number; apply: number; status: number }
+    | undefined;
+  let previousCompany = "";
+  const out: DiscoveryPosting[] = [];
+
+  for (const line of lines) {
+    if (!line.trim().startsWith("|")) continue;
+    const cells = line
+      .trim()
+      .replace(/^\||\|$/g, "")
+      .split("|")
+      .map((cell) => cell.trim());
+    const normalized = cells.map((cell) => stripMarkdown(cell).toLowerCase());
+    const company = normalized.findIndex((cell) => cell.includes("company"));
+    const title = normalized.findIndex((cell) => cell.includes("role") || cell.includes("position"));
+    const location = normalized.findIndex((cell) => cell.includes("location"));
+    const apply = normalized.findIndex((cell) => cell.includes("application") || cell === "apply");
+    const status = normalized.findIndex((cell) => cell.includes("status"));
+    if ([company, title, location, apply, status].every((index) => index >= 0)) {
+      columns = { company, title, location, apply, status };
+      continue;
+    }
+    if (!columns || cells.every((cell) => /^:?-{3,}:?$/.test(cell))) continue;
+
+    const statusText = stripMarkdown(cells[columns.status] ?? "").toLowerCase();
+    if (!statusText.includes("open") || statusText.includes("closed")) continue;
+    const companyCell = stripMarkdown(cells[columns.company] ?? "");
+    if (companyCell && companyCell !== "↳") previousCompany = companyCell;
+    const companyName = companyCell === "↳" ? previousCompany : companyCell;
+    const role = stripMarkdown(cells[columns.title] ?? "");
+    const locationText = stripMarkdown(cells[columns.location] ?? "");
+    const applyUrl = decodeEntities(markdownLink(cells[columns.apply] ?? ""));
+    if (!companyName || !role || !locationText || !isHttpUrl(applyUrl)) continue;
+    out.push(
+      mk("githubboard", companyName, {
+        title: role,
+        location: locationText,
+        applyUrl,
+        externalId: applyUrl,
+        description: "",
+        postedAt: null,
+      }),
+    );
+  }
+  if (!columns) {
+    throw new Error(`${c.name} Markdown board did not contain the expected jobs table`);
+  }
+  return out;
+}
+
 async function githubBoard(c: ApiCompany): Promise<DiscoveryPosting[]> {
   const b = c.board!;
   const url = `https://raw.githubusercontent.com/${b.owner}/${b.repo}/${b.ref}/${b.path}`;
+  if (b.format === "markdown") {
+    return githubMarkdownBoard(c, await fetchText(url, 30000));
+  }
   const data = (await fetchJson(url, { headers: { Accept: "application/json" } }, 30000)) as
     | BoardListing[]
     | { data?: BoardListing[]; listings?: BoardListing[] };
@@ -992,6 +1238,8 @@ const FETCHERS: Record<
   greenhouse,
   ashby,
   lever,
+  workable,
+  teamtailor,
   amazon,
   uber,
   netflix,

@@ -67,6 +67,105 @@ describe("curated Greenhouse and Ashby career sources", () => {
   );
 });
 
+describe("Canada-first ATS adapters", () => {
+  it("maps Workable account jobs and preserves structured experience metadata", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({
+        jobs: [
+          {
+            title: "Software Developer",
+            shortcode: "ABC123",
+            url: "https://apply.workable.com/j/ABC123",
+            published_on: "2026-08-18",
+            experience: "Associate",
+            education: "Bachelor's Degree",
+            locations: [
+              {
+                city: "Montréal",
+                region: "Quebec",
+                country: "Canada",
+                countryCode: "CA",
+                hidden: false,
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const company = API_COMPANIES.find((candidate) => candidate.name === "Genetec")!;
+
+    const posts = await fetchCompanyPostings(company);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://apply.workable.com/api/v1/widget/accounts/genetec-inc",
+      expect.any(Object),
+    );
+    expect(posts).toMatchObject([
+      {
+        company: "Genetec",
+        system: "workable",
+        externalId: "ABC123",
+        location: "Montréal, Quebec, Canada",
+        country: "CA",
+        description: "Experience level: Associate. Education: Bachelor's Degree.",
+      },
+    ]);
+  });
+
+  it("hydrates Teamtailor feed rows with structured job locations", async () => {
+    const fetchMock = vi.fn(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/jobs.json")) {
+        return jsonResponse({
+          items: [
+            {
+              id: "vention-1",
+              title: "Junior Software Developer",
+              url: "https://vention.na.teamtailor.com/jobs/vention-1",
+              date_published: "2026-08-14T08:35:28-04:00",
+              content_html: "<p>Build industrial automation software.</p>",
+            },
+          ],
+        });
+      }
+      return new Response(
+        `<script type="application/ld+json">${JSON.stringify({
+          "@context": "https://schema.org",
+          "@type": "JobPosting",
+          jobLocation: [
+            {
+              "@type": "Place",
+              address: {
+                "@type": "PostalAddress",
+                addressLocality: "Montréal",
+                addressRegion: "Quebec",
+                addressCountry: "CA",
+              },
+            },
+          ],
+        })}</script>`,
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const company = API_COMPANIES.find((candidate) => candidate.name === "Vention")!;
+
+    const posts = await fetchCompanyPostings(company);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(posts).toMatchObject([
+      {
+        company: "Vention",
+        system: "teamtailor",
+        externalId: "vention-1",
+        location: "Montréal, Quebec, Canada",
+        country: "CA",
+        description: "Build industrial automation software.",
+      },
+    ]);
+  });
+});
+
 describe("microsoft adapter (pcsx)", () => {
   it("maps positions to postings with country + apply URL", async () => {
     vi.stubGlobal(
@@ -455,6 +554,38 @@ describe("github board adapter (aggregator listings.json)", () => {
     const beta = posts.find((p) => p.externalId === "row-2")!;
     expect(beta.company).toBe("Beta Labs");
     expect(beta.country).toBe("CA");
+  });
+
+  it("parses open roles from a Canada-focused Markdown board", async () => {
+    const markdown = `
+| Company | Role | Location | Application / Link | Status |
+| --- | --- | --- | --- | --- |
+| **Acme** | Software Engineer - New Grad | Montreal, QC | <a href="https://jobs.example.com/acme-1">Apply</a> | Open |
+| ↳ | Backend Engineer | Toronto, Canada | [Apply](https://jobs.example.com/acme-2) | Open |
+| **Closed Co** | Software Developer | Vancouver, Canada | [Apply](https://jobs.example.com/closed) | Closed |
+`;
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(markdown)));
+    const board = BOARD_SOURCES.find(
+      (candidate) => candidate.name === "Canada New-Grad 2026",
+    )!;
+
+    const posts = await fetchCompanyPostings(board);
+
+    expect(posts).toHaveLength(2);
+    expect(posts).toMatchObject([
+      {
+        company: "Acme",
+        title: "Software Engineer - New Grad",
+        country: "CA",
+        applyUrl: "https://jobs.example.com/acme-1",
+      },
+      {
+        company: "Acme",
+        title: "Backend Engineer",
+        country: "CA",
+        applyUrl: "https://jobs.example.com/acme-2",
+      },
+    ]);
   });
 });
 
@@ -944,6 +1075,10 @@ describe("discovery catalog", () => {
     expect(bySystem("Harvey")).toBe("ashby");
     expect(bySystem("Rivian")).toBe("phenom");
     expect(bySystem("Cisco")).toBe("workday");
+    expect(bySystem("Behaviour Interactive")).toBe("lever");
+    expect(bySystem("Genetec")).toBe("workable");
+    expect(bySystem("Vention")).toBe("teamtailor");
+    expect(bySystem("Hopper")).toBe("ashby");
   });
 
   it("registers the quant / trading firms with the expected system", () => {
@@ -969,13 +1104,20 @@ describe("discovery catalog", () => {
   });
 
   it("registers the GitHub board sources with a repo config", () => {
-    expect(BOARD_SOURCES.length).toBeGreaterThanOrEqual(2);
+    expect(BOARD_SOURCES.length).toBeGreaterThanOrEqual(5);
     for (const b of BOARD_SOURCES) {
       expect(b.system).toBe("githubboard");
       expect(b.board?.owner).toBeTruthy();
       expect(b.board?.repo).toBeTruthy();
       expect(b.board?.path).toBeTruthy();
     }
+    expect(
+      BOARD_SOURCES.find((source) => source.name === "Canada New-Grad 2026")?.board,
+    ).toMatchObject({
+      owner: "JeelTikiwala",
+      repo: "New-Grad-2026",
+      format: "markdown",
+    });
   });
 
   it("registers the Y Combinator expansion source with a directory URL", () => {
