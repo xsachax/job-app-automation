@@ -9,6 +9,7 @@ import {
   saveLocationTier,
 } from "@/lib/tier-store";
 import { ACTIVE_JOB_WHERE } from "@/lib/jobs/availability";
+import { handleTierListAction } from "@/lib/tier-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,7 @@ export interface TierLocation {
 // them. The full set runs to hundreds of one-off cities, so we trim to the
 // top-N most popular (plus anything already ranked) to keep the board usable.
 export async function GET() {
-  const [jobs, tierRows] = await Promise.all([
+  const [jobs, tierRows, list] = await prisma.$transaction([
     prisma.job.findMany({
       where: {
         isEntryLevel: true,
@@ -36,7 +37,9 @@ export async function GET() {
       select: { location: true },
     }),
     prisma.locationTier.findMany(),
+    prisma.tierListState.findUnique({ where: { id: "locations" } }),
   ]);
+  const listEditVersion = Number(list?.editVersion ?? 0);
 
   const tierByKey = new Map<
     string,
@@ -55,6 +58,14 @@ export async function GET() {
     if (!canonical) continue;
     counts.set(canonical, (counts.get(canonical) ?? 0) + 1);
   }
+  const knownKeys = new Set([...counts.keys()].map(normalizeLocationKey));
+  for (const row of tierRows) {
+    const key = normalizeLocationKey(row.location);
+    if (!knownKeys.has(key)) {
+      counts.set(row.location, 0);
+      knownKeys.add(key);
+    }
+  }
 
   const all: TierLocation[] = [...counts.entries()].map(([location, count]) => {
     const saved = tierByKey.get(normalizeLocationKey(location));
@@ -62,7 +73,7 @@ export async function GET() {
       location,
       count,
       tier: saved?.tier ?? null,
-      editVersion: saved?.editVersion ?? 0,
+      editVersion: saved?.editVersion ?? listEditVersion,
     };
   });
 
@@ -70,7 +81,11 @@ export async function GET() {
     (a, b) => b.count - a.count || a.location.localeCompare(b.location),
   );
 
-  return json({ locations });
+  return json({ locations, listEditVersion });
+}
+
+export async function POST(req: NextRequest) {
+  return handleTierListAction(req, "locations");
 }
 
 // PUT /api/location-tiers — assign (or clear) one location's tier. Versioned

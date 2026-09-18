@@ -24,6 +24,7 @@ async function wipe() {
   await prisma.connectionSet.deleteMany();
   await prisma.companyTier.deleteMany();
   await prisma.locationTier.deleteMany();
+  await prisma.tierListState.deleteMany();
   await prisma.discoveryConfig.deleteMany();
 }
 

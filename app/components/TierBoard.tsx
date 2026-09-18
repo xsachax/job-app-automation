@@ -7,7 +7,12 @@ import {
 } from "react";
 import { JudgeProgressBar, useJudgeRun } from "./JudgeProgress";
 import { cls, PageHeader } from "./ui";
-import { TIERS, type Tier } from "@/lib/tiers";
+import {
+  TIERS,
+  type Tier,
+  type TierListAction,
+  type TierListKind,
+} from "@/lib/tiers";
 import {
   useTierPersistence,
   type TierItem,
@@ -65,10 +70,10 @@ function saveStatusClass(status: TierSaveStatus): string {
 interface TierBoardProps {
   title: string;
   subtitle: string;
-  /** GET (list) + PUT (assign/clear) endpoint. */
+  /** GET (list), PUT (one tier), and POST (replace/clear board) endpoint. */
   endpoint: string;
   /** Response array key, e.g. "companies" | "locations". */
-  itemsKey: string;
+  itemsKey: TierListKind;
   /** PUT body field + response field naming the item, e.g. "company" | "location". */
   field: string;
   /** Rendered before the label inside each chip (logo, pin, …). */
@@ -106,6 +111,7 @@ export function TierBoard({
     saveStatus,
     persistenceError,
     assignTier,
+    replaceTiers,
     retrySaves,
     saveNow,
   } = useTierPersistence({ endpoint, itemsKey, field });
@@ -115,6 +121,7 @@ export function TierBoard({
   const [dragKey, setDragKey] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [judging, setJudging] = useState(false);
+  const [listAction, setListAction] = useState<TierListAction | null>(null);
   const judgeRun = useJudgeRun();
   const error = persistenceError ?? actionError;
 
@@ -160,9 +167,38 @@ export function TierBoard({
     }
   }
 
+  async function replaceBoard(action: TierListAction) {
+    const prompt =
+      action === "import-community"
+        ? `Replace all rankings on ${title} with Community rankings? Rankings outside the snapshot will be cleared. The other tier list is unchanged.`
+        : `Clear all rankings on ${title}? All entries will be unrated. The other tier list and the community snapshot are unchanged.`;
+    if (!window.confirm(prompt)) return;
+    setListAction(action);
+    setActionError(null);
+    setMessage(null);
+    setDragKey(null);
+    setDropTarget(null);
+    try {
+      const count = await replaceTiers(action);
+      setSearch("");
+      setMessage(
+        (action === "import-community"
+          ? `Imported Community rankings: ${count} ${noun} ranked.`
+          : `${title} cleared.`) + " Re-run judge to update existing job scores.",
+      );
+    } catch (error) {
+      setActionError(
+        `Could not ${action === "import-community" ? "import community rankings" : "clear tiers"}: ${(error as Error).message}`,
+      );
+    } finally {
+      setListAction(null);
+    }
+  }
+
   function onDrop(tier: Tier | null) {
     return (e: React.DragEvent) => {
       e.preventDefault();
+      if (listAction) return;
       const key = e.dataTransfer.getData("text/plain") || dragKey;
       setDropTarget(null);
       setDragKey(null);
@@ -172,13 +208,14 @@ export function TierBoard({
 
   function allowDrop(key: string) {
     return (e: React.DragEvent) => {
+      if (listAction) return;
       e.preventDefault();
       if (dropTarget !== key) setDropTarget(key);
     };
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" aria-busy={listAction !== null}>
       <PageHeader title={title} subtitle={subtitle}>
         <div className="flex flex-wrap items-center gap-3">
           <span
@@ -191,6 +228,7 @@ export function TierBoard({
             <button
               className={cls.btn}
               onClick={() => void retrySaves()}
+              disabled={listAction !== null}
             >
               Retry saves
             </button>
@@ -198,12 +236,40 @@ export function TierBoard({
           <button
             className={cls.btn}
             onClick={runJudge}
-            disabled={judging || judgeRun.running}
+            disabled={loading || judging || judgeRun.running || listAction !== null}
           >
             {judging ? "Re-running…" : "Re-run judge"}
           </button>
         </div>
       </PageHeader>
+
+      <section className={cls.cardTight} aria-label="Community rankings">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="space-y-1">
+            <h2 className="text-sm font-semibold">Community rankings</h2>
+            <p className={`text-sm ${cls.muted}`}>
+              Import the bundled snapshot to replace this list, or clear it to start
+              fresh. The other tier list is not affected.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              className={cls.btn}
+              onClick={() => void replaceBoard("import-community")}
+              disabled={loading || judging || judgeRun.running || listAction !== null}
+            >
+              {listAction === "import-community" ? "Importing..." : "Import community rankings"}
+            </button>
+            <button
+              className={cls.btnDanger}
+              onClick={() => void replaceBoard("clear")}
+              disabled={loading || judging || judgeRun.running || listAction !== null || rankedCount === 0}
+            >
+              {listAction === "clear" ? "Clearing..." : "Clear tier list"}
+            </button>
+          </div>
+        </div>
+      </section>
 
       <JudgeProgressBar
         active={judgeRun.running}
@@ -213,12 +279,12 @@ export function TierBoard({
       />
 
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
           {error}
         </div>
       )}
       {message && (
-        <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
+        <div role="status" className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
           {message}
         </div>
       )}
@@ -267,6 +333,7 @@ export function TierBoard({
                           onTier={assignTier}
                           onDragStart={setDragKey}
                           onDragEnd={() => setDragKey(null)}
+                          disabled={listAction !== null}
                         />
                       ))
                     )}
@@ -322,6 +389,7 @@ export function TierBoard({
                     onTier={assignTier}
                     onDragStart={setDragKey}
                     onDragEnd={() => setDragKey(null)}
+                    disabled={listAction !== null}
                   />
                 ))
               )}
@@ -346,6 +414,7 @@ function TierChip({
   onTier,
   onDragStart,
   onDragEnd,
+  disabled,
 }: {
   item: TierItem;
   renderIcon?: (item: TierItem) => ReactNode;
@@ -353,10 +422,11 @@ function TierChip({
   onTier: (key: string, tier: Tier | null) => void;
   onDragStart: (key: string) => void;
   onDragEnd: () => void;
+  disabled: boolean;
 }) {
   return (
     <div
-      draggable
+      draggable={!disabled}
       data-testid="tier-chip"
       data-key={item.key}
       onDragStart={(e) => {
@@ -375,6 +445,7 @@ function TierChip({
       <span className="text-[10px] tabular-nums text-gray-400">{item.count}</span>
       <select
         value={item.tier ?? ""}
+        disabled={disabled}
         onChange={(e) => onTier(item.key, (e.target.value || null) as Tier | null)}
         aria-label={`Tier for ${item.key}`}
         data-testid="tier-select"

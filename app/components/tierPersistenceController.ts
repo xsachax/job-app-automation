@@ -1,6 +1,12 @@
 "use client";
 
-import { isTier, type Tier } from "@/lib/tiers";
+import {
+  isTier,
+  type Tier,
+  type TierAssignment,
+  type TierListAction,
+  type TierListReplacement,
+} from "@/lib/tiers";
 import { api } from "./api";
 
 const DRAFT_PREFIX = "job-pipeline-tier-draft-v1";
@@ -30,6 +36,7 @@ interface StoredTierDraft {
 interface SharedTierState {
   endpoint: string;
   field: string;
+  listEditVersion: number;
   pending: Map<string, VersionedTierEdit>;
   confirmed: Map<string, VersionedTierEdit>;
   queue: Promise<void>;
@@ -134,8 +141,7 @@ function mergeStoredDrafts(state: SharedTierState): boolean {
     }
     for (const [key, edit] of Object.entries(draft?.edits ?? {})) {
       lastEditVersion = Math.max(lastEditVersion, edit.editVersion);
-      const confirmedVersion =
-        state.confirmed.get(key)?.editVersion ?? 0;
+      const confirmedVersion = confirmedEdit(state, key).editVersion;
       const pendingVersion = state.pending.get(key)?.editVersion ?? 0;
       if (
         edit.editVersion > confirmedVersion &&
@@ -172,8 +178,7 @@ function pruneStoredDrafts(state: SharedTierState) {
       if (!draft) continue;
       const remaining = Object.fromEntries(
         Object.entries(draft.edits).filter(([key, edit]) => {
-          const confirmed = state.confirmed.get(key);
-          return !confirmed || confirmed.editVersion < edit.editVersion;
+          return confirmedEdit(state, key).editVersion < edit.editVersion;
         }),
       );
       if (Object.keys(remaining).length) {
@@ -194,14 +199,18 @@ function notify(state: SharedTierState) {
   for (const listener of state.listeners) listener();
 }
 
+function confirmedEdit(state: SharedTierState, key: string): VersionedTierEdit {
+  const confirmed = state.confirmed.get(key);
+  return confirmed && confirmed.editVersion >= state.listEditVersion
+    ? confirmed
+    : { tier: null, editVersion: state.listEditVersion };
+}
+
 function effectiveEdit(
   state: SharedTierState,
   key: string,
 ): VersionedTierEdit {
-  const confirmed = state.confirmed.get(key) ?? {
-    tier: null,
-    editVersion: 0,
-  };
+  const confirmed = confirmedEdit(state, key);
   const pending = state.pending.get(key);
   return pending && pending.editVersion > confirmed.editVersion
     ? pending
@@ -210,8 +219,7 @@ function effectiveEdit(
 
 function reconcilePending(state: SharedTierState) {
   for (const [key, pending] of state.pending) {
-    const confirmed = state.confirmed.get(key);
-    if (confirmed && confirmed.editVersion >= pending.editVersion) {
+    if (confirmedEdit(state, key).editVersion >= pending.editVersion) {
       state.pending.delete(key);
     }
   }
@@ -244,6 +252,7 @@ async function sendEdit(
     ) {
       throw new Error("server returned an invalid tier save response");
     }
+    lastEditVersion = Math.max(lastEditVersion, result.editVersion);
 
     const confirmed = state.confirmed.get(key);
     if (!confirmed || result.editVersion >= confirmed.editVersion) {
@@ -287,6 +296,32 @@ function enqueueFlush(state: SharedTierState): Promise<void> {
   return request;
 }
 
+function parseReplacement(value: unknown, editVersion: number): TierListReplacement {
+  if (
+    !isRecord(value) ||
+    value.listEditVersion !== editVersion ||
+    !Array.isArray(value.assignments)
+  ) {
+    throw new Error("server returned an invalid tier list response");
+  }
+  const assignments: TierAssignment[] = [];
+  const keys = new Set<string>();
+  for (const item of value.assignments) {
+    if (
+      !isRecord(item) ||
+      typeof item.key !== "string" ||
+      !item.key.trim() ||
+      !isTier(item.tier) ||
+      keys.has(item.key)
+    ) {
+      throw new Error("server returned an invalid tier list response");
+    }
+    keys.add(item.key);
+    assignments.push({ key: item.key, tier: item.tier });
+  }
+  return { listEditVersion: editVersion, assignments };
+}
+
 export class TierPersistenceController {
   private constructor(private readonly state: SharedTierState) {}
 
@@ -294,6 +329,7 @@ export class TierPersistenceController {
     return new TierPersistenceController({
       endpoint,
       field,
+      listEditVersion: 0,
       pending: new Map(),
       confirmed: new Map(),
       queue: Promise.resolve(),
@@ -305,6 +341,10 @@ export class TierPersistenceController {
 
   get endpoint(): string {
     return this.state.endpoint;
+  }
+
+  get listEditVersion(): number {
+    return this.state.listEditVersion;
   }
 
   get status(): TierSaveStatus {
@@ -322,13 +362,32 @@ export class TierPersistenceController {
     return effectiveEdit(this.state, key);
   }
 
+  rankedRecords(): TierHydrationRecord[] {
+    const keys = new Set([
+      ...this.state.confirmed.keys(),
+      ...this.state.pending.keys(),
+    ]);
+    const records: TierHydrationRecord[] = [];
+    for (const key of keys) {
+      const edit = this.effective(key);
+      if (edit.tier) records.push({ key, ...edit });
+    }
+    return records;
+  }
+
   subscribe(listener: () => void): () => void {
     this.state.listeners.add(listener);
     return () => this.state.listeners.delete(listener);
   }
 
-  hydrate(records: TierHydrationRecord[]) {
+  hydrate(records: TierHydrationRecord[], listEditVersion = 0) {
+    this.state.listEditVersion = Math.max(
+      this.state.listEditVersion,
+      listEditVersion,
+    );
+    lastEditVersion = Math.max(lastEditVersion, this.state.listEditVersion);
     for (const record of records) {
+      lastEditVersion = Math.max(lastEditVersion, record.editVersion);
       const existing = this.state.confirmed.get(record.key);
       if (!existing || record.editVersion >= existing.editVersion) {
         this.state.confirmed.set(record.key, {
@@ -341,6 +400,7 @@ export class TierPersistenceController {
     mergeStoredDrafts(this.state);
     reconcilePending(this.state);
     pruneStoredDrafts(this.state);
+    if (this.state.pending.size === 0) this.state.error = null;
     notify(this.state);
     if (this.state.pending.size > 0) {
       void enqueueFlush(this.state).catch(() => undefined);
@@ -356,6 +416,36 @@ export class TierPersistenceController {
     writeOwnDraft(this.state);
     notify(this.state);
     void enqueueFlush(this.state).catch(() => undefined);
+  }
+
+  replace(action: TierListAction): Promise<TierListReplacement> {
+    const request = this.state.queue.then(async () => {
+      await flushSnapshot(this.state, false);
+      const editVersion = nextEditVersion();
+      this.state.inFlight += 1;
+      notify(this.state);
+      try {
+        const response = await api<unknown>(this.state.endpoint, {
+          method: "POST",
+          body: JSON.stringify({ action, editVersion }),
+        });
+        const result = parseReplacement(response, editVersion);
+        this.state.error = null;
+        this.hydrate(
+          result.assignments.map((item) => ({ ...item, editVersion })),
+          result.listEditVersion,
+        );
+        return result;
+      } finally {
+        this.state.inFlight -= 1;
+        notify(this.state);
+      }
+    });
+    this.state.queue = request.then(
+      () => undefined,
+      () => undefined,
+    );
+    return request;
   }
 
   recoverStoredDrafts() {
@@ -374,6 +464,7 @@ export class TierPersistenceController {
   }
 
   async saveNow() {
+    await this.state.queue;
     while (this.state.pending.size > 0) {
       await enqueueFlush(this.state);
     }

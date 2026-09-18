@@ -311,3 +311,9 @@ model LocationTier {
   editVersion BigInt   @default(0)
   updatedAt   DateTime @updatedAt
 }
+
+// A whole-board replacement also rejects delayed edits for previously unrated items.
+model TierListState {
+  id          String @id // companies | locations
+  editVersion BigInt @default(0)
+}

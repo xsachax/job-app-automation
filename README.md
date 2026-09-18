@@ -150,6 +150,9 @@ If a direct source sees the same requisition again, that row reopens instead of 
 - **Durable editing** — profile changes auto-save with per-field conflict protection and a
   session draft; company and location tier edits use an ordered retryable save queue, so
   switching pages does not discard work.
+- **Community rankings** — optionally import the bundled company and location ranking
+  snapshot from either tier board, or clear a board to start fresh. Both actions require
+  confirmation and affect only the selected list.
 - **Dark mode + dense layout** — full light/dark theming with a no-FOUC init.
 - **Dedup so nothing is listed twice** — including cross-source (a role found on both a
   company site and an aggregator board collapses into one card). See [below](#dedup--never-apply-twice).
@@ -222,8 +225,8 @@ The Chrome extension is optional and needs no build or Web Store publication. Fo
 | **Jobs** | Golden-first US / CA queues of active postings plus an Archived closed view that preserves application history. Filter by Golden, category, date, skills, sponsorship, employment type, source, min salary, min fit, remote, warm intro and applied status; sort by newest / company / best fit / salary. Each active card links out or launches the optional autofill assistant, tracks its progress, and lets you mark status. |
 | **Companies** | Coverage of every API and browser-scraped source. |
 | **Judge** | Review scoring coverage, provider provenance, and signal definitions; set a salary target, monitor exact processed/total progress, and re-score all eligible jobs. |
-| **Company tiers** | Drag employers from S through F. The tier is authoritative: it selects the job's final score band. Unrated companies use E. |
-| **Location tiers** | Rank places from S through F. Location preference adjusts placement only within the company band; unrated locations are neutral. |
+| **Company tiers** | Drag employers from S through F, import Community rankings, or clear the list. The tier selects the job's final score band. Unrated companies use E. |
+| **Location tiers** | Rank places from S through F, import Community rankings, or clear the list. Location preference adjusts placement only within the company band; unrated locations are neutral. |
 | **Extension** | Install the optional Chrome extension and see its live connection status. |
 | **Settings** | Edit discovery and Golden-job configuration, and select an OpenAI or Anthropic enhanced-Judge fallback. Provider keys stay server-side in local SQLite and reload only as a masked hint. |
 | **Profile** | Manage automatically saved country-specific application details, education and qualifications, recurring application defaults, voluntary self-identification answers, a saved résumé PDF from GitHub or Google Drive, Judge signals, and your LinkedIn Connections.csv, then run the Judge. |
@@ -414,6 +417,29 @@ in their historical Judge evidence instead of being reclassified by later settin
 curated vocabulary), a normalized **salary** range (`salaryMin/Max/Currency` + the raw
 string), a **visa-sponsorship** signal (`offers` / `none` / `citizenship`), and
 **employment type**. These populate the filterable card shape and the Jobs facets.
+
+### Community rankings (opt-in)
+
+[`sample-data/community-rankings.json`](sample-data/community-rankings.json) ships a
+**Community rankings** preset captured on September 18, 2026: **220 companies** and
+**60 locations**, grouped by S-through-F tier. It contains only ranking names, tiers,
+and snapshot metadata, not a database dump, profile, resume, connections, or API keys.
+These are a shared starting point, not automatically updated or applied to new installs.
+
+On **Company tiers** or **Location tiers**, select **Import community rankings** and
+confirm to replace that entire board with the corresponding preset. Personal rankings
+not in the snapshot become unrated; the other board is unchanged. Import works before
+discovery, with saved entries showing zero open roles until matching jobs are found.
+
+**Clear tier list** separately asks for confirmation and removes all assignments from
+that board, including saved entries with no current jobs. It does not delete jobs,
+application history, the other board, or the bundled snapshot. You can import again
+whenever you want. Both operations are atomic, and delayed older edits cannot restore
+a cleared ranking.
+
+After pulling this update, run `npm run db:migrate` and `npm run db:generate` as in
+Quickstart. After importing, clearing, or changing tiers, select **Re-run judge** to
+update existing job scores.
 
 ### Fit judge (post-scrape, deterministic + enhanced providers)
 
