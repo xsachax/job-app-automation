@@ -12,6 +12,7 @@ import {
   saveCompanyTier,
 } from "@/lib/tier-store";
 import { ACTIVE_JOB_WHERE } from "@/lib/jobs/availability";
+import { handleTierListAction } from "@/lib/tier-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -23,23 +24,28 @@ export interface TierCompany {
 }
 
 // GET /api/tiers — every distinct discovered company with a judged US/CA
-// entry-level role, including Workday-backed employers.
+// entry-level role, including Workday-backed employers and saved rankings even
+// before any jobs have been discovered.
 export async function GET() {
-  const [grouped, tierRows] = await Promise.all([
-    prisma.job.groupBy({
-      by: ["company"],
-      where: {
-        isEntryLevel: true,
-        ...ACTIVE_JOB_WHERE,
-        country: { in: ["US", "CA"] },
-      },
-      _count: { _all: true },
-    }),
+  const groupedQuery = prisma.job.groupBy({
+    by: ["company"],
+    where: {
+      isEntryLevel: true,
+      ...ACTIVE_JOB_WHERE,
+      country: { in: ["US", "CA"] },
+    },
+    _count: { _all: true },
+  });
+  const [grouped, tierRows, list] = await prisma.$transaction([
+    groupedQuery,
     prisma.companyTier.findMany(),
+    prisma.tierListState.findUnique({ where: { id: "companies" } }),
   ]);
+  const listEditVersion = Number(list?.editVersion ?? 0);
 
   const tierByKey = new Map<string, { tier: string | null; editVersion: number }>();
-  for (const [key, row] of latestCompanyTiersByKey(tierRows)) {
+  const latestTiers = latestCompanyTiersByKey(tierRows);
+  for (const [key, row] of latestTiers) {
     tierByKey.set(key, {
       tier: isTier(row.tier) ? row.tier : null,
       editVersion: Number(row.editVersion),
@@ -63,6 +69,15 @@ export async function GET() {
       displayCount: Math.max(current?.displayCount ?? 0, group._count._all),
     });
   }
+  for (const [key, row] of latestTiers) {
+    if (!countsByCompany.has(key)) {
+      countsByCompany.set(key, {
+        company: canonicalCompanyName(row.company),
+        count: 0,
+        displayCount: 0,
+      });
+    }
+  }
 
   const companies: TierCompany[] = [...countsByCompany]
     .map(([key, { company, count }]) => {
@@ -71,12 +86,16 @@ export async function GET() {
         company,
         count,
         tier: saved?.tier ?? null,
-        editVersion: saved?.editVersion ?? 0,
+        editVersion: saved?.editVersion ?? listEditVersion,
       };
     })
     .sort((a, b) => b.count - a.count || a.company.localeCompare(b.company));
 
-  return json({ companies });
+  return json({ companies, listEditVersion });
+}
+
+export async function POST(req: NextRequest) {
+  return handleTierListAction(req, "companies");
 }
 
 // PUT /api/tiers — assign (or clear) one company's tier. Versioned tombstones

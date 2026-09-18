@@ -8,6 +8,19 @@ export const TIERS = ["S", "A", "B", "C", "D", "E", "F"] as const;
 export type Tier = (typeof TIERS)[number];
 export const NEUTRAL_TIER: Tier = "E";
 
+export type TierListKind = "companies" | "locations";
+export type TierListAction = "import-community" | "clear";
+
+export interface TierAssignment {
+  key: string;
+  tier: Tier;
+}
+
+export interface TierListReplacement {
+  listEditVersion: number;
+  assignments: TierAssignment[];
+}
+
 // Location-tier points included among the contextual signals that position a
 // job within its company-tier score band.
 export const TIER_MODIFIER: Record<Tier, number> = {

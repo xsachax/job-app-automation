@@ -7,7 +7,12 @@ import {
   useRef,
   useState,
 } from "react";
-import { isTier, type Tier } from "@/lib/tiers";
+import {
+  isTier,
+  type Tier,
+  type TierListAction,
+  type TierListKind,
+} from "@/lib/tiers";
 import { api } from "./api";
 import {
   getTierPersistenceController,
@@ -32,9 +37,13 @@ interface RawTierItem extends Record<string, unknown> {
 
 interface UseTierPersistenceOptions {
   endpoint: string;
-  itemsKey: string;
+  itemsKey: TierListKind;
   field: string;
 }
+
+type TierListResponse = Partial<Record<TierListKind, RawTierItem[]>> & {
+  listEditVersion?: number;
+};
 
 export function useTierPersistence({
   endpoint,
@@ -54,21 +63,28 @@ export function useTierPersistence({
   );
   const mountedRef = useRef(false);
 
+  const effectiveItems = useCallback(
+    (rows: TierItem[]) => {
+      const byKey = new Map(rows.map((item) => [item.key, item]));
+      for (const record of controller.rankedRecords()) {
+        if (!byKey.has(record.key)) {
+          byKey.set(record.key, { ...record, count: 0 });
+        }
+      }
+      return [...byKey.values()].map((item) => ({
+        ...item,
+        ...controller.effective(item.key),
+      }));
+    },
+    [controller],
+  );
+
   const syncFromController = useCallback(() => {
     if (!mountedRef.current) return;
-    setItems((current) =>
-      current.map((item) => {
-        const edit = controller.effective(item.key);
-        return {
-          ...item,
-          tier: edit.tier,
-          editVersion: edit.editVersion,
-        };
-      }),
-    );
+    setItems(effectiveItems);
     setSaveStatus(controller.status);
     setPersistenceError(controller.error);
-  }, [controller]);
+  }, [controller, effectiveItems]);
 
   const assignTier = useCallback(
     (key: string, tier: Tier | null) => controller.assign(key, tier),
@@ -76,11 +92,25 @@ export function useTierPersistence({
   );
   const retrySaves = useCallback(() => controller.retry(), [controller]);
   const saveNow = useCallback(() => controller.saveNow(), [controller]);
+  const replaceTiers = useCallback(
+    async (action: TierListAction) => {
+      const result = await controller.replace(action);
+      return result.assignments.length;
+    },
+    [controller],
+  );
 
   useEffect(() => {
     mountedRef.current = true;
     let active = true;
-    const unsubscribe = controller.subscribe(syncFromController);
+    let requestedListVersion = controller.listEditVersion;
+    const unsubscribe = controller.subscribe(() => {
+      syncFromController();
+      if (controller.listEditVersion > requestedListVersion) {
+        requestedListVersion = controller.listEditVersion;
+        void loadItems();
+      }
+    });
 
     const onStorage = (event: StorageEvent) => {
       if (controller.matchesStorageKey(event.key)) {
@@ -98,10 +128,16 @@ export function useTierPersistence({
     window.addEventListener("pagehide", flushOnPageHide);
     document.addEventListener("visibilitychange", flushWhenHidden);
 
-    void (async () => {
+    async function loadItems() {
       try {
-        const data = await api<Record<string, RawTierItem[]>>(endpoint);
+        const data = await api<TierListResponse>(endpoint);
         if (!active) return;
+        const listEditVersion = data.listEditVersion ?? 0;
+        if (!Number.isSafeInteger(listEditVersion) || listEditVersion < 0) {
+          throw new Error("server returned an invalid tier list version");
+        }
+        if (listEditVersion < controller.listEditVersion) return;
+        requestedListVersion = listEditVersion;
         const rows = (data[itemsKey] ?? [])
           .map((raw) => {
             const key = String(raw[field] ?? "");
@@ -127,17 +163,8 @@ export function useTierPersistence({
             editVersion,
           }),
         );
-        controller.hydrate(hydration);
-        setItems(
-          rows.map((item) => {
-            const edit = controller.effective(item.key);
-            return {
-              ...item,
-              tier: edit.tier,
-              editVersion: edit.editVersion,
-            };
-          }),
-        );
+        controller.hydrate(hydration, listEditVersion);
+        setItems(effectiveItems(rows));
         setSaveStatus(controller.status);
         setPersistenceError(controller.error);
       } catch (error) {
@@ -148,7 +175,8 @@ export function useTierPersistence({
       } finally {
         if (active) setLoading(false);
       }
-    })();
+    }
+    void loadItems();
 
     return () => {
       active = false;
@@ -161,6 +189,7 @@ export function useTierPersistence({
     };
   }, [
     controller,
+    effectiveItems,
     endpoint,
     field,
     itemsKey,
@@ -173,6 +202,7 @@ export function useTierPersistence({
     saveStatus,
     persistenceError,
     assignTier,
+    replaceTiers,
     retrySaves,
     saveNow,
   };
