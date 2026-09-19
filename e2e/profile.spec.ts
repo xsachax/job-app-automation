@@ -1,9 +1,29 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { CHROME_AUTOFILL_EXTENSION_ID } from "../lib/chromeExtension";
 
+async function openAutofillFields(page: Page) {
+  const fields = page.locator("#autofill-fields");
+  await expect(fields).toBeAttached();
+  if ((await fields.getAttribute("open")) === null) {
+    await page.getByText("Optional autofill fields", { exact: true }).click();
+  }
+}
+
 test.describe("profile page", () => {
-  test("features a GitHub or Google Drive résumé PDF field", async ({ page }) => {
+  test("shows judge and shared inputs first, with autofill-only fields collapsed", async ({ page }) => {
     await page.goto("/profile");
+    await expect(
+      page.getByRole("heading", { name: "Only using the judge?" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "Resume source" }).getByText("Judge + autofill"),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "Judge signals" }).getByText("Judge only"),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "Education and qualifications" }).getByText("Judge + autofill"),
+    ).toBeVisible();
     await expect(page.getByRole("heading", { name: "Resume source" })).toBeVisible();
     await expect(
       page.getByPlaceholder("https://github.com/you/resume/blob/main/resume.pdf"),
@@ -25,18 +45,146 @@ test.describe("profile page", () => {
     await expect(page.getByLabel("School")).toBeVisible();
     await expect(page.getByLabel("Degree")).toBeVisible();
     await expect(page.getByLabel("Field of study / discipline")).toBeVisible();
+    await expect(page.getByLabel("Graduation month", { exact: true })).toBeVisible();
     await expect(page.getByLabel("Relevant experience")).toBeVisible();
     await expect(
-      page.getByLabel("Software engineering industry experience"),
+      page.getByRole("button", { name: "Add Credential" }),
     ).toBeVisible();
-    await expect(page.getByLabel("Add previous employer")).toBeVisible();
     await expect(
-      page.getByLabel("Target total annual compensation"),
+      page.getByText("Optional autofill fields", { exact: true }),
     ).toBeVisible();
-    await expect(page.getByLabel("Are you Hispanic or Latino?")).toBeVisible();
-    await expect(
-      page.getByLabel("Do you identify as transgender?"),
-    ).toBeVisible();
+    for (const label of [
+      "First name",
+      "Email",
+      "Exact graduation date",
+      "Education start date",
+      "Software engineering industry experience",
+      "Undergraduate GPA",
+      "SAT score",
+      "Add previous employer",
+      "Target total annual compensation",
+      "Are you Hispanic or Latino?",
+      "Do you identify as transgender?",
+    ]) {
+      await expect(page.getByLabel(label, { exact: true })).toBeHidden();
+    }
+  });
+
+  test("runs the deterministic judge with blank contact fields and no autofill connection", async ({
+    page,
+    request,
+  }) => {
+    const originalProfile = await (await request.get("/api/profile")).json();
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "userAgentData", {
+        configurable: true,
+        value: { brands: [{ brand: "Google Chrome", version: "140" }] },
+      });
+      Object.defineProperty(globalThis, "chrome", {
+        configurable: true,
+        value: {
+          runtime: {
+            sendMessage() {
+              throw new Error("Judge-only setup must not connect to autofill.");
+            },
+          },
+        },
+      });
+    });
+
+    try {
+      await request.put("/api/profile", {
+        data: {
+          ...originalProfile,
+          firstName: "",
+          lastName: "",
+          email: "",
+          phone: "",
+          targetRoles: [],
+          skills: [],
+          summary: "",
+        },
+      });
+      await page.goto("/profile");
+      await page.getByLabel("Add target role").fill("Software Engineer");
+      await page.getByLabel("Add target role").press("Enter");
+      await page.getByLabel("Add skill").fill("TypeScript");
+      await page.getByLabel("Add skill").press("Enter");
+      await page.getByLabel("Short summary").fill("Building reliable web applications.");
+
+      const scoringResponse = page.waitForResponse(
+        (response) =>
+          response.url().endsWith("/api/judge/score") &&
+          response.request().method() === "POST",
+      );
+      await page.getByRole("button", { name: "Save and re-run judge" }).click();
+      const result = await (await scoringResponse).json();
+      expect(result.provider).toBe("deterministic");
+      expect(result.scanned).toBeGreaterThan(0);
+      await expect(page.getByText(/Judge complete/)).toBeVisible();
+      await expect(page.getByText(/Chrome autofill/)).toHaveCount(0);
+      await expect(page.locator("#autofill-fields")).not.toHaveAttribute("open");
+
+      const saved = await (await request.get("/api/profile")).json();
+      expect(saved).toMatchObject({
+        firstName: "",
+        email: "",
+        targetRoles: ["Software Engineer"],
+        skills: ["TypeScript"],
+        summary: "Building reliable web applications.",
+      });
+    } finally {
+      await request.put("/api/profile", { data: originalProfile });
+    }
+  });
+
+  test("keeps shared credential names separate from optional autofill metadata", async ({
+    page,
+    request,
+  }) => {
+    const originalProfile = await (await request.get("/api/profile")).json();
+    const credential = {
+      name: "Cloud Certificate",
+      issuer: "Saved Issuer",
+      credentialId: "SAVED-123",
+      issueDate: "2024-01",
+      expirationDate: "",
+      doesNotExpire: true,
+    };
+
+    try {
+      await request.put("/api/profile", {
+        data: { ...originalProfile, certifications: [credential] },
+      });
+      await page.goto("/profile");
+      const fields = page.getByRole("group", { name: "Credential 1", exact: true });
+      await expect(fields.getByLabel("Credential name 1")).toBeVisible();
+      await expect(fields.getByLabel("Credential issuer 1")).toBeHidden();
+      await fields.getByLabel("Credential name 1").fill("Updated Cloud Certificate");
+      await page.getByRole("button", { name: "Save profile", exact: true }).click();
+      await expect(page.getByText(/Profile saved/)).toBeVisible();
+
+      await fields.getByText("Optional autofill details", { exact: true }).click();
+      await expect(fields.getByLabel("Credential issuer 1")).toHaveValue("Saved Issuer");
+      await expect(fields.getByLabel("Credential number 1")).toHaveValue("SAVED-123");
+      await fields.getByText("Optional autofill details", { exact: true }).click();
+      await openAutofillFields(page);
+      await page.getByText("Optional autofill fields", { exact: true }).click();
+      await page.reload();
+
+      await expect(fields.getByLabel("Credential name 1")).toHaveValue(
+        "Updated Cloud Certificate",
+      );
+      await expect(fields.getByLabel("Credential issuer 1")).toBeHidden();
+      const saved = await (await request.get("/api/profile")).json();
+      expect(saved.certifications).toEqual([
+        { ...credential, name: "Updated Cloud Certificate" },
+      ]);
+      expect(saved.firstName).toBe(originalProfile.firstName);
+      expect(saved.email).toBe(originalProfile.email);
+    } finally {
+      await request.put("/api/profile", { data: originalProfile });
+    }
   });
 
   test("edits target roles as explicit removable values", async ({ page }) => {
@@ -143,9 +291,11 @@ test.describe("profile page", () => {
 
   test("keeps application autofill details in the app profile", async ({ page }) => {
     await page.goto("/profile");
-    const applicationAutofill = page
-      .getByRole("heading", { name: "Application autofill" })
-      .locator("..");
+    await openAutofillFields(page);
+    const applicationAutofill = page.getByRole("region", {
+      name: "Application autofill",
+      exact: true,
+    });
     await expect(applicationAutofill).toBeVisible();
     await expect(page.getByLabel("First name")).toBeVisible();
     await expect(page.getByLabel("Email", { exact: true })).toBeVisible();
@@ -216,6 +366,7 @@ test.describe("profile page", () => {
         });
       }, originalProfile);
       await page.reload();
+      await openAutofillFields(page);
 
       await expect(page.getByLabel("Graduation month", { exact: true })).toHaveValue(
         "2024-02",
@@ -226,6 +377,7 @@ test.describe("profile page", () => {
       await page.getByRole("button", { name: "Save profile", exact: true }).click();
       await expect(page.getByText(/Profile saved/)).toBeVisible();
       await page.reload();
+      await openAutofillFields(page);
 
       await expect(page.getByLabel("Exact graduation date")).toHaveValue(
         "2024-02-29",
@@ -238,6 +390,7 @@ test.describe("profile page", () => {
       await page.getByRole("button", { name: "Save profile", exact: true }).click();
       await expect(page.getByText(/Profile saved/)).toBeVisible();
       await page.reload();
+      await openAutofillFields(page);
 
       await expect(page.getByLabel("Exact graduation date")).toHaveValue("");
       await expect(page.getByLabel("Graduation month", { exact: true })).toHaveValue(
@@ -279,6 +432,7 @@ test.describe("profile page", () => {
         });
       }, originalProfile);
       await page.reload();
+      await openAutofillFields(page);
 
       await expect(page.getByLabel("Please specify degree")).toHaveCount(0);
       await expect(page.getByLabel("Please specify your pronouns")).toHaveCount(0);
@@ -321,6 +475,7 @@ test.describe("profile page", () => {
       await page.getByRole("button", { name: "Save profile", exact: true }).click();
       await expect(page.getByText(/Profile saved/)).toBeVisible();
       await page.reload();
+      await openAutofillFields(page);
 
       await expect(page.getByLabel("Please specify degree")).toHaveValue(
         "Diploma in Software Engineering",
@@ -387,6 +542,7 @@ test.describe("profile page", () => {
         });
       }, originalProfile);
       await page.reload();
+      await openAutofillFields(page);
 
       const usSection = page.getByRole("region", {
         name: "Jobs in the United States",
@@ -436,6 +592,7 @@ test.describe("profile page", () => {
       await page.getByRole("link", { name: "Jobs", exact: true }).click();
       await expect(page).toHaveURL(/\/jobs$/);
       await page.getByRole("link", { name: "Profile", exact: true }).click();
+      await openAutofillFields(page);
 
       await expect(
         usSection.getByLabel("Citizenship status", { exact: true }),
@@ -572,6 +729,7 @@ test.describe("profile page", () => {
         });
       }, originalProfile);
       await page.reload();
+      await openAutofillFields(page);
 
       await expect(page.getByLabel("Willing to relocate?")).toHaveValue("yes");
       await page.getByLabel("Middle name").fill("Quinn");
@@ -608,6 +766,10 @@ test.describe("profile page", () => {
 
       await page.getByRole("button", { name: "Add Credential" }).click();
       await page.getByLabel("Credential name 1").fill("AWS Developer");
+      await page
+        .getByRole("group", { name: "Credential 1", exact: true })
+        .getByText("Optional autofill details", { exact: true })
+        .click();
       await page.getByLabel("Credential issuer 1").fill("Amazon");
       await page.getByLabel("Credential number 1").fill("ABC-123");
       await page.getByLabel("Credential issue month 1").fill("2024-01");
@@ -643,6 +805,7 @@ test.describe("profile page", () => {
       await page.getByRole("link", { name: "Jobs", exact: true }).click();
       await expect(page).toHaveURL(/\/jobs$/);
       await page.getByRole("link", { name: "Profile", exact: true }).click();
+      await openAutofillFields(page);
 
       await expect(page.getByLabel("Company 1")).toHaveValue("Acme");
       await expect(page.getByLabel("Job title 1")).toHaveValue(
@@ -742,6 +905,7 @@ test.describe("profile page", () => {
     page,
   }) => {
     await page.goto("/profile");
+    await openAutofillFields(page);
     const originalProfile = await page.evaluate(async () =>
       fetch("/api/profile").then((response) => response.json()),
     );
@@ -778,6 +942,7 @@ test.describe("profile page", () => {
       await expect(page.getByText(/Profile saved/)).toBeVisible();
       await page.getByRole("link", { name: "Jobs", exact: true }).click();
       await page.getByRole("link", { name: "Profile", exact: true }).click();
+      await openAutofillFields(page);
       await expect(page.getByLabel("First name")).toHaveValue("Save Race");
       await expect(page.getByLabel("School")).toHaveValue(
         "Edited During Save University",
@@ -910,6 +1075,7 @@ test.describe("profile page", () => {
     });
 
     await page.goto("/profile");
+    await openAutofillFields(page);
     await page.getByLabel("First name").fill("Jane");
     await page.getByLabel("Email", { exact: true }).fill("jane@example.com");
     const usSection = page.getByRole("region", {
@@ -1001,6 +1167,7 @@ test.describe("profile page", () => {
     });
 
     await page.goto("/profile");
+    await openAutofillFields(page);
     await page.getByLabel("Preferred name").fill("Unsaved Before Refresh");
     await page.getByRole("button", { name: "Save resume PDF" }).click();
     await expect(page.getByLabel("Preferred name")).toHaveValue(

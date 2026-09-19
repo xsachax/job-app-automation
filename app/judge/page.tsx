@@ -216,7 +216,7 @@ export default function JudgePage() {
     <div className="space-y-6">
       <PageHeader
         title="Judge"
-        subtitle="Company tier sets each posting's score band; configured Golden matches then receive a 95 floor. The deterministic baseline is always available and enhanced résumé evidence uses Copilot first, then your selected fallback."
+        subtitle="Rank jobs deterministically from your tier lists, scoring criteria, and résumé signals. AI review is optional, not a requirement."
       >
         <button
           className={cls.btnGreen}
@@ -259,6 +259,13 @@ export default function JudgePage() {
             <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
               <strong>{activeProvider}</strong> — {status.providerStatus.status}
             </p>
+            <p className="mt-2 max-w-3xl text-sm text-gray-600 dark:text-gray-300">
+              <strong>No AI required.</strong> Company tiers set score bands;
+              location tiers, salary target, experience, freshness, and résumé
+              overlap rank jobs within them. Configured Golden matches receive
+              a 95 floor. Optional AI adds contextual résumé review, not a
+              replacement for your tier rules.
+            </p>
             <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
               Stored provenance: {status.providerCounts.copilot} Copilot,{" "}
               {status.providerCounts.openai} OpenAI,{" "}
@@ -267,7 +274,7 @@ export default function JudgePage() {
             </p>
           </div>
           <Link href="/settings" className={cls.btn}>
-            Configure fallback
+            Optional AI settings
           </Link>
         </div>
       </section>
@@ -375,6 +382,10 @@ export default function JudgePage() {
             <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
               {status.resume.skills} skills · {status.resume.titles} titles
               {status.resume.hasSummary ? " · summary on file" : " · no summary"}
+            </p>
+            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              Use the judge and shared fields on Profile. Application autofill
+              details and the Chrome extension are not needed.
             </p>
             <Link href="/profile" className="mt-3 inline-block text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400">
               Edit in Profile →
