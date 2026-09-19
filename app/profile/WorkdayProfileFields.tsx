@@ -204,6 +204,97 @@ function emptyWebsite(): ProfileWebsite {
   return { label: "", url: "" };
 }
 
+export function CredentialProfileFields({ profile, onChange }: Props) {
+  return (
+    <RepeatList
+      title="Certifications and licenses"
+      description="Credential names are used by both the judge and autofill. No other credential details are needed for judging."
+      itemName="Credential"
+      items={profile.certifications ?? []}
+      maxItems={20}
+      createItem={emptyCredential}
+      onChange={(items) => onChange("certifications", items)}
+    >
+      {(entry, index, update) => (
+        <div className="space-y-4">
+          <Field label={`Credential name ${index + 1}`}>
+            <input
+              aria-label={`Credential name ${index + 1}`}
+              className={cls.input}
+              value={entry.name}
+              onChange={(event) => update({ name: event.target.value })}
+            />
+          </Field>
+          <details className="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
+            <summary className="cursor-pointer text-sm font-medium text-gray-700 focus-visible:outline-indigo-500 dark:text-gray-300">
+              Optional autofill details
+            </summary>
+            <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
+              Issuer, credential number, and validity dates only fill application
+              forms. They are not used by the judge.
+            </p>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <Field label={`Issuer ${index + 1}`}>
+                <input
+                  aria-label={`Credential issuer ${index + 1}`}
+                  className={cls.input}
+                  value={entry.issuer}
+                  onChange={(event) => update({ issuer: event.target.value })}
+                />
+              </Field>
+              <Field label={`Credential or license number ${index + 1}`}>
+                <input
+                  aria-label={`Credential number ${index + 1}`}
+                  className={cls.input}
+                  value={entry.credentialId}
+                  onChange={(event) =>
+                    update({ credentialId: event.target.value })
+                  }
+                />
+              </Field>
+              <Field label={`Issue month ${index + 1}`}>
+                <input
+                  aria-label={`Credential issue month ${index + 1}`}
+                  type="month"
+                  className={cls.input}
+                  value={entry.issueDate}
+                  onChange={(event) => update({ issueDate: event.target.value })}
+                />
+              </Field>
+              <Field label={`Expiration month ${index + 1}`}>
+                <input
+                  aria-label={`Credential expiration month ${index + 1}`}
+                  type="month"
+                  className={cls.input}
+                  disabled={entry.doesNotExpire === true}
+                  value={entry.doesNotExpire ? "" : entry.expirationDate}
+                  onChange={(event) =>
+                    update({ expirationDate: event.target.value })
+                  }
+                />
+              </Field>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  aria-label={`Credential does not expire ${index + 1}`}
+                  type="checkbox"
+                  checked={entry.doesNotExpire === true}
+                  onChange={(event) =>
+                    update({
+                      doesNotExpire: event.target.checked,
+                      ...(event.target.checked ? { expirationDate: "" } : {}),
+                    })
+                  }
+                />
+                This credential does not expire
+              </label>
+            </div>
+          </details>
+        </div>
+      )}
+    </RepeatList>
+  );
+}
+
 export function WorkdayProfileFields({ profile, onChange }: Props) {
   return (
     <section className={cls.card}>
@@ -211,7 +302,7 @@ export function WorkdayProfileFields({ profile, onChange }: Props) {
         Workday application details
       </h2>
       <p className="mt-1 max-w-3xl text-sm text-gray-600 dark:text-gray-400">
-        Structured entries support Workday&apos;s repeated application pages.
+        These entries only fill application forms; they do not affect fit scores.
         Blank legal, eligibility, and identity answers are always left for manual
         review.
       </p>
@@ -498,84 +589,6 @@ export function WorkdayProfileFields({ profile, onChange }: Props) {
                   onChange={(event) => update({ gpa: event.target.value })}
                 />
               </Field>
-            </div>
-          )}
-        </RepeatList>
-
-        <RepeatList
-          title="Certifications and licenses"
-          description="Use exact saved values for names, issuers, identifiers, and dates."
-          itemName="Credential"
-          items={profile.certifications ?? []}
-          maxItems={20}
-          createItem={emptyCredential}
-          onChange={(items) => onChange("certifications", items)}
-        >
-          {(entry, index, update) => (
-            <div className="grid gap-4 md:grid-cols-2">
-              <Field label={`Credential name ${index + 1}`}>
-                <input
-                  aria-label={`Credential name ${index + 1}`}
-                  className={cls.input}
-                  value={entry.name}
-                  onChange={(event) => update({ name: event.target.value })}
-                />
-              </Field>
-              <Field label={`Issuer ${index + 1}`}>
-                <input
-                  aria-label={`Credential issuer ${index + 1}`}
-                  className={cls.input}
-                  value={entry.issuer}
-                  onChange={(event) => update({ issuer: event.target.value })}
-                />
-              </Field>
-              <Field label={`Credential or license number ${index + 1}`}>
-                <input
-                  aria-label={`Credential number ${index + 1}`}
-                  className={cls.input}
-                  value={entry.credentialId}
-                  onChange={(event) =>
-                    update({ credentialId: event.target.value })
-                  }
-                />
-              </Field>
-              <Field label={`Issue month ${index + 1}`}>
-                <input
-                  aria-label={`Credential issue month ${index + 1}`}
-                  type="month"
-                  className={cls.input}
-                  value={entry.issueDate}
-                  onChange={(event) =>
-                    update({ issueDate: event.target.value })
-                  }
-                />
-              </Field>
-              <Field label={`Expiration month ${index + 1}`}>
-                <input
-                  aria-label={`Credential expiration month ${index + 1}`}
-                  type="month"
-                  className={cls.input}
-                  disabled={entry.doesNotExpire === true}
-                  value={entry.doesNotExpire ? "" : entry.expirationDate}
-                  onChange={(event) =>
-                    update({ expirationDate: event.target.value })
-                  }
-                />
-              </Field>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  aria-label={`Credential does not expire ${index + 1}`}
-                  type="checkbox"
-                  checked={entry.doesNotExpire === true}
-                  onChange={(event) =>
-                    update({
-                      doesNotExpire: event.target.checked,
-                      ...(event.target.checked ? { expirationDate: "" } : {}),
-                    })
-                  }
-                />
-                This credential does not expire
-              </label>
             </div>
           )}
         </RepeatList>

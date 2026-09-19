@@ -229,7 +229,7 @@ The Chrome extension is optional and needs no build or Web Store publication. Fo
 | **Location tiers** | Rank places from S through F, import Community rankings, or clear the list. Location preference adjusts placement only within the company band; unrated locations are neutral. |
 | **Extension** | Install the optional Chrome extension and see its live connection status. |
 | **Settings** | Edit discovery and Golden-job configuration, and select an OpenAI or Anthropic enhanced-Judge fallback. Provider keys stay server-side in local SQLite and reload only as a masked hint. |
-| **Profile** | Manage automatically saved country-specific application details, education and qualifications, recurring application defaults, voluntary self-identification answers, a saved résumé PDF from GitHub or Google Drive, Judge signals, and your LinkedIn Connections.csv, then run the Judge. |
+| **Profile** | Set up Judge-only inputs and shared résumé/qualifications first. Expand optional autofill-only fields for contact details, application answers, and voluntary demographics. All fields auto-save; autofill setup is not required for judging. |
 | **Workday** | The legacy `/workday` route redirects to the unified, Workday-filterable Jobs queue. |
 
 ---
@@ -242,7 +242,10 @@ unpacked is enough for local use:
 1. Start the dashboard and select **Extension** in the sidebar.
 2. Enable **Developer mode**, click **Load unpacked**, and select this repository's
    `apps/chrome-extension` directory.
-3. Add your application details on **Profile → Application autofill**, then save.
+3. On **Profile**, expand **Optional autofill fields** for application details.
+   Shared résumé, education, and credential names are reused from the Judge setup above.
+   Expand a credential's **Optional autofill details** only if you need its issuer,
+   identifier, or validity dates, then save.
 4. On **Jobs**, click a posting title or **Open** action. The extension opens the application
    with a progress panel. Click **Autofill ready fields**, then review every answer.
 
@@ -443,6 +446,12 @@ update existing job scores.
 
 ### Fit judge (post-scrape, deterministic + enhanced providers)
 
+**AI is optional, not required.** With no enhanced provider configured, the Judge
+scores jobs deterministically using company and location tiers, the salary target,
+relevant experience, posting freshness, and résumé/skill overlap. AI can add contextual
+résumé assessment (such as transferable experience), but the tier rules still determine
+the final score band. Neither a Chrome extension nor autofill profile answers are needed.
+
 The Judge ranks **already-discovered** jobs. Company tier is authoritative and chooses a
 strict, non-overlapping final score band:
 
@@ -511,18 +520,26 @@ by **Best fit** / **min fit** to surface the strongest matches.
 
 ## Import your info (Profile)
 
-The **Profile** page is the local source of truth for both the Judge and extension. It covers
-contact information; separate US/Canada country, city, work-authorization, sponsorship, and
-citizenship answers; school, degree, discipline, backward-compatible graduation month and optional
-exact graduation date, relevant and non-internship software-industry experience, previous
-employers, target total compensation, certifications, GPAs, SAT/ACT/GRE scores, security
-clearances, accommodations, pronouns, "how did you hear about us," explicit Hispanic/Latino and
-transgender answers, other voluntary demographics, and résumé/cover-letter data. Contact and
-demographic answers are autofill-only and never influence Judge scores.
+The **Profile** page is the local source of truth for both the Judge and extension,
+with explicit purpose labels:
 
-A **résumé PDF URL** is fetched and parsed server-side, with **pasted résumé text** as a
-fallback. **Fetch text** writes a `ResumeVersion` and non-destructively fills blank Judge
-signals; **Save and re-run judge** flushes pending profile changes before scoring. Normal
+| Purpose | Fields |
+| --- | --- |
+| **Judge only** | Target roles, skills, and short summary. Saved/parsed résumé text and legacy qualification evidence also feed scoring. |
+| **Judge + autofill** | Résumé PDF (parsed text for judging, saved file for uploads), primary school, degree, discipline, graduation month, relevant experience, and credential names. Enter shared values once. |
+| **Autofill only** | Contact/address/website details, country-specific authorization and citizenship, cover letter and exceptional-work answers, education start date, exact graduation day, non-internship software-industry experience, GPAs/test scores, structured Workday work history/additional education/languages, credential issuer/identifier/validity, previous employers, compensation answer, clearances, accommodations, application defaults, and voluntary demographics. |
+
+Judge inputs appear first. **Optional autofill fields** starts collapsed, and credential
+metadata has its own **Optional autofill details** disclosure. Judge-only users can leave
+all of these application answers blank; collapsing a section never clears saved values.
+Setting an exact graduation date also updates the shared graduation month, but the Judge
+does not use the day. The application's **Target total annual compensation** answer is
+separate from the scoring **Target salary (USD)** on the Judge page.
+
+A **résumé PDF URL** is fetched and parsed server-side. **Save resume PDF** writes a
+`ResumeVersion` and non-destructively fills blank Judge signals;
+**Save and re-run judge** flushes pending profile changes before scoring, without
+connecting to the autofill extension. Normal
 field edits auto-save after a short delay, persist a session draft until acknowledged by the
 server, and flush when the page is hidden or closed.
 

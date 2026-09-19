@@ -89,6 +89,95 @@ describe("buildResumeContext — judge input", () => {
     expect(ctx.text).not.toContain("Education: Other");
   });
 
+  it("reads shared qualifications and credential names, not autofill-only details", () => {
+    const credential = {
+      name: "Cloud Developer Certificate",
+      issuer: "",
+      credentialId: "",
+      issueDate: "",
+      expirationDate: "",
+      doesNotExpire: null,
+    };
+    const shared: ProfileData = {
+      school: "Example University",
+      degree: "Bachelor's degree",
+      fieldOfStudy: "Computer Science",
+      graduationDate: "2026-05",
+      relevantExperienceYears: 1.5,
+      certifications: [credential],
+    };
+    const ctx = buildResumeContext(shared);
+    expect(ctx.text).toContain("School: Example University");
+    expect(ctx.text).toContain("Education: Bachelor's degree in Computer Science");
+    expect(ctx.text).toContain("Graduation date: 2026-05");
+    expect(ctx.text).toContain("Relevant experience: 1.5 years");
+    expect(ctx.text).toContain("Certifications: Cloud Developer Certificate");
+
+    const withAutofillAnswers: ProfileData = {
+      ...shared,
+      ...PERSONAL,
+      educationStartDate: "2022-09",
+      graduationDateExact: "2026-05-31",
+      softwareIndustryExperienceYears: 40,
+      exceptionalWork: "Autofill-only exceptional work",
+      currentOrLastEmployer: "Autofill-only employer",
+      previousEmployers: ["Autofill-only former employer"],
+      compensationExpectation: "$900,000 USD",
+      compensationCurrency: "USD",
+      compensationFrequency: "Annual",
+      homeAddressLine1: "Private home address",
+      usLocation: "Private US location",
+      caLocation: "Private Canadian location",
+      usWorkAuthorized: false,
+      usRequiresSponsorship: true,
+      caWorkAuthorized: true,
+      caRequiresSponsorship: false,
+      willingToRelocate: false,
+      workExperiences: [
+        {
+          company: "Autofill-only company",
+          title: "Autofill-only title",
+          location: "Private office location",
+          startDate: "2024-01",
+          endDate: "",
+          currentRole: true,
+          description: "Autofill-only work description",
+        },
+      ],
+      additionalEducation: [
+        {
+          school: "Autofill-only additional school",
+          degree: "Master's degree",
+          degreeOther: "",
+          fieldOfStudy: "Autofill-only field of study",
+          startDate: "2026-09",
+          graduationDate: "2028-05",
+          gpa: "4.0",
+        },
+      ],
+      languages: [
+        {
+          language: "Autofill-only language",
+          overallProficiency: "Native",
+          speakingProficiency: "",
+          readingProficiency: "",
+          writingProficiency: "",
+        },
+      ],
+      certifications: [
+        {
+          ...credential,
+          issuer: "Autofill-only issuer",
+          credentialId: "PRIVATE-123",
+          issueDate: "2024-01",
+          expirationDate: "2028-01",
+          doesNotExpire: false,
+        },
+      ],
+    };
+    expect(buildResumeContext(withAutofillAnswers)).toEqual(ctx);
+  });
+
   it("only exposes the four resume context keys", () => {
     const ctx = buildResumeContext(fullyPopulatedProfile());
     expect(Object.keys(ctx).sort()).toEqual(["skills", "summary", "text", "titles"]);

@@ -44,6 +44,10 @@ test.describe("judge hub", () => {
   test("renders the header, axes, and distribution", async ({ page }) => {
     await page.goto("/judge");
     await expect(page.getByRole("heading", { name: "Judge", exact: true })).toBeVisible();
+    await expect(page.getByText("No AI required.", { exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Optional AI settings" }),
+    ).toHaveAttribute("href", "/settings");
 
     // Every scoring axis is documented in the "how it's built" table.
     await expect(page.getByRole("cell", { name: "Résumé fit" })).toBeVisible();

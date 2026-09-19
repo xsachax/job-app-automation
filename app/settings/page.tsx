@@ -390,7 +390,7 @@ export default function SettingsPage() {
     <div>
       <PageHeader
         title="Settings"
-        subtitle="Configure discovery and the server-side enhanced Judge fallback."
+        subtitle="Configure discovery and optional AI-assisted Judge review. Deterministic judging works without an AI provider."
       />
 
       {message && (
@@ -413,6 +413,11 @@ export default function SettingsPage() {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold">Enhanced Judge provider</h2>
+              <p className={helper}>
+                Optional. Tier lists, salary target, experience, freshness, and
+                résumé overlap already produce deterministic scores without AI.
+                Skip this setup unless you want additional contextual résumé review.
+              </p>
               <p className={helper}>
                 API keys are stored only in the server&apos;s local SQLite
                 database. They are never returned to this page after saving.

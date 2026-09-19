@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { api } from "../components/api";
 import {
   JudgeProgressBar,
@@ -12,7 +13,10 @@ import {
   syncAutofillProfile,
 } from "@/lib/chromeExtension";
 import type { ProfileData } from "@/lib/settings";
-import { WorkdayProfileFields } from "./WorkdayProfileFields";
+import {
+  CredentialProfileFields,
+  WorkdayProfileFields,
+} from "./WorkdayProfileFields";
 import { useProfilePersistence } from "./useProfilePersistence";
 
 type Profile = ProfileData;
@@ -108,6 +112,29 @@ function FieldShell({ label, children, hint }: { label: string; children: React.
       <div className="mt-1">{children}</div>
       {hint && <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">{hint}</p>}
     </div>
+  );
+}
+
+function PurposeBadge({ purpose }: { purpose: "judge" | "shared" | "autofill" }) {
+  const { label, color } = {
+    judge: {
+      label: "Judge only",
+      color: "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-200",
+    },
+    shared: {
+      label: "Judge + autofill",
+      color: "bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-200",
+    },
+    autofill: {
+      label: "Autofill only",
+      color: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200",
+    },
+  }[purpose];
+
+  return (
+    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${color}`}>
+      {label}
+    </span>
   );
 }
 
@@ -422,7 +449,7 @@ export default function ProfilePage() {
       const saved = await persistProfile();
       replaceProfile(saved);
       const syncMessage = await syncSavedProfile(saved);
-      setMessage(`Profile saved. The judge will use these details on the next run.${syncMessage}`);
+      setMessage(`Profile saved. Judge inputs are ready for the next run; autofill-only answers never affect scores.${syncMessage}`);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -463,10 +490,9 @@ export default function ProfilePage() {
     try {
       const saved = await persistProfile();
       replaceProfile(saved);
-      const syncMessage = await syncSavedProfile(saved);
       const result = await judgeRun.runJudge();
       setMessage(
-        `${result.message} ${result.preservedEnhanced} enhanced scores preserved, ${result.scanned} scanned.${syncMessage}`,
+        `${result.message} ${result.preservedEnhanced} enhanced scores preserved, ${result.scanned} scanned.`,
       );
     } catch (e) {
       setError((e as Error).message);
@@ -536,11 +562,331 @@ export default function ProfilePage() {
     (profile.resumeUrl ?? "").trim() === resumeAsset.source.trim();
   const visibleError = error ?? persistenceError;
 
+  const autofillFields = (
+    <>
+      <section aria-labelledby="application-autofill-heading" className={cls.card}>
+        <h2 id="application-autofill-heading" className="text-lg font-semibold text-gray-950 dark:text-gray-50">
+          Application autofill
+        </h2>
+        <p className="mt-1 max-w-2xl text-sm text-gray-600 dark:text-gray-400">
+          Optional contact and application answers, never used for judging.
+          Changes save automatically. The Chrome extension syncs when you
+          select Save profile or open a job.
+        </p>
+
+        <div className="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+          <FieldShell label="First name">
+            <input
+              aria-label="First name"
+              className={cls.input}
+              value={profile.firstName ?? ""}
+              autoComplete="given-name"
+              onChange={(e) => setField("firstName", e.target.value)}
+            />
+          </FieldShell>
+          <FieldShell label="Preferred name">
+            <input
+              aria-label="Preferred name"
+              className={cls.input}
+              value={profile.preferredName ?? ""}
+              autoComplete="nickname"
+              onChange={(e) => setField("preferredName", e.target.value)}
+            />
+          </FieldShell>
+          <FieldShell label="Middle name">
+            <input
+              aria-label="Middle name"
+              className={cls.input}
+              value={profile.middleName}
+              autoComplete="additional-name"
+              onChange={(e) => setField("middleName", e.target.value)}
+            />
+          </FieldShell>
+          <FieldShell label="Last name">
+            <input
+              aria-label="Last name"
+              className={cls.input}
+              value={profile.lastName ?? ""}
+              autoComplete="family-name"
+              onChange={(e) => setField("lastName", e.target.value)}
+            />
+          </FieldShell>
+          <FieldShell label="Name suffix">
+            <input
+              aria-label="Name suffix"
+              className={cls.input}
+              value={profile.nameSuffix}
+              autoComplete="honorific-suffix"
+              onChange={(e) => setField("nameSuffix", e.target.value)}
+            />
+          </FieldShell>
+        </div>
+
+        <div className="mt-4 grid gap-4 md:grid-cols-3">
+          <FieldShell label="Email">
+            <input
+              aria-label="Email"
+              type="email"
+              className={cls.input}
+              value={profile.email ?? ""}
+              autoComplete="email"
+              onChange={(e) => setField("email", e.target.value)}
+            />
+          </FieldShell>
+          <FieldShell label="Phone">
+            <input
+              aria-label="Phone"
+              type="tel"
+              className={cls.input}
+              value={profile.phone ?? ""}
+              autoComplete="tel"
+              onChange={(e) => setField("phone", e.target.value)}
+            />
+          </FieldShell>
+          <FieldShell
+            label="Phone extension"
+            hint="Enter only the extension, without the phone number."
+          >
+            <input
+              aria-label="Phone extension"
+              className={cls.input}
+              value={profile.phoneExtension ?? ""}
+              autoComplete="tel-extension"
+              onChange={(e) => setField("phoneExtension", e.target.value)}
+            />
+          </FieldShell>
+        </div>
+
+        <div className="mt-4 grid gap-4 md:grid-cols-3">
+          <FieldShell label="LinkedIn URL">
+            <input
+              aria-label="LinkedIn URL"
+              type="url"
+              className={cls.input}
+              value={profile.linkedin ?? ""}
+              onChange={(e) => setField("linkedin", e.target.value)}
+            />
+          </FieldShell>
+          <FieldShell label="GitHub URL">
+            <input
+              aria-label="GitHub URL"
+              type="url"
+              className={cls.input}
+              value={profile.github ?? ""}
+              onChange={(e) => setField("github", e.target.value)}
+            />
+          </FieldShell>
+          <FieldShell label="Portfolio or website URL">
+            <input
+              aria-label="Portfolio or website URL"
+              type="url"
+              className={cls.input}
+              value={profile.website || profile.portfolio || ""}
+              onChange={(e) =>
+                updateProfile((current) => ({
+                  ...current,
+                  website: e.target.value,
+                  portfolio: "",
+                }))
+              }
+            />
+          </FieldShell>
+        </div>
+
+        <div className="mt-4">
+          <FieldShell
+            label="Demonstration of exceptional work"
+            hint="Save a reusable example that application forms can autofill."
+          >
+            <textarea
+              aria-label="Demonstration of exceptional work"
+              className={`${cls.input} min-h-32`}
+              value={profile.exceptionalWork ?? ""}
+              onChange={(e) => setField("exceptionalWork", e.target.value)}
+            />
+          </FieldShell>
+        </div>
+
+        <div className="mt-6 grid gap-4 lg:grid-cols-2">
+          <CountryAutofillSection
+            title="Jobs in the United States"
+            country={profile.usCountry || "United States"}
+            locationLabel="US city / location"
+            locationPlaceholder="New York, NY"
+            location={profile.usLocation}
+            workAuthorized={profile.usWorkAuthorized}
+            requiresSponsorship={profile.usRequiresSponsorship}
+            citizenshipStatus={profile.usCitizenshipStatus}
+            citizenshipStatusOther={profile.usCitizenshipStatusOther}
+            citizenshipOptions={[
+              { value: "U.S. citizen", label: "U.S. citizen" },
+              { value: "U.S. national", label: "U.S. national" },
+              { value: "Permanent resident", label: "Permanent resident" },
+              { value: "Protected individual", label: "Protected individual" },
+              { value: "Other", label: "Other" },
+              { value: "Prefer not to answer", label: "Prefer not to answer" },
+            ]}
+            onLocationChange={(value) => setField("usLocation", value)}
+            onAuthorizationChange={(value) =>
+              setField("usWorkAuthorized", value)
+            }
+            onSponsorshipChange={(value) =>
+              setField("usRequiresSponsorship", value)
+            }
+            onCitizenshipStatusChange={(value) =>
+              setField("usCitizenshipStatus", value)
+            }
+            onCitizenshipStatusOtherChange={(value) =>
+              setField("usCitizenshipStatusOther", value)
+            }
+          />
+          <CountryAutofillSection
+            title="Jobs in Canada"
+            country={profile.caCountry || "Canada"}
+            locationLabel="Canada city / location"
+            locationPlaceholder="Toronto, ON"
+            location={profile.caLocation}
+            workAuthorized={profile.caWorkAuthorized}
+            requiresSponsorship={profile.caRequiresSponsorship}
+            citizenshipStatus={profile.caCitizenshipStatus}
+            citizenshipStatusOther={profile.caCitizenshipStatusOther}
+            citizenshipOptions={[
+              { value: "Canadian citizen", label: "Canadian citizen" },
+              { value: "Permanent resident", label: "Permanent resident" },
+              { value: "Work permit holder", label: "Work permit holder" },
+              { value: "Other", label: "Other" },
+              { value: "Prefer not to answer", label: "Prefer not to answer" },
+            ]}
+            onLocationChange={(value) => setField("caLocation", value)}
+            onAuthorizationChange={(value) =>
+              setField("caWorkAuthorized", value)
+            }
+            onSponsorshipChange={(value) =>
+              setField("caRequiresSponsorship", value)
+            }
+            onCitizenshipStatusChange={(value) =>
+              setField("caCitizenshipStatus", value)
+            }
+            onCitizenshipStatusOtherChange={(value) =>
+              setField("caCitizenshipStatusOther", value)
+            }
+          />
+        </div>
+
+        <div className="mt-4">
+          <FieldShell
+            label="Default cover letter"
+            hint="Optional. Review and customize it for every application."
+          >
+            <textarea
+              aria-label="Default cover letter"
+              className={`${cls.input} min-h-32`}
+              value={profile.coverLetterTemplate ?? ""}
+              onChange={(e) => setField("coverLetterTemplate", e.target.value)}
+            />
+          </FieldShell>
+        </div>
+      </section>
+
+      <section className={cls.card}>
+        <h2 className="text-lg font-semibold text-gray-950 dark:text-gray-50">
+          Application education and experience
+        </h2>
+        <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+          Extra answers for application forms. The judge uses the shared
+          graduation month and relevant experience above, not academic scores
+          or the separate software-industry answer below.
+        </p>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <FieldShell
+            label="Exact graduation date"
+            hint="The day is only for autofill. Setting this also updates the shared graduation month used by the judge."
+          >
+            <input
+              aria-label="Exact graduation date"
+              type="date"
+              className={cls.input}
+              value={profile.graduationDateExact ?? ""}
+              onChange={(event) => setExactGraduationDate(event.target.value)}
+            />
+          </FieldShell>
+          <FieldShell label="Education start date">
+            <input
+              aria-label="Education start date"
+              type="month"
+              className={cls.input}
+              value={profile.educationStartDate}
+              onChange={(event) =>
+                setField("educationStartDate", event.target.value)
+              }
+            />
+          </FieldShell>
+          <FieldShell
+            label="Software engineering industry experience"
+            hint="Years excluding internships. Only used to answer software-industry experience questions on applications."
+          >
+            <input
+              aria-label="Software engineering industry experience"
+              type="number"
+              min="0"
+              max="50"
+              step="0.5"
+              className={cls.input}
+              value={
+                profile.softwareIndustryExperienceYears == null
+                  ? ""
+                  : String(profile.softwareIndustryExperienceYears)
+              }
+              onChange={(event) =>
+                setField(
+                  "softwareIndustryExperienceYears",
+                  event.target.value === "" ? null : Number(event.target.value),
+                )
+              }
+              placeholder="Years, for example 2"
+            />
+          </FieldShell>
+        </div>
+        <h3 className="mt-6 text-sm font-semibold text-gray-950 dark:text-gray-50">
+          Academic scores
+        </h3>
+        <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+          Optional autofill values. Blank means the extension will ask you
+          instead of guessing.
+        </p>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {[
+            ["Undergraduate GPA", "undergraduateGpa"],
+            ["Graduate GPA", "graduateGpa"],
+            ["Doctorate GPA", "doctorateGpa"],
+            ["SAT score", "satScore"],
+            ["ACT score", "actScore"],
+            ["GRE score", "greScore"],
+          ].map(([label, key]) => (
+            <FieldShell key={key} label={label}>
+              <input
+                aria-label={label}
+                inputMode="decimal"
+                className={cls.input}
+                value={String(profile[key] ?? "")}
+                onChange={(event) =>
+                  setField(key as keyof Profile, event.target.value)
+                }
+              />
+            </FieldShell>
+          ))}
+        </div>
+      </section>
+
+      <WorkdayProfileFields profile={profile} onChange={setField} />
+    </>
+  );
+
   return (
     <div className="max-w-5xl">
       <PageHeader
         title="Your profile"
-        subtitle="Keep résumé, application autofill, and judge signals in one local profile. Contact details are used only for autofill and never influence fit scores."
+        subtitle="Set up the judge first. Shared fields can also fill applications; autofill-only details are optional and never influence fit scores."
       >
         <button
           onClick={runJudge}
@@ -569,235 +915,34 @@ export default function ProfilePage() {
         </div>
       )}
 
+      <section
+        aria-labelledby="judge-setup-heading"
+        className="mb-6 rounded-xl border border-indigo-200 bg-indigo-50 p-5 dark:border-indigo-900 dark:bg-indigo-950/40"
+      >
+        <h2 id="judge-setup-heading" className="text-sm font-semibold text-indigo-950 dark:text-indigo-100">
+          Only using the judge?
+        </h2>
+        <p className="mt-2 text-sm text-indigo-900 dark:text-indigo-200">
+          Add your resume or the judge inputs below to personalize scoring.
+          You can leave every autofill-only field blank: no contact details,
+          Chrome extension, or AI provider are required.
+        </p>
+        <p className="mt-2 text-sm text-indigo-900 dark:text-indigo-200">
+          The deterministic judge uses your tier lists and scoring criteria.
+          Manage company tiers, location tiers, and the salary target on{" "}
+          <Link href="/judge" className="font-medium underline underline-offset-2">
+            Judge
+          </Link>.
+        </p>
+      </section>
+
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-6">
-          <section className={cls.card}>
-            <h2 className="text-lg font-semibold text-gray-950 dark:text-gray-50">
-              Application autofill
-            </h2>
-            <p className="mt-1 max-w-2xl text-sm text-gray-600 dark:text-gray-400">
-              Changes save automatically. The Chrome extension syncs when you select
-              Save profile or open a job.
-            </p>
-
-            <div className="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-              <FieldShell label="First name">
-                <input
-                  aria-label="First name"
-                  className={cls.input}
-                  value={profile.firstName ?? ""}
-                  autoComplete="given-name"
-                  onChange={(e) => setField("firstName", e.target.value)}
-                />
-              </FieldShell>
-              <FieldShell label="Preferred name">
-                <input
-                  aria-label="Preferred name"
-                  className={cls.input}
-                  value={profile.preferredName ?? ""}
-                  autoComplete="nickname"
-                  onChange={(e) => setField("preferredName", e.target.value)}
-                />
-              </FieldShell>
-              <FieldShell label="Middle name">
-                <input
-                  aria-label="Middle name"
-                  className={cls.input}
-                  value={profile.middleName}
-                  autoComplete="additional-name"
-                  onChange={(e) => setField("middleName", e.target.value)}
-                />
-              </FieldShell>
-              <FieldShell label="Last name">
-                <input
-                  aria-label="Last name"
-                  className={cls.input}
-                  value={profile.lastName ?? ""}
-                  autoComplete="family-name"
-                  onChange={(e) => setField("lastName", e.target.value)}
-                />
-              </FieldShell>
-              <FieldShell label="Name suffix">
-                <input
-                  aria-label="Name suffix"
-                  className={cls.input}
-                  value={profile.nameSuffix}
-                  autoComplete="honorific-suffix"
-                  onChange={(e) => setField("nameSuffix", e.target.value)}
-                />
-              </FieldShell>
+          <section aria-labelledby="resume-heading" className={cls.card}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 id="resume-heading" className="text-lg font-semibold text-gray-950 dark:text-gray-50">Resume source</h2>
+              <PurposeBadge purpose="shared" />
             </div>
-
-            <div className="mt-4 grid gap-4 md:grid-cols-3">
-              <FieldShell label="Email">
-                <input
-                  aria-label="Email"
-                  type="email"
-                  className={cls.input}
-                  value={profile.email ?? ""}
-                  autoComplete="email"
-                  onChange={(e) => setField("email", e.target.value)}
-                />
-              </FieldShell>
-              <FieldShell label="Phone">
-                <input
-                  aria-label="Phone"
-                  type="tel"
-                  className={cls.input}
-                  value={profile.phone ?? ""}
-                  autoComplete="tel"
-                  onChange={(e) => setField("phone", e.target.value)}
-                />
-              </FieldShell>
-              <FieldShell
-                label="Phone extension"
-                hint="Enter only the extension, without the phone number."
-              >
-                <input
-                  aria-label="Phone extension"
-                  className={cls.input}
-                  value={profile.phoneExtension ?? ""}
-                  autoComplete="tel-extension"
-                  onChange={(e) => setField("phoneExtension", e.target.value)}
-                />
-              </FieldShell>
-            </div>
-
-            <div className="mt-4 grid gap-4 md:grid-cols-3">
-              <FieldShell label="LinkedIn URL">
-                <input
-                  aria-label="LinkedIn URL"
-                  type="url"
-                  className={cls.input}
-                  value={profile.linkedin ?? ""}
-                  onChange={(e) => setField("linkedin", e.target.value)}
-                />
-              </FieldShell>
-              <FieldShell label="GitHub URL">
-                <input
-                  aria-label="GitHub URL"
-                  type="url"
-                  className={cls.input}
-                  value={profile.github ?? ""}
-                  onChange={(e) => setField("github", e.target.value)}
-                />
-              </FieldShell>
-              <FieldShell label="Portfolio or website URL">
-                <input
-                  aria-label="Portfolio or website URL"
-                  type="url"
-                  className={cls.input}
-                  value={profile.website || profile.portfolio || ""}
-                  onChange={(e) =>
-                    updateProfile((current) => ({
-                      ...current,
-                      website: e.target.value,
-                      portfolio: "",
-                    }))
-                  }
-                />
-              </FieldShell>
-            </div>
-
-            <div className="mt-4">
-              <FieldShell
-                label="Demonstration of exceptional work"
-                hint="Save a reusable example that application forms can autofill."
-              >
-                <textarea
-                  aria-label="Demonstration of exceptional work"
-                  className={`${cls.input} min-h-32`}
-                  value={profile.exceptionalWork ?? ""}
-                  onChange={(e) => setField("exceptionalWork", e.target.value)}
-                />
-              </FieldShell>
-            </div>
-
-            <div className="mt-6 grid gap-4 lg:grid-cols-2">
-              <CountryAutofillSection
-                title="Jobs in the United States"
-                country={profile.usCountry || "United States"}
-                locationLabel="US city / location"
-                locationPlaceholder="New York, NY"
-                location={profile.usLocation}
-                workAuthorized={profile.usWorkAuthorized}
-                requiresSponsorship={profile.usRequiresSponsorship}
-                citizenshipStatus={profile.usCitizenshipStatus}
-                citizenshipStatusOther={profile.usCitizenshipStatusOther}
-                citizenshipOptions={[
-                  { value: "U.S. citizen", label: "U.S. citizen" },
-                  { value: "U.S. national", label: "U.S. national" },
-                  { value: "Permanent resident", label: "Permanent resident" },
-                  { value: "Protected individual", label: "Protected individual" },
-                  { value: "Other", label: "Other" },
-                  { value: "Prefer not to answer", label: "Prefer not to answer" },
-                ]}
-                onLocationChange={(value) => setField("usLocation", value)}
-                onAuthorizationChange={(value) =>
-                  setField("usWorkAuthorized", value)
-                }
-                onSponsorshipChange={(value) =>
-                  setField("usRequiresSponsorship", value)
-                }
-                onCitizenshipStatusChange={(value) =>
-                  setField("usCitizenshipStatus", value)
-                }
-                onCitizenshipStatusOtherChange={(value) =>
-                  setField("usCitizenshipStatusOther", value)
-                }
-              />
-              <CountryAutofillSection
-                title="Jobs in Canada"
-                country={profile.caCountry || "Canada"}
-                locationLabel="Canada city / location"
-                locationPlaceholder="Toronto, ON"
-                location={profile.caLocation}
-                workAuthorized={profile.caWorkAuthorized}
-                requiresSponsorship={profile.caRequiresSponsorship}
-                citizenshipStatus={profile.caCitizenshipStatus}
-                citizenshipStatusOther={profile.caCitizenshipStatusOther}
-                citizenshipOptions={[
-                  { value: "Canadian citizen", label: "Canadian citizen" },
-                  { value: "Permanent resident", label: "Permanent resident" },
-                  { value: "Work permit holder", label: "Work permit holder" },
-                  { value: "Other", label: "Other" },
-                  { value: "Prefer not to answer", label: "Prefer not to answer" },
-                ]}
-                onLocationChange={(value) => setField("caLocation", value)}
-                onAuthorizationChange={(value) =>
-                  setField("caWorkAuthorized", value)
-                }
-                onSponsorshipChange={(value) =>
-                  setField("caRequiresSponsorship", value)
-                }
-                onCitizenshipStatusChange={(value) =>
-                  setField("caCitizenshipStatus", value)
-                }
-                onCitizenshipStatusOtherChange={(value) =>
-                  setField("caCitizenshipStatusOther", value)
-                }
-              />
-            </div>
-
-            <div className="mt-4">
-              <FieldShell
-                label="Default cover letter"
-                hint="Optional. Review and customize it for every application."
-              >
-                <textarea
-                  aria-label="Default cover letter"
-                  className={`${cls.input} min-h-32`}
-                  value={profile.coverLetterTemplate ?? ""}
-                  onChange={(e) => setField("coverLetterTemplate", e.target.value)}
-                />
-              </FieldShell>
-            </div>
-          </section>
-
-          <WorkdayProfileFields profile={profile} onChange={setField} />
-
-          <section className={cls.card}>
-            <h2 className="text-lg font-semibold text-gray-950 dark:text-gray-50">Resume source</h2>
             <p className="mt-1 max-w-2xl text-sm text-gray-600 dark:text-gray-400">
               Add a public GitHub PDF file or Google Drive PDF share link. The
               PDF is downloaded and stored locally for résumé uploads, while
@@ -806,6 +951,7 @@ export default function ProfilePage() {
             <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,1fr)_auto]">
               <FieldShell label="Résumé PDF link">
                 <input
+                  aria-label="Résumé PDF link"
                   className={`${cls.input} placeholder:text-gray-500 dark:placeholder:text-gray-400`}
                   type="url"
                   value={profile.resumeUrl ?? ""}
@@ -835,7 +981,7 @@ export default function ProfilePage() {
                       ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/40"
                       : "border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/40"
                     : "border-dashed border-gray-300 bg-gray-50 dark:border-gray-700 dark:bg-gray-950"
-                }`}
+                  }`}
               >
                 {resumeAsset ? (
                   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -845,7 +991,7 @@ export default function ProfilePage() {
                           resumeSourceMatches
                             ? "text-emerald-800 dark:text-emerald-200"
                             : "text-amber-800 dark:text-amber-200"
-                        }`}
+                          }`}
                       >
                         {resumeSourceMatches ? "PDF saved" : "PDF on file"}
                       </p>
@@ -912,12 +1058,14 @@ export default function ProfilePage() {
             )}
           </section>
 
-          <section className={cls.card}>
-            <h2 className="text-lg font-semibold text-gray-950 dark:text-gray-50">Judge signals</h2>
+          <section aria-labelledby="judge-signals-heading" className={cls.card}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 id="judge-signals-heading" className="text-lg font-semibold text-gray-950 dark:text-gray-50">Judge signals</h2>
+              <PurposeBadge purpose="judge" />
+            </div>
             <p className="mt-1 max-w-2xl text-sm text-gray-600 dark:text-gray-400">
-              Add explicit values instead of comma-editing or free-form qualification text.
-              These become the deterministic baseline and the context exported to the
-              Copilot agent.
+              These inputs personalize deterministic scoring, not application
+              forms. They also provide context if you choose optional AI review.
             </p>
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               <FieldShell label="Target roles" hint="Add or remove each role explicitly.">
@@ -945,6 +1093,7 @@ export default function ProfilePage() {
                 hint="Keep this factual and under 400 characters."
               >
                 <textarea
+                  aria-label="Short summary"
                   className={`${cls.input} min-h-28 placeholder:text-gray-500 dark:placeholder:text-gray-400`}
                   value={profile.summary ?? ""}
                   maxLength={400}
@@ -954,504 +1103,447 @@ export default function ProfilePage() {
               </FieldShell>
             </div>
 
-            <div className="mt-6 border-t border-gray-200 pt-5 dark:border-gray-800">
-              <h3 className="text-sm font-semibold text-gray-950 dark:text-gray-50">
-                Education and qualifications
-              </h3>
-              <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
-                Structured values let the judge compare hard requirements directly and
-                let autofill target education fields reliably.
-              </p>
-              {profile.qualifications?.trim() && (
-                <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
-                  Legacy free-form qualifications are still used as a fallback.
-                  Structured qualification values take precedence for scoring without
-                  deleting that saved text.
-                </p>
-              )}
-              <div className="mt-4 grid gap-4 md:grid-cols-2">
-                <FieldShell label="School">
-                  <input
-                    aria-label="School"
-                    className={cls.input}
-                    value={profile.school ?? ""}
-                    autoComplete="organization"
-                    onChange={(event) => setField("school", event.target.value)}
-                  />
-                </FieldShell>
-                <FieldShell label="Degree">
-                  <select
-                    aria-label="Degree"
-                    className={cls.input}
-                    value={profile.degree ?? ""}
-                    onChange={(event) => setField("degree", event.target.value)}
-                  >
-                    <option value="">Select a degree</option>
-                    <option value="High school diploma">High school diploma</option>
-                    <option value="Associate degree">Associate degree</option>
-                    <option value="Bachelor's degree">Bachelor&apos;s degree</option>
-                    <option value="Master's degree">Master&apos;s degree</option>
-                    <option value="Doctorate">Doctorate</option>
-                    <option value="Other">Other</option>
-                  </select>
-                </FieldShell>
-                {profile.degree === "Other" && (
-                  <FieldShell label="Please specify degree">
-                    <input
-                      aria-label="Please specify degree"
-                      className={cls.input}
-                      value={profile.degreeOther ?? ""}
-                      onChange={(event) =>
-                        setField("degreeOther", event.target.value)
-                      }
-                    />
-                  </FieldShell>
-                )}
-                <FieldShell label="Field of study / discipline">
-                  <input
-                    aria-label="Field of study / discipline"
-                    className={cls.input}
-                    value={profile.fieldOfStudy ?? ""}
-                    placeholder="Computer Science"
-                    onChange={(event) =>
-                      setField("fieldOfStudy", event.target.value)
-                    }
-                  />
-                </FieldShell>
-                <FieldShell
-                  label="Graduation month"
-                  hint="Month-only records remain supported for forms that do not ask for a day."
-                >
-                  <input
-                    aria-label="Graduation month"
-                    type="month"
-                    className={cls.input}
-                    value={profile.graduationDate ?? ""}
-                    onChange={(event) => setGraduationMonth(event.target.value)}
-                  />
-                </FieldShell>
-                <FieldShell
-                  label="Exact graduation date"
-                  hint="Optional. Used only when an application requires a specific day; autofill never invents one."
-                >
-                  <input
-                    aria-label="Exact graduation date"
-                    type="date"
-                    className={cls.input}
-                    value={profile.graduationDateExact ?? ""}
-                    onChange={(event) =>
-                      setExactGraduationDate(event.target.value)
-                    }
-                  />
-                </FieldShell>
-                <FieldShell label="Education start date">
-                  <input
-                    aria-label="Education start date"
-                    type="month"
-                    className={cls.input}
-                    value={profile.educationStartDate}
-                    onChange={(event) =>
-                      setField("educationStartDate", event.target.value)
-                    }
-                  />
-                </FieldShell>
-                <FieldShell label="Relevant experience">
-                  <input
-                    aria-label="Relevant experience"
-                    type="number"
-                    min="0"
-                    max="50"
-                    step="0.5"
-                    className={cls.input}
-                    value={
-                      profile.relevantExperienceYears == null
-                        ? ""
-                        : String(profile.relevantExperienceYears)
-                    }
-                    onChange={(event) =>
-                      setField(
-                        "relevantExperienceYears",
-                        event.target.value === ""
-                          ? null
-                          : Number(event.target.value),
-                      )
-                    }
-                    placeholder="Years, for example 1.5"
-                  />
-                </FieldShell>
-                <FieldShell
-                  label="Software engineering industry experience"
-                  hint="Years excluding internships. Used for software-industry experience questions, including forms that state the exclusion explicitly."
-                >
-                  <input
-                    aria-label="Software engineering industry experience"
-                    type="number"
-                    min="0"
-                    max="50"
-                    step="0.5"
-                    className={cls.input}
-                    value={
-                      profile.softwareIndustryExperienceYears == null
-                        ? ""
-                        : String(profile.softwareIndustryExperienceYears)
-                    }
-                    onChange={(event) =>
-                      setField(
-                        "softwareIndustryExperienceYears",
-                        event.target.value === ""
-                          ? null
-                          : Number(event.target.value),
-                      )
-                    }
-                    placeholder="Years, for example 2"
-                  />
-                </FieldShell>
-              </div>
-
-              <h3 className="mt-6 text-sm font-semibold text-gray-950 dark:text-gray-50">
-                Academic scores
-              </h3>
-              <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
-                Optional autofill values. Blank means the extension will ask you instead
-                of guessing.
-              </p>
-              <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {[
-                  ["Undergraduate GPA", "undergraduateGpa"],
-                  ["Graduate GPA", "graduateGpa"],
-                  ["Doctorate GPA", "doctorateGpa"],
-                  ["SAT score", "satScore"],
-                  ["ACT score", "actScore"],
-                  ["GRE score", "greScore"],
-                ].map(([label, key]) => (
-                  <FieldShell key={key} label={label}>
-                    <input
-                      aria-label={label}
-                      inputMode="decimal"
-                      className={cls.input}
-                      value={String(profile[key] ?? "")}
-                      onChange={(event) =>
-                        setField(key as keyof Profile, event.target.value)
-                      }
-                    />
-                  </FieldShell>
-                ))}
-              </div>
-            </div>
           </section>
 
-          <section className={cls.card}>
-            <h2 className="text-lg font-semibold text-gray-950 dark:text-gray-50">
-              Application question defaults
-            </h2>
-            <p className="mt-1 max-w-2xl text-sm text-gray-600 dark:text-gray-400">
-              Saved answers for recurring application questions. They are autofill-only
-              and never affect job fit scores.
+          <section aria-labelledby="qualifications-heading" className={cls.card}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 id="qualifications-heading" className="text-lg font-semibold text-gray-950 dark:text-gray-50">
+                Education and qualifications
+              </h2>
+              <PurposeBadge purpose="shared" />
+            </div>
+            <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+              The judge reads these primary qualifications to compare role
+              requirements. Autofill can reuse the same values; you do not
+              need to enable autofill or enter them twice.
             </p>
+            {profile.qualifications?.trim() && (
+              <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                Legacy free-form qualifications are still used as a fallback.
+                Structured qualification values take precedence for scoring without
+                deleting that saved text.
+              </p>
+            )}
             <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <FieldShell label="How did you hear about this job?">
-                <select
-                  aria-label="How did you hear about this job?"
+              <FieldShell label="School">
+                <input
+                  aria-label="School"
                   className={cls.input}
-                  value={profile.heardAboutJob ?? ""}
-                  onChange={(event) =>
-                    setField("heardAboutJob", event.target.value)
-                  }
+                  value={profile.school ?? ""}
+                  autoComplete="organization"
+                  onChange={(event) => setField("school", event.target.value)}
+                />
+              </FieldShell>
+              <FieldShell label="Degree">
+                <select
+                  aria-label="Degree"
+                  className={cls.input}
+                  value={profile.degree ?? ""}
+                  onChange={(event) => setField("degree", event.target.value)}
                 >
-                  <option value="">Select an answer</option>
-                  <option value="Company career site">Company career site</option>
-                  <option value="LinkedIn">LinkedIn</option>
-                  <option value="Employee referral">Employee referral</option>
-                  <option value="University career center">University career center</option>
-                  <option value="Career fair">Career fair</option>
-                  <option value="GitHub">GitHub</option>
-                  <option value="Google">Google</option>
-                  <option value="Recruiter">Recruiter</option>
+                  <option value="">Select a degree</option>
+                  <option value="High school diploma">High school diploma</option>
+                  <option value="Associate degree">Associate degree</option>
+                  <option value="Bachelor's degree">Bachelor&apos;s degree</option>
+                  <option value="Master's degree">Master&apos;s degree</option>
+                  <option value="Doctorate">Doctorate</option>
                   <option value="Other">Other</option>
                 </select>
               </FieldShell>
-              {profile.heardAboutJob === "Other" && (
-                <FieldShell label="Please specify how you heard about this job">
+              {profile.degree === "Other" && (
+                <FieldShell label="Please specify degree">
                   <input
-                    aria-label="Please specify how you heard about this job"
+                    aria-label="Please specify degree"
                     className={cls.input}
-                    value={profile.heardAboutJobOther ?? ""}
+                    value={profile.degreeOther ?? ""}
                     onChange={(event) =>
-                      setField("heardAboutJobOther", event.target.value)
+                      setField("degreeOther", event.target.value)
                     }
                   />
                 </FieldShell>
               )}
-              <FieldShell
-                label="Current or last employer"
-                hint="Used for questions asking where you are currently employed or were most recently employed."
-              >
+              <FieldShell label="Field of study / discipline">
                 <input
-                  aria-label="Current or last employer"
+                  aria-label="Field of study / discipline"
                   className={cls.input}
-                  value={profile.currentOrLastEmployer ?? ""}
+                  value={profile.fieldOfStudy ?? ""}
+                  placeholder="Computer Science"
                   onChange={(event) =>
-                    setField("currentOrLastEmployer", event.target.value)
+                    setField("fieldOfStudy", event.target.value)
                   }
                 />
               </FieldShell>
               <FieldShell
-                label="Previous employers"
-                hint='Add every company you have worked for. The extension treats this as a complete list when answering "Have you worked at X?" and leaves the question manual when the list is empty.'
-              >
-                <TagEditor
-                  label="previous employer"
-                  items={profile.previousEmployers}
-                  placeholder="Cisco"
-                  empty="No previous-employer answer saved."
-                  onChange={(items) => setField("previousEmployers", items)}
-                />
-              </FieldShell>
-              <FieldShell
-                label="Target total annual compensation"
-                hint="Use the exact text you want entered, such as $150,000 USD or Negotiable."
+                label="Graduation month"
+                hint="The judge only needs the month, not an exact day."
               >
                 <input
-                  aria-label="Target total annual compensation"
+                  aria-label="Graduation month"
+                  type="month"
                   className={cls.input}
-                  value={profile.compensationExpectation ?? ""}
-                  onChange={(event) =>
-                    setField("compensationExpectation", event.target.value)
+                  value={profile.graduationDate ?? ""}
+                  onChange={(event) => setGraduationMonth(event.target.value)}
+                />
+              </FieldShell>
+              <FieldShell label="Relevant experience">
+                <input
+                  aria-label="Relevant experience"
+                  type="number"
+                  min="0"
+                  max="50"
+                  step="0.5"
+                  className={cls.input}
+                  value={
+                    profile.relevantExperienceYears == null
+                      ? ""
+                      : String(profile.relevantExperienceYears)
                   }
-                />
-              </FieldShell>
-              <FieldShell
-                label="Active security clearances"
-                hint='Add "None" explicitly when you do not hold a clearance.'
-              >
-                <TagEditor
-                  label="security clearance"
-                  items={profile.securityClearances}
-                  placeholder="None, Secret, Top Secret / SCI"
-                  empty="No clearance answer saved."
-                  onChange={(items) => setField("securityClearances", items)}
-                />
-              </FieldShell>
-              <FieldShell label="Can perform essential job functions with or without reasonable accommodations?">
-                <select
-                  aria-label="Can perform essential job functions with or without reasonable accommodations?"
-                  className={cls.input}
-                  value={booleanChoice(profile.canPerformEssentialFunctions)}
                   onChange={(event) =>
                     setField(
-                      "canPerformEssentialFunctions",
-                      parseBooleanChoice(event.target.value),
+                      "relevantExperienceYears",
+                      event.target.value === ""
+                        ? null
+                        : Number(event.target.value),
                     )
                   }
-                >
-                  <option value="">Select an answer</option>
-                  <option value="yes">Yes</option>
-                  <option value="no">No</option>
-                </select>
+                  placeholder="Years, for example 1.5"
+                />
               </FieldShell>
             </div>
-            <div className="mt-6 border-t border-gray-200 pt-5 dark:border-gray-800">
-              <h3 className="text-sm font-semibold text-gray-950 dark:text-gray-50">
-                Voluntary self-identification
-              </h3>
-              <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
-                Optional answers using wording commonly found on application forms.
-                They are used only for explicit autofill and never by the Judge.
-              </p>
-              <div className="mt-4 grid gap-4 md:grid-cols-2">
-                <FieldShell label="Pronouns">
-                  <select
-                    aria-label="Pronouns"
-                    className={cls.input}
-                    value={profile.pronouns ?? ""}
-                    onChange={(event) =>
-                      setField("pronouns", event.target.value)
-                    }
-                  >
-                    <option value="">Select an answer</option>
-                    <option value="He/him">He/him</option>
-                    <option value="She/her">She/her</option>
-                    <option value="They/them">They/them</option>
-                    <option value="Use my name">Use my name</option>
-                    <option value="Other">Other / self-describe</option>
-                    <option value="Prefer not to answer">
-                      Prefer not to answer
-                    </option>
-                  </select>
-                </FieldShell>
-                {profile.pronouns === "Other" && (
-                  <FieldShell label="Please specify your pronouns">
-                    <input
-                      aria-label="Please specify your pronouns"
-                      className={cls.input}
-                      value={profile.pronounsOther ?? ""}
-                      onChange={(event) =>
-                        setField("pronounsOther", event.target.value)
-                      }
-                    />
-                  </FieldShell>
-                )}
-                <FieldShell label="Gender">
-                  <select
-                    aria-label="Gender"
-                    className={cls.input}
-                    value={profile.gender ?? ""}
-                    onChange={(event) => setField("gender", event.target.value)}
-                  >
-                    <option value="">Select an answer</option>
-                    <option value="Woman">Woman</option>
-                    <option value="Man">Man</option>
-                    <option value="Non-binary">Non-binary</option>
-                    <option value="Other">Other / self-describe</option>
-                    <option value="Prefer not to answer">
-                      Prefer not to answer
-                    </option>
-                  </select>
-                </FieldShell>
-                {profile.gender === "Other" && (
-                  <FieldShell label="Please self-describe your gender">
-                    <input
-                      aria-label="Please self-describe your gender"
-                      className={cls.input}
-                      value={profile.genderOther ?? ""}
-                      onChange={(event) =>
-                        setField("genderOther", event.target.value)
-                      }
-                    />
-                  </FieldShell>
-                )}
-                <FieldShell label="Do you identify as transgender?">
-                  <select
-                    aria-label="Do you identify as transgender?"
-                    className={cls.input}
-                    value={profile.transgenderStatus ?? ""}
-                    onChange={(event) =>
-                      setField("transgenderStatus", event.target.value)
-                    }
-                  >
-                    <option value="">Select an answer</option>
-                    <option value="yes">Yes</option>
-                    <option value="no">No</option>
-                    <option value="Prefer not to answer">
-                      Prefer not to answer
-                    </option>
-                  </select>
-                </FieldShell>
-                <FieldShell label="Race / ethnicity">
-                  <select
-                    aria-label="Race / ethnicity"
-                    className={cls.input}
-                    value={profile.raceEthnicity ?? ""}
-                    onChange={(event) =>
-                      setField("raceEthnicity", event.target.value)
-                    }
-                  >
-                    <option value="">Select an answer</option>
-                    <option value="American Indian or Alaska Native">
-                      American Indian or Alaska Native
-                    </option>
-                    <option value="Asian">Asian</option>
-                    <option value="Black or African American">
-                      Black or African American
-                    </option>
-                    <option value="Hispanic or Latino">
-                      Hispanic or Latino
-                    </option>
-                    <option value="Middle Eastern or North African">
-                      Middle Eastern or North African
-                    </option>
-                    <option value="Native Hawaiian or Other Pacific Islander">
-                      Native Hawaiian or Other Pacific Islander
-                    </option>
-                    <option value="White">White</option>
-                    <option value="Two or more races">
-                      Two or more races
-                    </option>
-                    <option value="Other">Other / self-describe</option>
-                    <option value="Prefer not to answer">
-                      Prefer not to answer
-                    </option>
-                  </select>
-                </FieldShell>
-                {profile.raceEthnicity === "Other" && (
-                  <FieldShell label="Please specify your race / ethnicity">
-                    <input
-                      aria-label="Please specify your race / ethnicity"
-                      className={cls.input}
-                      value={profile.raceEthnicityOther ?? ""}
-                      onChange={(event) =>
-                        setField("raceEthnicityOther", event.target.value)
-                      }
-                    />
-                  </FieldShell>
-                )}
-                <FieldShell label="Are you Hispanic or Latino?">
-                  <select
-                    aria-label="Are you Hispanic or Latino?"
-                    className={cls.input}
-                    value={profile.hispanicLatino ?? ""}
-                    onChange={(event) =>
-                      setField("hispanicLatino", event.target.value)
-                    }
-                  >
-                    <option value="">Select an answer</option>
-                    <option value="yes">Yes</option>
-                    <option value="no">No</option>
-                    <option value="Prefer not to answer">
-                      Prefer not to answer
-                    </option>
-                  </select>
-                </FieldShell>
-                <FieldShell label="Disability status">
-                  <select
-                    aria-label="Disability status"
-                    className={cls.input}
-                    value={profile.disabilityStatus ?? ""}
-                    onChange={(event) =>
-                      setField("disabilityStatus", event.target.value)
-                    }
-                  >
-                    <option value="">Select an answer</option>
-                    <option value="yes">
-                      Yes, I have a disability or have had one in the past
-                    </option>
-                    <option value="no">
-                      No, I do not have a disability and have not had one in the past
-                    </option>
-                    <option value="Prefer not to answer">
-                      I do not want to answer
-                    </option>
-                  </select>
-                </FieldShell>
-                <FieldShell label="Protected veteran status">
-                  <select
-                    aria-label="Protected veteran status"
-                    className={cls.input}
-                    value={profile.veteranStatus ?? ""}
-                    onChange={(event) =>
-                      setField("veteranStatus", event.target.value)
-                    }
-                  >
-                    <option value="">Select an answer</option>
-                    <option value="Protected veteran">
-                      I identify as one or more classifications of a protected veteran
-                    </option>
-                    <option value="Not a protected veteran">
-                      I am not a protected veteran
-                    </option>
-                    <option value="Prefer not to answer">
-                      I do not wish to answer
-                    </option>
-                  </select>
-                </FieldShell>
-              </div>
+            <div className="mt-6">
+              <CredentialProfileFields profile={profile} onChange={setField} />
             </div>
-            <p className="mt-4 border-t border-gray-200 pt-3 text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400">
-              Generic fields such as &quot;Please specify&quot; stay flagged unless their
-              surrounding question makes the intended answer clear. The extension does
-              not reuse one answer across unrelated prompts.
-            </p>
           </section>
+
+          <details
+            id="autofill-fields"
+            className="rounded-xl border border-gray-200 dark:border-gray-800"
+          >
+            <summary className="cursor-pointer rounded-xl p-5 focus-visible:outline-indigo-500">
+              <span className="ml-1 text-lg font-semibold">Optional autofill fields</span>{" "}
+              <PurposeBadge purpose="autofill" />
+              <span className="mt-2 block text-sm text-gray-600 dark:text-gray-400">
+                Skip this section if you only use the judge. Expand it to save
+                contact details, application answers, and voluntary demographics.
+                Collapsing it keeps all saved values.
+              </span>
+            </summary>
+            <div className="space-y-6 border-t border-gray-200 p-4 dark:border-gray-800">
+              {autofillFields}
+              <section className={cls.card}>
+                <h2 className="text-lg font-semibold text-gray-950 dark:text-gray-50">
+                  Application question defaults
+                </h2>
+                <p className="mt-1 max-w-2xl text-sm text-gray-600 dark:text-gray-400">
+                  Saved answers for recurring application questions. They are autofill-only
+                  and never affect job fit scores.
+                </p>
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <FieldShell label="How did you hear about this job?">
+                    <select
+                      aria-label="How did you hear about this job?"
+                      className={cls.input}
+                      value={profile.heardAboutJob ?? ""}
+                      onChange={(event) =>
+                        setField("heardAboutJob", event.target.value)
+                      }
+                    >
+                      <option value="">Select an answer</option>
+                      <option value="Company career site">Company career site</option>
+                      <option value="LinkedIn">LinkedIn</option>
+                      <option value="Employee referral">Employee referral</option>
+                      <option value="University career center">University career center</option>
+                      <option value="Career fair">Career fair</option>
+                      <option value="GitHub">GitHub</option>
+                      <option value="Google">Google</option>
+                      <option value="Recruiter">Recruiter</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </FieldShell>
+                  {profile.heardAboutJob === "Other" && (
+                    <FieldShell label="Please specify how you heard about this job">
+                      <input
+                        aria-label="Please specify how you heard about this job"
+                        className={cls.input}
+                        value={profile.heardAboutJobOther ?? ""}
+                        onChange={(event) =>
+                          setField("heardAboutJobOther", event.target.value)
+                        }
+                      />
+                    </FieldShell>
+                  )}
+                  <FieldShell
+                    label="Current or last employer"
+                    hint="Used for questions asking where you are currently employed or were most recently employed."
+                  >
+                    <input
+                      aria-label="Current or last employer"
+                      className={cls.input}
+                      value={profile.currentOrLastEmployer ?? ""}
+                      onChange={(event) =>
+                        setField("currentOrLastEmployer", event.target.value)
+                      }
+                    />
+                  </FieldShell>
+                  <FieldShell
+                    label="Previous employers"
+                    hint='Add every company you have worked for. The extension treats this as a complete list when answering "Have you worked at X?" and leaves the question manual when the list is empty.'
+                  >
+                    <TagEditor
+                      label="previous employer"
+                      items={profile.previousEmployers}
+                      placeholder="Cisco"
+                      empty="No previous-employer answer saved."
+                      onChange={(items) => setField("previousEmployers", items)}
+                    />
+                  </FieldShell>
+                  <FieldShell
+                    label="Target total annual compensation"
+                    hint="Application answer only, such as $150,000 USD or Negotiable. This does not change the judge's salary target."
+                  >
+                    <input
+                      aria-label="Target total annual compensation"
+                      className={cls.input}
+                      value={profile.compensationExpectation ?? ""}
+                      onChange={(event) =>
+                        setField("compensationExpectation", event.target.value)
+                      }
+                    />
+                  </FieldShell>
+                  <FieldShell
+                    label="Active security clearances"
+                    hint='Add "None" explicitly when you do not hold a clearance.'
+                  >
+                    <TagEditor
+                      label="security clearance"
+                      items={profile.securityClearances}
+                      placeholder="None, Secret, Top Secret / SCI"
+                      empty="No clearance answer saved."
+                      onChange={(items) => setField("securityClearances", items)}
+                    />
+                  </FieldShell>
+                  <FieldShell label="Can perform essential job functions with or without reasonable accommodations?">
+                    <select
+                      aria-label="Can perform essential job functions with or without reasonable accommodations?"
+                      className={cls.input}
+                      value={booleanChoice(profile.canPerformEssentialFunctions)}
+                      onChange={(event) =>
+                        setField(
+                          "canPerformEssentialFunctions",
+                          parseBooleanChoice(event.target.value),
+                        )
+                      }
+                    >
+                      <option value="">Select an answer</option>
+                      <option value="yes">Yes</option>
+                      <option value="no">No</option>
+                    </select>
+                  </FieldShell>
+                </div>
+                <div className="mt-6 border-t border-gray-200 pt-5 dark:border-gray-800">
+                  <h3 className="text-sm font-semibold text-gray-950 dark:text-gray-50">
+                    Voluntary self-identification
+                  </h3>
+                  <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                    Optional answers using wording commonly found on application forms.
+                    They are used only for explicit autofill and never by the Judge.
+                  </p>
+                  <div className="mt-4 grid gap-4 md:grid-cols-2">
+                    <FieldShell label="Pronouns">
+                      <select
+                        aria-label="Pronouns"
+                        className={cls.input}
+                        value={profile.pronouns ?? ""}
+                        onChange={(event) =>
+                          setField("pronouns", event.target.value)
+                        }
+                      >
+                        <option value="">Select an answer</option>
+                        <option value="He/him">He/him</option>
+                        <option value="She/her">She/her</option>
+                        <option value="They/them">They/them</option>
+                        <option value="Use my name">Use my name</option>
+                        <option value="Other">Other / self-describe</option>
+                        <option value="Prefer not to answer">
+                          Prefer not to answer
+                        </option>
+                      </select>
+                    </FieldShell>
+                    {profile.pronouns === "Other" && (
+                      <FieldShell label="Please specify your pronouns">
+                        <input
+                          aria-label="Please specify your pronouns"
+                          className={cls.input}
+                          value={profile.pronounsOther ?? ""}
+                          onChange={(event) =>
+                            setField("pronounsOther", event.target.value)
+                          }
+                        />
+                      </FieldShell>
+                    )}
+                    <FieldShell label="Gender">
+                      <select
+                        aria-label="Gender"
+                        className={cls.input}
+                        value={profile.gender ?? ""}
+                        onChange={(event) => setField("gender", event.target.value)}
+                      >
+                        <option value="">Select an answer</option>
+                        <option value="Woman">Woman</option>
+                        <option value="Man">Man</option>
+                        <option value="Non-binary">Non-binary</option>
+                        <option value="Other">Other / self-describe</option>
+                        <option value="Prefer not to answer">
+                          Prefer not to answer
+                        </option>
+                      </select>
+                    </FieldShell>
+                    {profile.gender === "Other" && (
+                      <FieldShell label="Please self-describe your gender">
+                        <input
+                          aria-label="Please self-describe your gender"
+                          className={cls.input}
+                          value={profile.genderOther ?? ""}
+                          onChange={(event) =>
+                            setField("genderOther", event.target.value)
+                          }
+                        />
+                      </FieldShell>
+                    )}
+                    <FieldShell label="Do you identify as transgender?">
+                      <select
+                        aria-label="Do you identify as transgender?"
+                        className={cls.input}
+                        value={profile.transgenderStatus ?? ""}
+                        onChange={(event) =>
+                          setField("transgenderStatus", event.target.value)
+                        }
+                      >
+                        <option value="">Select an answer</option>
+                        <option value="yes">Yes</option>
+                        <option value="no">No</option>
+                        <option value="Prefer not to answer">
+                          Prefer not to answer
+                        </option>
+                      </select>
+                    </FieldShell>
+                    <FieldShell label="Race / ethnicity">
+                      <select
+                        aria-label="Race / ethnicity"
+                        className={cls.input}
+                        value={profile.raceEthnicity ?? ""}
+                        onChange={(event) =>
+                          setField("raceEthnicity", event.target.value)
+                        }
+                      >
+                        <option value="">Select an answer</option>
+                        <option value="American Indian or Alaska Native">
+                          American Indian or Alaska Native
+                        </option>
+                        <option value="Asian">Asian</option>
+                        <option value="Black or African American">
+                          Black or African American
+                        </option>
+                        <option value="Hispanic or Latino">
+                          Hispanic or Latino
+                        </option>
+                        <option value="Middle Eastern or North African">
+                          Middle Eastern or North African
+                        </option>
+                        <option value="Native Hawaiian or Other Pacific Islander">
+                          Native Hawaiian or Other Pacific Islander
+                        </option>
+                        <option value="White">White</option>
+                        <option value="Two or more races">
+                          Two or more races
+                        </option>
+                        <option value="Other">Other / self-describe</option>
+                        <option value="Prefer not to answer">
+                          Prefer not to answer
+                        </option>
+                      </select>
+                    </FieldShell>
+                    {profile.raceEthnicity === "Other" && (
+                      <FieldShell label="Please specify your race / ethnicity">
+                        <input
+                          aria-label="Please specify your race / ethnicity"
+                          className={cls.input}
+                          value={profile.raceEthnicityOther ?? ""}
+                          onChange={(event) =>
+                            setField("raceEthnicityOther", event.target.value)
+                          }
+                        />
+                      </FieldShell>
+                    )}
+                    <FieldShell label="Are you Hispanic or Latino?">
+                      <select
+                        aria-label="Are you Hispanic or Latino?"
+                        className={cls.input}
+                        value={profile.hispanicLatino ?? ""}
+                        onChange={(event) =>
+                          setField("hispanicLatino", event.target.value)
+                        }
+                      >
+                        <option value="">Select an answer</option>
+                        <option value="yes">Yes</option>
+                        <option value="no">No</option>
+                        <option value="Prefer not to answer">
+                          Prefer not to answer
+                        </option>
+                      </select>
+                    </FieldShell>
+                    <FieldShell label="Disability status">
+                      <select
+                        aria-label="Disability status"
+                        className={cls.input}
+                        value={profile.disabilityStatus ?? ""}
+                        onChange={(event) =>
+                          setField("disabilityStatus", event.target.value)
+                        }
+                      >
+                        <option value="">Select an answer</option>
+                        <option value="yes">
+                          Yes, I have a disability or have had one in the past
+                        </option>
+                        <option value="no">
+                          No, I do not have a disability and have not had one in the past
+                        </option>
+                        <option value="Prefer not to answer">
+                          I do not want to answer
+                        </option>
+                      </select>
+                    </FieldShell>
+                    <FieldShell label="Protected veteran status">
+                      <select
+                        aria-label="Protected veteran status"
+                        className={cls.input}
+                        value={profile.veteranStatus ?? ""}
+                        onChange={(event) =>
+                          setField("veteranStatus", event.target.value)
+                        }
+                      >
+                        <option value="">Select an answer</option>
+                        <option value="Protected veteran">
+                          I identify as one or more classifications of a protected veteran
+                        </option>
+                        <option value="Not a protected veteran">
+                          I am not a protected veteran
+                        </option>
+                        <option value="Prefer not to answer">
+                          I do not wish to answer
+                        </option>
+                      </select>
+                    </FieldShell>
+                  </div>
+                </div>
+                <p className="mt-4 border-t border-gray-200 pt-3 text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400">
+                  Generic fields such as &quot;Please specify&quot; stay flagged unless their
+                  surrounding question makes the intended answer clear. The extension does
+                  not reuse one answer across unrelated prompts.
+                </p>
+              </section>
+            </div>
+          </details>
 
           <section className={cls.card}>
             <div className="mb-1 flex flex-wrap items-start justify-between gap-3">
@@ -1460,8 +1552,8 @@ export default function ProfilePage() {
                   LinkedIn connections
                 </h2>
                 <p className="mt-1 max-w-2xl text-sm text-gray-600 dark:text-gray-400">
-                  Import your connections so job cards flag companies where you already know
-                  someone — a warm intro is the fastest way past the resume pile.
+                  Optional: flag companies where you already know someone.
+                  This import is only for warm-intro badges, not judging or autofill.
                 </p>
               </div>
               <span className="inline-flex items-center gap-1 rounded-full bg-teal-100 px-2.5 py-1 text-xs font-medium text-teal-800 dark:bg-teal-950 dark:text-teal-200">
@@ -1563,8 +1655,9 @@ export default function ProfilePage() {
           <section className={cls.card}>
             <h2 className="text-lg font-semibold text-gray-950 dark:text-gray-50">Next step</h2>
             <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-              Profile changes save automatically. Use the actions below to sync Chrome
-              immediately or re-run the judge.
+              Changes save automatically, including when autofill is left blank.
+              Re-run the judge to apply scoring inputs. Save profile also syncs
+              autofill when Chrome is connected.
             </p>
             <p
               aria-live="polite"
@@ -1588,7 +1681,7 @@ export default function ProfilePage() {
               </button>
               <button
                 onClick={runJudge}
-                disabled={saving || judging}
+                disabled={saving || judging || judgeRun.running}
                 className="rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm font-medium text-indigo-700 transition-colors hover:bg-indigo-50 disabled:opacity-50 dark:border-indigo-800 dark:bg-gray-900 dark:text-indigo-200 dark:hover:bg-indigo-950"
               >
                 {judging ? "Running judge…" : "Save and re-run judge"}
@@ -1601,15 +1694,22 @@ export default function ProfilePage() {
             <ul className="mt-3 space-y-2 text-sm text-gray-700 dark:text-gray-300">
               <li>• target roles for title alignment</li>
               <li>• skills for exact posting overlap</li>
-              <li>• degree, field of study, graduation date, experience, and certifications</li>
+              <li>• school, degree, field of study, and graduation month</li>
+              <li>• relevant experience and credential names</li>
               <li>• summary and saved resume text for broader context</li>
-              <li>• date posted for the freshness boost</li>
-              <li>• agent review exports for the strongest deterministic matches</li>
             </ul>
+            <p className="mt-3 text-xs text-gray-600 dark:text-gray-400">
+              Scoring also uses posting freshness, company and location tiers,
+              and the{" "}
+              <Link href="/judge#judge-salary" className="text-indigo-600 underline dark:text-indigo-400">
+                judge salary target
+              </Link>.
+              AI review is optional.
+            </p>
             <p className="mt-3 border-t border-gray-200 pt-3 text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400">
-              It never reads your name, contact details, academic scores, citizenship,
-              authorization, accommodations, or other application answers. Those never
-              influence a fit score.
+              Dedicated contact, academic-score, citizenship, work-authorization,
+              accommodation, and demographic fields are not read by the judge.
+              You can leave them blank.
             </p>
           </section>
         </aside>
