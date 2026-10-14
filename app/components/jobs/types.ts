@@ -2,7 +2,7 @@ import type { JobCategory } from "@/lib/discovery/categories";
 import type { GoldenJobMatch } from "@/lib/jobs/golden";
 
 export type Country = "US" | "CA";
-export type SortKey = "posted" | "company" | "fit" | "salary";
+export type SortKey = "posted" | "discovered" | "company" | "fit" | "salary";
 export type SinceKey = "24h" | "7d" | "30d" | "all";
 export type JobAvailabilityView = "active" | "closed";
 export type JobAvailabilityStatus = "open" | "suspect" | "closed";

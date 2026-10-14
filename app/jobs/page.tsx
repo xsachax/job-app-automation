@@ -23,6 +23,7 @@ import {
 } from "@/lib/chromeExtension";
 import type { ProfileData } from "@/lib/settings";
 import type { DiscoveryScopeCopy } from "@/lib/discovery/scope-copy";
+import { groupSimilarJobs, type JobStack } from "@/lib/jobs/stacks";
 
 const COUNTRIES: { value: Country; label: string }[] = [
   { value: "US", label: "United States" },
@@ -144,6 +145,8 @@ export default function JobsPage() {
   const [updatingIds, setUpdatingIds] = useState<Set<string>>(() => new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [stackSimilar, setStackSimilar] = useState(true);
+  const [expandedStacks, setExpandedStacks] = useState<Record<string, number>>({});
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [extensionConnection, setExtensionConnection] =
     useState<ExtensionConnection>("none");
@@ -259,16 +262,29 @@ export default function JobsPage() {
     };
   }, []);
 
-  // Only a page of postings is rendered at a time; everything selection-related
-  // operates on that visible slice so "Select all" matches what's on screen.
-  const shownJobs = useMemo(() => jobs.slice(0, visibleCount), [jobs, visibleCount]);
+  const stacks = useMemo<JobStack<Job>[]>(
+    () => stackSimilar
+      ? groupSimilarJobs(jobs)
+      : jobs.map((job) => ({ key: job.id, jobs: [job] })),
+    [jobs, stackSimilar],
+  );
+  const shownStacks = useMemo(
+    () => stacks.slice(0, visibleCount).map((stack) => ({
+      ...stack,
+      expanded: Boolean(expandedStacks[stack.key]),
+      visibleJobs: stack.jobs.slice(0, expandedStacks[stack.key] ?? 1),
+    })),
+    [stacks, visibleCount, expandedStacks],
+  );
+  const shownJobs = useMemo(
+    () => shownStacks.flatMap((stack) => stack.visibleJobs),
+    [shownStacks],
+  );
 
-  // Selection is stored as a plain id set; we always intersect it with the jobs
-  // currently loaded so a country switch or filter change can never "Open" a
-  // posting that is no longer visible. Stale ids simply go unused.
+  // Hidden stack members must never be selected or opened by a bulk action.
   const selectedVisibleIds = useMemo(
-    () => jobs.filter((job) => selectedIds.has(job.id)).map((job) => job.id),
-    [jobs, selectedIds],
+    () => shownJobs.filter((job) => selectedIds.has(job.id)).map((job) => job.id),
+    [shownJobs, selectedIds],
   );
   const selectedCount = selectedVisibleIds.length;
   const allSelected =
@@ -300,7 +316,7 @@ export default function JobsPage() {
   }
 
   function openSelected() {
-    const chosen = jobs.filter((job) => selectedIds.has(job.id));
+    const chosen = shownJobs.filter((job) => selectedIds.has(job.id));
     if (chosen.length === 0) return;
     let blocked = 0;
     for (const job of chosen) {
@@ -313,6 +329,15 @@ export default function JobsPage() {
     } else {
       setError(null);
     }
+  }
+
+  function toggleStack(key: string) {
+    setExpandedStacks((current) => {
+      const next = { ...current };
+      if (next[key]) delete next[key];
+      else next[key] = PAGE_SIZE;
+      return next;
+    });
   }
 
   async function openWithExtension(job: Job) {
@@ -544,6 +569,9 @@ export default function JobsPage() {
           <p className="text-xs text-gray-500 dark:text-gray-400">
             {jobs.length} {availability === "closed" ? "archived " : ""}posting
             {jobs.length === 1 ? "" : "s"} {availability === "closed" ? "" : "in queue"}
+            {stackSimilar && stacks.length < jobs.length
+              ? ` · ${stacks.length} rows with similar roles stacked`
+              : ""}
             {loading ? " · refreshing…" : ""}
           </p>
         ) : (
@@ -552,6 +580,19 @@ export default function JobsPage() {
         {filtered && (
           <p className="text-xs text-indigo-600 dark:text-indigo-300">Filters active across {country} postings</p>
         )}
+        <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-gray-700 dark:text-gray-200">
+          <input
+            type="checkbox"
+            checked={stackSimilar}
+            onChange={(event) => {
+              setStackSimilar(event.target.checked);
+              setVisibleCount(PAGE_SIZE);
+              clearSelection();
+            }}
+            className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-800"
+          />
+          Stack similar roles
+        </label>
       </div>
 
       {availability === "active" && jobs.length > 0 && (
@@ -561,11 +602,11 @@ export default function JobsPage() {
               type="checkbox"
               checked={allSelected}
               onChange={toggleSelectAll}
-              aria-label="Select all postings"
+              aria-label="Select visible postings"
               data-testid="select-all"
               className="h-4 w-4 cursor-pointer rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-800"
             />
-            Select all
+            Select visible
           </label>
           <span className="text-xs text-gray-500 dark:text-gray-400" data-testid="selected-count">
             {selectedCount} selected
@@ -615,27 +656,67 @@ export default function JobsPage() {
         </div>
       ) : (
         <div className="space-y-2">
-          {shownJobs.map((job) => (
-            <JobCard
-              key={job.id}
-              job={job}
-              updating={updatingIds.has(job.id)}
-              onStatusChange={handleStatusChange}
-              selected={selectedIds.has(job.id)}
-              onToggleSelect={
-                availability === "active" ? toggleSelect : undefined
-              }
-              openLabel={
-                availability === "closed" ? "View archived link ↗" : undefined
-              }
-              onOpen={
-                availability === "active" && extensionConnection === "ready"
-                  ? openWithExtension
-                  : undefined
-              }
-            />
+          {shownStacks.map((stack) => (
+            <div
+              key={stack.key}
+              data-testid={stack.jobs.length > 1 ? "job-stack" : undefined}
+              className={stack.jobs.length > 1
+                ? "rounded-xl border border-indigo-200 bg-indigo-50/40 p-2 dark:border-indigo-900 dark:bg-indigo-950/20"
+                : undefined}
+            >
+              {stack.jobs.length > 1 && (
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    aria-expanded={stack.expanded}
+                    aria-controls={`stack-${stack.jobs[0].id}`}
+                    onClick={() => toggleStack(stack.key)}
+                    className="rounded px-1 py-1 text-left text-xs font-semibold text-indigo-700 hover:underline focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-indigo-300"
+                  >
+                    {stack.expanded ? "Collapse" : "Show"} {stack.jobs.length} similar roles at {stack.jobs[0].company}
+                  </button>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                    Each posting keeps its own link and status
+                  </span>
+                </div>
+              )}
+              <div id={`stack-${stack.jobs[0].id}`} className="space-y-2">
+                {stack.visibleJobs.map((job) => (
+                  <JobCard
+                    key={job.id}
+                    job={job}
+                    updating={updatingIds.has(job.id)}
+                    onStatusChange={handleStatusChange}
+                    selected={selectedIds.has(job.id)}
+                    onToggleSelect={
+                      availability === "active" ? toggleSelect : undefined
+                    }
+                    openLabel={
+                      availability === "closed" ? "View archived link ↗" : undefined
+                    }
+                    onOpen={
+                      availability === "active" && extensionConnection === "ready"
+                        ? openWithExtension
+                        : undefined
+                    }
+                  />
+                ))}
+              </div>
+              {stack.expanded && stack.visibleJobs.length < stack.jobs.length && (
+                <button
+                  type="button"
+                  onClick={() => setExpandedStacks((current) => ({
+                    ...current,
+                    [stack.key]: (current[stack.key] ?? PAGE_SIZE) + PAGE_SIZE,
+                  }))}
+                  className="mt-2 rounded px-2 py-1 text-xs font-semibold text-indigo-700 hover:underline focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-indigo-300"
+                >
+                  Show more in stack ({stack.visibleJobs.length} of {stack.jobs.length})
+                </button>
+              )}
+            </div>
           ))}
-          {visibleCount < jobs.length && (
+          {visibleCount < stacks.length && (
             <div className="flex flex-col items-center gap-2 pt-2">
               <button
                 type="button"
@@ -646,7 +727,8 @@ export default function JobsPage() {
                 Show more
               </button>
               <span className="text-xs text-gray-500 dark:text-gray-400" data-testid="show-more-count">
-                Showing {Math.min(visibleCount, jobs.length)} of {jobs.length}
+                Showing {Math.min(visibleCount, stacks.length)} of {stacks.length}
+                {stackSimilar && stacks.length < jobs.length ? " rows" : ""}
               </span>
             </div>
           )}

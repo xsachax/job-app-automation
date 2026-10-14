@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
     searchParams.get("availability"),
   );
   const q = searchParams.get("q")?.toLowerCase();
-  const sort = searchParams.get("sort") ?? "posted"; // posted | company | fit | salary
+  const sort = searchParams.get("sort") ?? "posted"; // posted | discovered | company | fit | salary
   const since = searchParams.get("since") ?? "all"; // 24h | 7d | 30d | all
   // Enrichment / pipeline filters (all optional, comma-lists where sensible).
   const skills = parseList(searchParams.get("skills")); // AND — job must have all
@@ -102,12 +102,14 @@ export async function GET(req: NextRequest) {
     include: {
       sightings: { include: { source: sourceSelect } },
     },
-    take: 4000,
   });
 
-  // Effective posting time: real postedAt when the ATS gives one, else the
-  // moment we first saw it. Drives both the date filter and the queue order.
+  // Filter the full inventory before sorting: an unordered candidate cap can
+  // silently discard newly ingested jobs. The client paginates rendered cards.
   const posted = (j: (typeof jobs)[number]) => (j.postedAt ?? j.firstSeenAt).getTime();
+  const dated = sort === "discovered"
+    ? (j: (typeof jobs)[number]) => j.firstSeenAt.getTime()
+    : posted;
   for (const job of jobs) {
     goldenMatches.set(
       job.id,
@@ -128,7 +130,7 @@ export async function GET(req: NextRequest) {
   const cutoff = win ? Date.now() - win : 0;
 
   const result = jobs.filter((j) => {
-    if (cutoff && posted(j) < cutoff) return false;
+    if (cutoff && dated(j) < cutoff) return false;
     if (remoteOnly && !j.remote) return false;
     if (sponsorship.length && !sponsorship.includes((j.sponsorship ?? "unknown").toLowerCase())) return false;
     if (status.length && !status.includes(j.applicationStatus.toLowerCase())) return false;
@@ -159,7 +161,11 @@ export async function GET(req: NextRequest) {
     a: (typeof jobs)[number],
     b: (typeof jobs)[number],
   ) => Number(isGolden(b)) - Number(isGolden(a));
-  if (sort === "company") {
+  if (sort === "discovered") {
+    result.sort(
+      (a, b) => b.firstSeenAt.getTime() - a.firstSeenAt.getTime() || byPosted(a, b),
+    );
+  } else if (sort === "company") {
     result.sort(
       (a, b) =>
         goldenFirst(a, b) ||
@@ -182,5 +188,5 @@ export async function GET(req: NextRequest) {
     result.sort((a, b) => goldenFirst(a, b) || byPosted(a, b));
   }
 
-  return json(result.slice(0, 2000).map(decorate));
+  return json(result.map(decorate));
 }
