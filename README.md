@@ -326,13 +326,22 @@ npm run sources:probe   # probes candidate Greenhouse/Lever/Ashby boards, prints
 
 ## The queue (Jobs page)
 
-The Jobs page is a **Golden-first queue**, split into **United States** and **Canada** tabs.
+The Jobs page is a **Golden-first queue**, split into **United States** and **Canada** tabs,
+with an optional **Newly discovered** sort that shows new arrivals before older Golden matches.
 Within the Golden and normal groups it is ordered by the selected sort (`postedAt`, falling
 back to when first seen, for the default). **Open & rechecking** is the default; **Archived
 closed** exposes confirmed closures without losing saved/applied state. Controls:
 
 - **Date posted** — `Last 24 hours`, `Last 7 days`, `Last 30 days`, `All time`.
-- **Sort** — `Newest` (default), `Company`, `Best fit`, or `Salary`.
+- **Sort** — `Newest` (default), `Newly discovered`, `Company`, `Best fit`, or `Salary`.
+  **Newly discovered** orders by first discovery, not posting date or last refresh; its
+  date filter becomes **Date discovered**. All other sorts preserve Golden-first priority.
+- **Stack similar roles** — on by default. Same-company titles differing only in punctuation,
+  word order, or common abbreviations share an expandable stack. Seniority, specialties,
+  technologies, years, countries, and employment types stay distinct. The highest-ranked
+  matching posting represents each stack; expand it or switch stacking off to see individual
+  roles. Each requisition retains its own URL, score, and application status. **Select visible**
+  and **Open selected** never include hidden stack members.
 - **Facets** — category (Big Tech / AI Lab / Quant / Startup), skills (match-all),
   sponsorship, employment type, source, applied status — each showing live counts — plus
   **Golden only**, **min salary**, **min fit**, **remote only**, **warm intro** (jobs where you
@@ -345,7 +354,13 @@ closed** exposes confirmed closures without losing saved/applied state. Controls
   Golden keyword; lower scores never receive that treatment. The sheen stops when the browser
   requests reduced motion.
 
-The API backs this at `GET /api/jobs?view=discovery&country=US|CA&availability=active|closed&sort=posted|company|fit|salary`
+The full matching inventory is available: no candidate or output cutoff silently hides newer
+jobs. The UI renders 60 rows at a time and paginates large expanded stacks separately.
+The scrape control shows the last successful dashboard scrape, including after a restart.
+Reloading or restarting the dashboard does **not** fetch new postings; use **Run scrape**
+to refresh discovery. A recent scrape does not make an old posting newly posted.
+
+The API backs this at `GET /api/jobs?view=discovery&country=US|CA&availability=active|closed&sort=posted|discovered|company|fit|salary`
 `&since=24h|7d|30d|all&category=…&skills=…&sponsorship=…&status=…&employmentType=…&source=…`
 `&salaryMin=…&fitMin=…&golden=1&remote=1&connections=1&q=…`. Job responses include
 `isGolden` plus the matched field/phrase. Available filter values (including `golden` and

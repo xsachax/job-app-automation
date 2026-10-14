@@ -13,6 +13,7 @@ const SINCE_OPTIONS: { value: SinceKey; label: string }[] = [
 
 const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: "posted", label: "Newest" },
+  { value: "discovered", label: "Newly discovered" },
   { value: "company", label: "Company" },
   { value: "fit", label: "Best fit" },
   { value: "salary", label: "Salary" },
@@ -227,7 +228,7 @@ export function FilterBar({
         </label>
 
         <label className="w-40 space-y-1">
-          <FilterLabel>Date posted</FilterLabel>
+          <FilterLabel>{filters.sort === "discovered" ? "Date discovered" : "Date posted"}</FilterLabel>
           <select
             className={cls.input + " h-9 dark:focus:border-indigo-400"}
             value={filters.since}
@@ -241,7 +242,7 @@ export function FilterBar({
           </select>
         </label>
 
-        <label className="w-36 space-y-1">
+        <label className="w-44 space-y-1">
           <FilterLabel>Sort</FilterLabel>
           <select
             className={cls.input + " h-9 dark:focus:border-indigo-400"}

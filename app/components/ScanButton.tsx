@@ -70,6 +70,7 @@ interface DiscoveryProgress {
   message: string;
   outcomes: DiscoverySourceOutcomeCounts;
   nextAllowedAt: string | null;
+  lastSucceededAt: string | null;
 }
 
 const EMPTY_OUTCOMES: DiscoverySourceOutcomeCounts = {
@@ -216,6 +217,7 @@ export function ScanButton({ onComplete }: { onComplete?: () => void }) {
       message: "Preparing discovery sources…",
       outcomes: { ...EMPTY_OUTCOMES },
       nextAllowedAt: progress?.nextAllowedAt ?? null,
+      lastSucceededAt: progress?.lastSucceededAt ?? null,
     });
     const request = api<DiscoveryRefresh>("/api/discovery/run", {
       method: "POST",
@@ -309,6 +311,24 @@ export function ScanButton({ onComplete }: { onComplete?: () => void }) {
       >
         {buttonText}
       </button>
+      {progress && (
+        <p
+          className="text-right text-xs text-gray-500 dark:text-gray-400"
+          data-testid="scrape-freshness"
+        >
+          {progress.lastSucceededAt ? (
+            <>
+              Last successful scrape:{" "}
+              <time dateTime={progress.lastSucceededAt}>
+                {new Date(progress.lastSucceededAt).toLocaleString()}
+              </time>.
+            </>
+          ) : (
+            "No successful dashboard scrape recorded."
+          )}
+          {" "}Reloading the dashboard does not run a scrape.
+        </p>
+      )}
       {isCoolingDown && (
         <p
           className="text-right text-xs text-gray-500 dark:text-gray-400"

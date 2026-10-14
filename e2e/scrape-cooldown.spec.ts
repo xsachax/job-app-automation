@@ -1,5 +1,21 @@
 import { expect, test } from "@playwright/test";
 
+test("last successful scrape remains visible after reloading without starting a scrape", async ({ page }) => {
+  const lastSucceededAt = "2026-10-13T14:47:10.000Z";
+  await page.route("**/api/discovery/run", async (route) => {
+    expect(route.request().method()).toBe("GET");
+    await route.fulfill({
+      json: { running: false, phase: "idle", nextAllowedAt: null, lastSucceededAt },
+    });
+  });
+  await page.goto("/jobs");
+  const freshness = page.getByTestId("scrape-freshness");
+  await expect(freshness.locator("time")).toHaveAttribute("datetime", lastSucceededAt);
+  await page.reload();
+  await expect(freshness.locator("time")).toHaveAttribute("datetime", lastSucceededAt);
+  await expect(freshness).toContainText("Reloading the dashboard does not run a scrape.");
+});
+
 test("scrape control counts down and unlocks without a refresh", async ({
   page,
 }) => {
